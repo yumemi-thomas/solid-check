@@ -1,5 +1,11 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.12
+
+### Patch Changes
+
+- Port relevant maintenance fixes from the stable branch. Add `omitAttributeSpacing` for strict template attribute spacing, and align `server.js`/`server.d.ts` with the current `client.d.ts` export surface so isomorphic imports continue to resolve on the server.
+
 ## 0.50.0-next.11
 
 ### Patch Changes

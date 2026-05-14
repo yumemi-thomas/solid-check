@@ -1,5 +1,12 @@
 # dom-expressions
 
+## 0.50.0-next.12
+
+### Patch Changes
+
+- Port relevant maintenance fixes from the stable branch. Add `omitAttributeSpacing` for strict template attribute spacing, and align `server.js`/`server.d.ts` with the current `client.d.ts` export surface so isomorphic imports continue to resolve on the server.
+- 64e9aee: Delegated events are now owned by render roots instead of the document by default. `render()` installs and disposes its delegated listeners with the root, `delegateEvents()` now only declares event demand, and additional listener containers can be registered explicitly for framework features that render outside the root.
+
 ## 0.50.0-next.11
 
 ### Patch Changes

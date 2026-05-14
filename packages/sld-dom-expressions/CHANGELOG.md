@@ -1,5 +1,11 @@
 # sld-dom-expressions
 
+## 0.50.0-next.12
+
+### Patch Changes
+
+- 54880f4: Fix SLD templates so top-level element siblings each get their own template, allowing adjacent top-level expressions to update and clean up correctly.
+
 ## 0.50.0-next.11
 
 ### Patch Changes

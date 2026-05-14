@@ -1,5 +1,11 @@
 # hyper-dom-expressions
 
+## 0.50.0-next.12
+
+### Patch Changes
+
+- 64e9aee: Delegated events are now owned by render roots instead of the document by default. `render()` installs and disposes its delegated listeners with the root, `delegateEvents()` now only declares event demand, and additional listener containers can be registered explicitly for framework features that render outside the root.
+
 ## 0.50.0-next.11
 
 ### Patch Changes
