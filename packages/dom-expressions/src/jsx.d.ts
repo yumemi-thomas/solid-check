@@ -223,7 +223,8 @@ export namespace JSX {
   >;
   // end event handlers
 
-  type ClassList =
+  export type ClassValue =
+    | string
     | Record<string, boolean>
     | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
 
@@ -889,7 +890,7 @@ export namespace JSX {
      * with reactive values directly; manually-built strings re-run the whole
      * concatenation on every change instead of toggling the affected classes.
      */
-    class?: string | ClassList | RemoveAttribute;
+    class?: ClassValue | RemoveAttribute;
     elementtiming?: string | RemoveAttribute;
     id?: string | RemoveAttribute;
     nonce?: string | RemoveAttribute;
@@ -1967,7 +1968,7 @@ export namespace JSX {
      * with reactive values directly; manually-built strings re-run the whole
      * concatenation on every change instead of toggling the affected classes.
      */
-    class?: string | ClassList | RemoveAttribute;
+    class?: ClassValue | RemoveAttribute;
     style?: CSSProperties | string | RemoveAttribute;
   }
   interface TransformableSVGAttributes {

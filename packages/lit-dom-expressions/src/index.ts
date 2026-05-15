@@ -1,7 +1,8 @@
 import { parse, stringify, IDom } from "html-parse-string";
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
-type ClassList =
+export type ClassValue =
+  | string
   | Record<string, boolean>
   | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
 interface Runtime {
@@ -17,7 +18,7 @@ interface Runtime {
     delegate: boolean
   ): void;
   delegateEvents(eventNames: string[]): void;
-  className(node: Element, value: string | ClassList, prev?: string | ClassList): void;
+  className(node: Element, value: ClassValue, prev?: ClassValue): void;
   style(node: Element, value: { [k: string]: string }, prev?: { [k: string]: string }): void;
   mergeProps(...sources: unknown[]): unknown;
   dynamicProperty(props: any, key: string): any;

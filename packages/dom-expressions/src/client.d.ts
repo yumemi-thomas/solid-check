@@ -55,14 +55,7 @@ export function assign(
 ): void;
 export function setAttribute(node: Element, name: string, value: string): void;
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
-type ClassList =
-  | Record<string, boolean>
-  | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
-export function className(
-  node: Element,
-  value: string | ClassList,
-  prev?: string | ClassList
-): void;
+export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 export function setProperty(node: Element, name: string, value: any): void;
 export function setStyleProperty(node: Element, name: string, value: any): void;
 export function addEventListener(
