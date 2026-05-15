@@ -11,7 +11,6 @@ pluginTester({
     generate: "dom",
     wrapConditionals: true,
     contextToCustomElements: true,
-    staticMarker: "@once",
     requireImportSource: "r-dom"
   },
   title: "Convert JSX",

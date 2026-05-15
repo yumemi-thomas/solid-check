@@ -10,7 +10,6 @@ pluginTester({
     generate: "ssr",
     wrapConditionals: true,
     contextToCustomElements: true,
-    staticMarker: "@once",
     requireImportSource: false
   },
   title: "Convert JSX",

@@ -134,7 +134,7 @@ function groupAttributeClosures(path: BabelPath, results: SSRTransformResult): v
       const di = declMap.get(run.ids[k])!;
       const init = results.declarations[di]!.init as babelTypes.Expression;
       // Arrow w/ expression body → inline its body. Anything else
-      // (bare identifier, `_$escape(/*@once*/ x)`, …) gets dropped in
+      // (bare identifier, `_$escape(/*@static*/ x)`, …) gets dropped in
       // as-is; the runtime's type dispatch handles both fn and value slots.
       bodies.push(
         babelTypes.isArrowFunctionExpression(init) && !babelTypes.isBlockStatement(init.body)
@@ -465,68 +465,8 @@ function fragmentWillSelfEscape(fragment: babelTypes.JSXFragment): boolean {
   return false;
 }
 
-function transformToObject(
-  attrName: string,
-  attributes: JSXAttributePath[],
-  selectedAttributes: JSXAttributeOnlyPath[]
-): void {
-  const properties: babelTypes.ObjectProperty[] = [];
-  const existingAttribute = attributes.find(
-    (a): a is JSXAttributeOnlyPath =>
-      t.isJSXAttribute(a.node) && t.isJSXIdentifier(a.node.name, { name: attrName })
-  );
-  for (let i = 0; i < selectedAttributes.length; i++) {
-    const attr = selectedAttributes[i].node;
-    const namespaceName = attr.name.name;
-    const namespaceIdentifier =
-      typeof namespaceName === "string"
-        ? t.identifier(namespaceName)
-        : (namespaceName as unknown as babelTypes.Identifier);
-    const namespaceKey = namespaceIdentifier.name;
-    const computed = !t.isValidIdentifier(namespaceKey);
-    if (!computed) {
-      namespaceIdentifier.type = "Identifier";
-    }
-    properties.push(
-      t.objectProperty(
-        computed ? t.stringLiteral(namespaceKey) : namespaceIdentifier,
-        (t.isJSXExpressionContainer(attr.value)
-          ? attr.value.expression
-          : attr.value) as babelTypes.Expression
-      )
-    );
-    if (existingAttribute || i) attributes.splice(Number(selectedAttributes[i].key), 1);
-  }
-  if (
-    existingAttribute &&
-    t.isJSXExpressionContainer(existingAttribute.node.value) &&
-    t.isObjectExpression(existingAttribute.node.value.expression)
-  ) {
-    existingAttribute.node.value.expression.properties.push(...properties);
-  } else {
-    selectedAttributes[0].node = t.jsxAttribute(
-      t.jsxIdentifier(attrName),
-      t.jsxExpressionContainer(t.objectExpression(properties))
-    );
-  }
-}
-
 function normalizeAttributes(path: BabelPath<babelTypes.JSXElement>): JSXAttributePath[] {
-  const attributes = path.get("openingElement").get("attributes"),
-    styleAttributes = attributes.filter(
-      (a): a is JSXAttributeOnlyPath =>
-        t.isJSXAttribute(a.node) &&
-        t.isJSXNamespacedName(a.node.name) &&
-        a.node.name.namespace.name === "style"
-    ),
-    classNamespaceAttributes = attributes.filter(
-      (a): a is JSXAttributeOnlyPath =>
-        t.isJSXAttribute(a.node) &&
-        t.isJSXNamespacedName(a.node.name) &&
-        a.node.name.namespace.name === "class"
-    );
-  if (classNamespaceAttributes.length)
-    transformToObject("class", attributes, classNamespaceAttributes);
+  const attributes = path.get("openingElement").get("attributes");
   const classAttributes = attributes.filter(
     (a): a is JSXAttributeOnlyPath =>
       t.isJSXAttribute(a.node) && t.isJSXIdentifier(a.node.name, { name: "class" })
@@ -569,7 +509,6 @@ function normalizeAttributes(path: BabelPath<babelTypes.JSXElement>): JSXAttribu
     first.name = t.jsxIdentifier("class");
     first.value = t.jsxExpressionContainer(t.templateLiteral(quasis, values));
   }
-  if (styleAttributes.length) transformToObject("style", attributes, styleAttributes);
   return attributes;
 }
 

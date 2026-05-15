@@ -20,9 +20,9 @@ type TransformConditionStatements = [t.VariableDeclaration, t.ArrowFunctionExpre
 type TransformConditionResult = ExpressionArrowFunction | TransformConditionStatements;
 type EvaluateAndInlineNode = t.Node | t.JSXAttribute["value"];
 
-export const reservedNameSpaces = new Set(["class", "style", "prop"]);
+export const reservedNameSpaces = new Set(["prop"]);
 
-export const nonSpreadNameSpaces = new Set(["class", "style", "prop"]);
+export const nonSpreadNameSpaces = new Set(["prop"]);
 
 export function getConfig(path: NodePath): JSXDOMExpressionsConfig {
   return (path.hub as unknown as BabelHubWithMetadata).file.metadata

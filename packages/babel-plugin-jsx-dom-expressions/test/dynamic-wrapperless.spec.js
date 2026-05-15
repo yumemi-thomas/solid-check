@@ -8,7 +8,6 @@ pluginTester({
     moduleName: "r-dom",
     builtIns: ["For", "Show"],
     generate: "dynamic",
-    staticMarker: "@once",
     wrapConditionals: false,
     delegateEvents: false,
     effectWrapper: false,

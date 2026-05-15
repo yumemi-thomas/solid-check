@@ -13,7 +13,7 @@ This plugin treats all lowercase tags as html elements and mixed cased tags as C
 
 In general JSX Attribute Expressions are treated as attributes by default, with exception custom elements that will to properties and special fields like `class` and `style`. Plain string attributes will be treated as attributes.
 
-This library uses a heuristic whether to dynamic wrap expressions based on if they contain function calls or property access. Simple literals and variable expressions won't be wrapped. If you ever want to ensure it is not wrapped you can start the expression with `/*@once*/` comment.
+This library uses a heuristic whether to dynamic wrap expressions based on if they contain function calls or property access. Simple literals and variable expressions won't be wrapped. If you ever want to ensure it is not wrapped you can start the expression with `/*@static*/` comment.
 
 ## Example
 
@@ -142,9 +142,9 @@ This plugin leverages a heuristic for reactive wrapping and lazy evaluation of J
 ### staticMarker
 
 - Type: `string`
-- Default: `@once`
+- Default: `@static`
 
-Comment decorator string indicates the static expression, used to tell the compiler not to wrap them by `effect` function, defaults to `@once`.
+Comment decorator string indicates the static expression, used to tell the compiler not to wrap them by `effect` function, defaults to `@static`.
 
 ### memoWrapper
 

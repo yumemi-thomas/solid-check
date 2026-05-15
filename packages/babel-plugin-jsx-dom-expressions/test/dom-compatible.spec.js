@@ -10,7 +10,6 @@ pluginTester({
     generate: "dom",
     wrapConditionals: true,
     contextToCustomElements: true,
-    staticMarker: "@once",
     requireImportSource: false,
     omitLastClosingTag: false,
     omitQuotes: false

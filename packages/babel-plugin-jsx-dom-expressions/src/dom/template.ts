@@ -148,8 +148,9 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
   if (dynamics.length === 1) {
     const prevValue =
       dynamics[0].key === "class" || dynamics[0].key === "style" ? t.identifier("_$p") : undefined;
+
     if (
-      dynamics[0].key.startsWith("class:") &&
+      dynamics[0].classProperty &&
       !t.isBooleanLiteral(dynamics[0].value) &&
       !t.isUnaryExpression(dynamics[0].value)
     ) {
@@ -167,7 +168,9 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
               setAttr(path, dynamics[0].elem, dynamics[0].key, newValue, {
                 tagName: dynamics[0].tagName,
                 dynamic: true,
-                prevId: prevValue
+                prevId: prevValue,
+                styleProperty: dynamics[0].styleProperty,
+                classProperty: dynamics[0].classProperty
               })
             )
           ])
@@ -182,12 +185,12 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
   const statements: t.ExpressionStatement[] = [];
   const properties: t.Identifier[] = [];
 
-  dynamics.forEach(({ elem, key, value, tagName }, index) => {
+  dynamics.forEach(({ elem, key, value, tagName, styleProperty, classProperty }, index) => {
     const propIdent = t.identifier(getNumberedId(index));
     const propMember = t.memberExpression(prevId, propIdent);
     const optionalPropMember = t.optionalMemberExpression(prevId, propIdent, false, true);
 
-    if (key.startsWith("class:") && !t.isBooleanLiteral(value) && !t.isUnaryExpression(value)) {
+    if (classProperty && !t.isBooleanLiteral(value) && !t.isUnaryExpression(value)) {
       value = t.unaryExpression("!", t.unaryExpression("!", value));
     }
 
@@ -205,7 +208,6 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
         )
       );
     } else {
-      const prev = key.startsWith("style:") ? propIdent : undefined;
       statements.push(
         t.expressionStatement(
           t.logicalExpression(
@@ -220,7 +222,8 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
             setAttr(path, elem, key, propIdent, {
               tagName,
               dynamic: true,
-              prevId: prev
+              styleProperty,
+              classProperty
             })
           )
         )

@@ -36,10 +36,10 @@ const template2 = (
 const template3 = (
   <div
     foo
-    id={/*@once*/ state.id}
-    style={/*@once*/ { "background-color": state.color }}
+    id={/*@static*/ state.id}
+    style={/*@static*/ { "background-color": state.color }}
     name={state.name}
-    textContent={/*@once*/ state.content}
+    textContent={/*@static*/ state.content}
   />
 );
 
@@ -53,9 +53,6 @@ let undefVar;
 const template7 = (
   <div
     style={{ "background-color": color(), "margin-right": "40px", ...props.style }}
-    style:padding-top={props.top}
-    class:my-class={props.active}
-    class:other-class={undefVar}
     class={{ "other-class2": undefVar }}
   />
 );
@@ -251,16 +248,16 @@ const template76 = <div><video prop:poster="1.jpg"/></div>
 
 // ONCE TESTS
 
-const template77 = <div style={/*@once*/ { width: props.width, height: props.height }} />;
+const template77 = <div style={/*@static*/ { width: props.width, height: props.height }} />;
 
 const template78 = (
-  <div style={/*@once*/ { width: props.width, height: props.height }} something={color()} />
+  <div style={/*@static*/ { width: props.width, height: props.height }} something={color()} />
 );
 
 const template79 = (
   <div
-    style={{ width: props.width, height: /* @once */ props.height }}
-    something={/*@once*/ color()}
+    style={{ width: props.width, height: /* @static */ props.height }}
+    something={/*@static*/ color()}
   />
 );
 
@@ -270,33 +267,33 @@ const propsSpread = {
   something: color(),
   style: {
     "background-color": color(),
-    color: /* @once*/ color(),
-    "margin-right": /* @once */ props.right
+    color: /* @static*/ color(),
+    "margin-right": /* @static */ props.right
   }
 };
 
 const template80 = <div {...propsSpread} />;
-const template81 = <div {/* @once */ ...propsSpread} />;
+const template81 = <div {/* @static */ ...propsSpread} />;
 
 const template82 = (
-  <div {...propsSpread} data-dynamic={color()} data-static={/* @once */ color()} />
+  <div {...propsSpread} data-dynamic={color()} data-static={/* @static */ color()} />
 );
 
 const template83 = (
-  <div {/* @once */ ...propsSpread} data-dynamic={color()} data-static={/* @once */ color()} />
+  <div {/* @static */ ...propsSpread} data-dynamic={color()} data-static={/* @static */ color()} />
 );
 
 const template84 = (
   <div
     {
-      /* @once */ ...propsSpread1
+      /* @static */ ...propsSpread1
     }
     {...propsSpread2}
     {
-      /* @once */ ...propsSpread3
+      /* @static */ ...propsSpread3
     }
     data-dynamic={color()}
-    data-static={/* @once */ color()}
+    data-static={/* @static */ color()}
   />
 );
 
@@ -304,7 +301,7 @@ const template84 = (
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: { width: props.width, height: props.height } };
-const template85 = <div style={/* @once */ styleProp.style} />;
+const template85 = <div style={/* @static */ styleProp.style} />;
 const template86 = <div style={styleProp.style} />;
 
 const style = {
@@ -319,7 +316,7 @@ const template87 = (
 );
 
 const template88 = (
-  <button type="button" aria-label={count()} style={/* @once*/ style} class={/* @once*/ style}>
+  <button type="button" aria-label={count()} style={/* @static*/ style} class={/* @static*/ style}>
     {count()}
   </button>
 );
@@ -386,3 +383,11 @@ const template97 = <div class={["todo", { active: isActive(), [props.name]: prop
 const template98 = <div class={["todo", { active: isActive() }, props.extra]} />;
 
 const template99 = <div class={["todo", "item", { todo: false, active: isActive() }]} />;
+
+// `style:` is not a reserved namespace — it falls through to a literal attribute.
+const template100 = <div style:border="1px solid black" />;
+const template101 = <div style:border={props.border} />;
+
+// `class:` is not a reserved namespace — it falls through to a literal attribute.
+const template102 = <div class:selected={true} />;
+const template103 = <div class:selected={props.active} />;

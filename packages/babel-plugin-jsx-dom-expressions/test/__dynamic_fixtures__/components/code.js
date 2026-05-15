@@ -29,7 +29,7 @@ const template2 = (
   <Child
     name="Jake"
     dynamic={state.data}
-    stale={/*@once*/ state.data}
+    stale={/*@static*/ state.data}
     handleClick={clickHandler}
     hyphen-ated={state.data}
     ref={el => (e = el)}

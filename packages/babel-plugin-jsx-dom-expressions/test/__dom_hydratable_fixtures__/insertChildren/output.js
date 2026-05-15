@@ -54,7 +54,7 @@ const template10 = _$createComponent(
   })
 );
 var _el$9 = _$getNextElement(_tmpl$2);
-_$insert(_el$9, /*@once*/ state.children);
+_$insert(_el$9, /*@static*/ state.children);
 const template11 = _el$9;
 const template12 = _$createComponent(Module, {
   children: state.children

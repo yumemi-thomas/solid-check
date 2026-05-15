@@ -51,6 +51,8 @@ type DOMSetAttrOptions = {
   dynamic?: boolean;
   prevId?: babelTypes.Expression;
   tagName?: string;
+  styleProperty?: boolean;
+  classProperty?: boolean;
 };
 type SpreadOptions = {
   elem: babelTypes.Expression;
@@ -302,7 +304,7 @@ export function setAttr(
   elem: babelTypes.Expression,
   name: string,
   value: babelTypes.Expression,
-  { dynamic, prevId, tagName }: DOMSetAttrOptions = {}
+  { dynamic, prevId, tagName, styleProperty, classProperty }: DOMSetAttrOptions = {}
 ): babelTypes.Expression {
   // pull out namespace
   const config = getConfig(path);
@@ -312,21 +314,23 @@ export function setAttr(
     namespace = parts[0];
   }
 
-  if (namespace === "style") {
-    const setStyleProperty = registerImportMethod(
-      path,
-      "setStyleProperty",
-      getRendererConfig(path, "dom").moduleName
+  // `styleProperty` and `classProperty` are set only for properties extracted
+  // by the `style={{...}}` / `class={{...}}` splitters — never for user-written
+  // `style:foo` / `class:foo`, which fall through to literal attributes.
+  if (styleProperty) {
+    if (parts && parts[1] && parts[0] === "style") name = parts[1];
+    return t.callExpression(
+      registerImportMethod(path, "setStyleProperty", getRendererConfig(path, "dom").moduleName),
+      [
+        elem,
+        t.stringLiteral(name),
+        t.isAssignmentExpression(value) && t.isIdentifier(value.left) ? value.right : value
+      ]
     );
-
-    return t.callExpression(setStyleProperty, [
-      elem,
-      t.stringLiteral(name),
-      t.isAssignmentExpression(value) && t.isIdentifier(value.left) ? value.right : value
-    ]);
   }
 
-  if (namespace === "class") {
+  if (classProperty) {
+    if (parts && parts[1] && parts[0] === "class") name = parts[1];
     return t.callExpression(
       t.memberExpression(
         t.memberExpression(elem, t.identifier("classList")),
@@ -580,8 +584,11 @@ function transformAttributes(
     }
   }
 
-  // preprocess styles
-  const styleAttribute = path
+  // Split remaining `style={{...}}` object props out into individual attributes
+  // marked `_styleProperty` so they compile to `setStyleProperty()` calls. The
+  // marker keeps user-written `style:foo` literal (no marker, no special
+  // handling).
+  const styleObjectAttribute = path
     .get("openingElement")
     .get("attributes")
     .find((a): a is JSXAttributeOnlyPath => {
@@ -595,8 +602,8 @@ function transformAttributes(
         )
       );
     });
-  if (styleAttribute) {
-    const styleValue = styleAttribute.node.value as babelTypes.JSXExpressionContainer & {
+  if (styleObjectAttribute) {
+    const styleValue = styleObjectAttribute.node.value as babelTypes.JSXExpressionContainer & {
       expression: babelTypes.ObjectExpression;
     };
     let i = 0,
@@ -605,28 +612,26 @@ function transformAttributes(
       if (!t.isObjectProperty(p)) return;
       if (!p.computed) {
         if (leading) p.value.leadingComments = leading;
+        const newAttr = t.jsxAttribute(
+          t.jsxNamespacedName(
+            t.jsxIdentifier("style"),
+            t.jsxIdentifier(
+              t.isIdentifier(p.key)
+                ? p.key.name
+                : String((p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value)
+            )
+          ),
+          t.jsxExpressionContainer(p.value as babelTypes.Expression)
+        );
+        (newAttr as babelTypes.JSXAttribute & { _styleProperty?: boolean })._styleProperty = true;
         path
           .get("openingElement")
-          .node.attributes.splice(
-            Number(styleAttribute.key) + ++i,
-            0,
-            t.jsxAttribute(
-              t.jsxNamespacedName(
-                t.jsxIdentifier("style"),
-                t.jsxIdentifier(
-                  t.isIdentifier(p.key)
-                    ? p.key.name
-                    : String((p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value)
-                )
-              ),
-              t.jsxExpressionContainer(p.value as babelTypes.Expression)
-            )
-          );
+          .node.attributes.splice(Number(styleObjectAttribute.key) + ++i, 0, newAttr);
         styleValue.expression.properties.splice(index - i - 1, 1);
       }
     });
     if (!styleValue.expression.properties.length)
-      path.get("openingElement").node.attributes.splice(Number(styleAttribute.key), 1);
+      path.get("openingElement").node.attributes.splice(Number(styleObjectAttribute.key), 1);
   }
 
   // preprocess leading static classes in fixed-shape class arrays
@@ -709,23 +714,21 @@ function transformAttributes(
       const { confident, value: computed } = propPath.get("value").evaluate();
       if (leading) p.value.leadingComments = leading;
       if (!confident) {
+        const newAttr = t.jsxAttribute(
+          t.jsxNamespacedName(
+            t.jsxIdentifier("class"),
+            t.jsxIdentifier(
+              t.isIdentifier(p.key)
+                ? p.key.name
+                : String((p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value)
+            )
+          ),
+          t.jsxExpressionContainer(p.value as babelTypes.Expression)
+        );
+        (newAttr as babelTypes.JSXAttribute & { _classProperty?: boolean })._classProperty = true;
         path
           .get("openingElement")
-          .node.attributes.splice(
-            Number(classListAttribute.key) + ++i,
-            0,
-            t.jsxAttribute(
-              t.jsxNamespacedName(
-                t.jsxIdentifier("class"),
-                t.jsxIdentifier(
-                  t.isIdentifier(p.key)
-                    ? p.key.name
-                    : String((p.key as babelTypes.StringLiteral | babelTypes.NumericLiteral).value)
-                )
-              ),
-              t.jsxExpressionContainer(p.value as babelTypes.Expression)
-            )
-          );
+          .node.attributes.splice(Number(classListAttribute.key) + ++i, 0, newAttr);
       } else if (computed) {
         path
           .get("openingElement")
@@ -855,12 +858,18 @@ function transformAttributes(
     .forEach((attribute: JSXAttributePath) => {
       if (!t.isJSXAttribute(attribute.node)) return;
       const node = attribute.node;
+      const isStyleProperty =
+        (node as babelTypes.JSXAttribute & { _styleProperty?: boolean })._styleProperty === true;
+      const isClassProperty =
+        (node as babelTypes.JSXAttribute & { _classProperty?: boolean })._classProperty === true;
       let value = node.value,
         key = t.isJSXNamespacedName(node.name)
           ? `${node.name.namespace.name}:${node.name.name.name}`
           : node.name.name,
         reservedNameSpace =
-          t.isJSXNamespacedName(node.name) && reservedNameSpaces.has(node.name.namespace.name);
+          isStyleProperty ||
+          isClassProperty ||
+          (t.isJSXNamespacedName(node.name) && reservedNameSpaces.has(node.name.namespace.name));
       if (t.isJSXExpressionContainer(value)) {
         const evaluated = attribute.get("value").get("expression").evaluate().value;
         let type;
@@ -1101,11 +1110,19 @@ function transformAttributes(
             elem: nextElem,
             key,
             value: value.expression,
-            tagName
+            tagName,
+            styleProperty: isStyleProperty,
+            classProperty: isClassProperty
           });
         } else {
           results.exprs.push(
-            t.expressionStatement(setAttr(attribute, elem, key, value.expression, { tagName }))
+            t.expressionStatement(
+              setAttr(attribute, elem, key, value.expression, {
+                tagName,
+                styleProperty: isStyleProperty,
+                classProperty: isClassProperty
+              })
+            )
           );
         }
       } else {

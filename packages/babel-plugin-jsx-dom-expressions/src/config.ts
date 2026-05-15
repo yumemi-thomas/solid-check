@@ -44,7 +44,7 @@ const config: JSXDOMExpressionsConfig = {
   omitQuotes: true,
   omitAttributeSpacing: true,
   contextToCustomElements: false,
-  staticMarker: "@once",
+  staticMarker: "@static",
   effectWrapper: "effect",
   memoWrapper: "memo",
   validate: true,

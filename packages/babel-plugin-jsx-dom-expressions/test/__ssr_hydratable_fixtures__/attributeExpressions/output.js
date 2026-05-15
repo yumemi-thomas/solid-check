@@ -17,7 +17,7 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
   _tmpl$5 = ["<div", "", ' class="', '"></div>'],
   _tmpl$6 = ["<div", ' class="a" className="b"></div>'],
   _tmpl$7 = ["<div", ' style="', '">Hi</div>'],
-  _tmpl$8 = ["<div", ' style="', '"', "></div>"],
+  _tmpl$8 = ["<div", ' style="', '" class="', '"></div>'],
   _tmpl$9 = ["<div", "></div>"],
   _tmpl$0 = ["<div", " onclick=\"console.log('hi')\"></div>"],
   _tmpl$1 = ["<input", ' type="checkbox" checked>'],
@@ -59,14 +59,15 @@ var _tmpl$ = ['<a href="/" class="', '">Welcome</a>'],
   _tmpl$42 = ["<video", ' poster="1.jpg"></video>'],
   _tmpl$43 = ["<div", '><video poster="1.jpg"></video></div>'],
   _tmpl$44 = ["<div", "><video></video></div>"],
-  _tmpl$45 = ["<button", ' type="button"', ' style="', '" class="', '">', "</button>"],
-  _tmpl$46 = ["<div", "", "></div>"],
-  _tmpl$47 = [
+  _tmpl$45 = ["<div", ' style="', '"', "></div>"],
+  _tmpl$46 = ["<button", ' type="button"', ' style="', '" class="', '">', "</button>"],
+  _tmpl$47 = ["<div", "", "></div>"],
+  _tmpl$48 = [
     "<div",
     "><video muted></video><video></video><video></video><video muted></video><video",
     '></video><video src="test.mp4" muted></video></div>'
   ],
-  _tmpl$48 = ["<video", ' src="test.mp4" muted></video>'];
+  _tmpl$49 = ["<video", ' src="test.mp4" muted></video>'];
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -140,7 +141,7 @@ var _v$3 = _$ssrHydrationKey(),
   _g$ = _$ssrGroup(
     () => [
       _$ssrAttribute("name", _$escape(state.name, true)),
-      _$escape(/*@once*/ state.content || " ")
+      _$escape(/*@static*/ state.content || " ")
     ],
     2
   );
@@ -166,15 +167,9 @@ var _v$1 = _$ssrHydrationKey(),
     _$ssrStyle({
       "background-color": color(),
       "margin-right": "40px",
-      ...props.style,
-      "padding-top": props.top
+      ...props.style
     });
-const template7 = _$ssr(
-  _tmpl$8,
-  _v$1,
-  _v$10,
-  _$ssrAttribute("other-class", _$escape(undefVar, true))
-);
+const template7 = _$ssr(_tmpl$8, _v$1, _v$10, undefVar ? "other-class2" : "");
 let refTarget;
 var _v$11 = _$ssrHydrationKey(),
   _ref$2 = refTarget;
@@ -503,7 +498,7 @@ const template77 = _$ssr(
 var _v$99 = _$ssrHydrationKey(),
   _v$100 = () => _$ssrAttribute("something", _$escape(color(), true));
 const template78 = _$ssr(
-  _tmpl$8,
+  _tmpl$45,
   _v$99,
   _$ssrStyleProperty("width:", _$escape(props.width, true)) +
     _$ssrStyleProperty(";height:", _$escape(props.height, true)),
@@ -512,9 +507,9 @@ const template78 = _$ssr(
 var _v$101 = _$ssrHydrationKey(),
   _v$102 = () =>
     _$ssrStyleProperty("width:", _$escape(props.width, true)) +
-    _$ssrStyleProperty(";height:", _$escape(/* @once */ props.height, true));
+    _$ssrStyleProperty(";height:", _$escape(/* @static */ props.height, true));
 const template79 = _$ssr(
-  _tmpl$8,
+  _tmpl$45,
   _v$101,
   _v$102,
   _$ssrAttribute("something", _$escape(color(), true))
@@ -526,8 +521,8 @@ const propsSpread = {
   something: color(),
   style: {
     "background-color": color(),
-    color: /* @once*/ color(),
-    "margin-right": /* @once */ props.right
+    color: /* @static*/ color(),
+    "margin-right": /* @static */ props.right
   }
 };
 const template80 = _$ssrElement("div", propsSpread, undefined, true);
@@ -588,7 +583,7 @@ var _v$106 = _$ssrHydrationKey(),
   _v$107 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
   _v$108 = () => _$escape(count());
 const template87 = _$ssr(
-  _tmpl$45,
+  _tmpl$46,
   _v$106,
   _v$107,
   _$ssrStyle(style),
@@ -599,7 +594,7 @@ var _v$109 = _$ssrHydrationKey(),
   _v$110 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
   _v$111 = () => _$escape(count());
 const template88 = _$ssr(
-  _tmpl$45,
+  _tmpl$46,
   _v$109,
   _v$110,
   _$ssrStyle(style),
@@ -610,11 +605,11 @@ var _v$112 = _$ssrHydrationKey();
 const template89 = _$ssr(_tmpl$9, _v$112);
 var _v$113 = _$ssrHydrationKey(),
   _v$114 = () => _$ssrAttribute("data-test", _$escape(state.flag || undefined, true));
-const template90 = _$ssr(_tmpl$46, _v$113, _v$114);
+const template90 = _$ssr(_tmpl$47, _v$113, _v$114);
 var _v$115 = _$ssrHydrationKey(),
   _v$116 = () => _$ssrAttribute("muted", _$escape(dynamicAttribute(), true));
-const template91 = _$ssr(_tmpl$47, _v$115, _v$116);
+const template91 = _$ssr(_tmpl$48, _v$115, _v$116);
 function MyVideo() {
   var _v$117 = _$ssrHydrationKey();
-  return _$ssr(_tmpl$48, _v$117);
+  return _$ssr(_tmpl$49, _v$117);
 }

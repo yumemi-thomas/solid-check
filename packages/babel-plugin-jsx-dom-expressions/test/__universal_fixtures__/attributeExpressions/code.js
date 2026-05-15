@@ -33,10 +33,10 @@ const template2 = (
 
 const template3 = (
   <div
-    id={/*@once*/ state.id}
-    style={/*@once*/ { "background-color": state.color }}
+    id={/*@static*/ state.id}
+    style={/*@static*/ { "background-color": state.color }}
     name={state.name}
-    textContent={/*@once*/ state.content}
+    textContent={/*@static*/ state.content}
   />
 );
 
@@ -49,8 +49,6 @@ const template6 = <div style={someStyle()} textContent="Hi" />;
 const template7 = (
   <div
     style={{ "background-color": color(), "margin-right": "40px", ...props.style }}
-    style:padding-top={props.top}
-    class:my-class={props.active}
   />
 );
 

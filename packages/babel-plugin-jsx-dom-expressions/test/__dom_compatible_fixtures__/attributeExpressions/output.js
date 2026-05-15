@@ -164,9 +164,9 @@ _$effect(
 );
 const template2 = _el$4;
 var _el$9 = _tmpl$3();
-_$setAttribute(_el$9, "id", /*@once*/ state.id);
-_$setStyleProperty(_el$9, "background-color", /*@once*/ state.color);
-_el$9.textContent = /*@once*/ state.content;
+_$setAttribute(_el$9, "id", /*@static*/ state.id);
+_$setStyleProperty(_el$9, "background-color", /*@static*/ state.color);
+_el$9.textContent = /*@static*/ state.content;
 _$effect(
   () => state.name,
   _v$ => {
@@ -197,21 +197,14 @@ _$effect(
 const template6 = _el$10;
 let undefVar;
 var _el$11 = _tmpl$6();
-_el$11.classList.toggle("other-class", !!undefVar);
 _el$11.classList.toggle("other-class2", !!undefVar);
 _$effect(
   () => ({
-    e: {
-      "background-color": color(),
-      ...props.style
-    },
-    t: props.top,
-    a: !!props.active
+    "background-color": color(),
+    ...props.style
   }),
-  ({ e, t, a }, _p$) => {
-    _$style(_el$11, e, _p$?.e);
-    t !== _p$?.t && _$setStyleProperty(_el$11, "padding-top", t);
-    a !== _p$?.a && _el$11.classList.toggle("my-class", a);
+  (_v$, _$p) => {
+    _$style(_el$11, _v$, _$p);
   }
 );
 const template7 = _el$11;
@@ -555,11 +548,11 @@ var _el$90 = _tmpl$44(),
 _el$91.poster = "1.jpg";
 const template76 = _el$90;
 var _el$92 = _tmpl$4();
-_$setStyleProperty(_el$92, "width", /*@once*/ props.width);
+_$setStyleProperty(_el$92, "width", /*@static*/ props.width);
 _$setStyleProperty(_el$92, "height", props.height);
 const template77 = _el$92;
 var _el$93 = _tmpl$4();
-_$setStyleProperty(_el$93, "width", /*@once*/ props.width);
+_$setStyleProperty(_el$93, "width", /*@static*/ props.width);
 _$setStyleProperty(_el$93, "height", props.height);
 _$effect(
   () => color(),
@@ -569,8 +562,8 @@ _$effect(
 );
 const template78 = _el$93;
 var _el$94 = _tmpl$4();
-_$setStyleProperty(_el$94, "height", /* @once */ props.height);
-_$setAttribute(_el$94, "something", /*@once*/ color());
+_$setStyleProperty(_el$94, "height", /* @static */ props.height);
+_$setAttribute(_el$94, "something", /*@static*/ color());
 _$effect(
   () => props.width,
   _v$ => {
@@ -582,8 +575,8 @@ const propsSpread = {
   something: color(),
   style: {
     "background-color": color(),
-    color: /* @once*/ color(),
-    "margin-right": /* @once */ props.right
+    color: /* @static*/ color(),
+    "margin-right": /* @static */ props.right
   }
 };
 var _el$95 = _tmpl$4();
@@ -605,7 +598,7 @@ _$spread(
     get ["data-dynamic"]() {
       return color();
     },
-    "data-static": /* @once */ color()
+    "data-static": /* @static */ color()
   }),
   false
 );
@@ -621,7 +614,7 @@ _$spread(
       get ["data-dynamic"]() {
         return color();
       },
-      "data-static": /* @once */ color()
+      "data-static": /* @static */ color()
     }
   ),
   false
@@ -642,7 +635,7 @@ _$spread(
       get ["data-dynamic"]() {
         return color();
       },
-      "data-static": /* @once */ color()
+      "data-static": /* @static */ color()
     }
   ),
   false
@@ -658,7 +651,7 @@ const styleProp = {
   }
 };
 var _el$100 = _tmpl$4();
-_$style(_el$100, /* @once */ styleProp.style);
+_$style(_el$100, /* @static */ styleProp.style);
 const template85 = _el$100;
 var _el$101 = _tmpl$4();
 _$effect(
@@ -688,8 +681,8 @@ _$effect(
 );
 const template87 = _el$102;
 var _el$103 = _tmpl$45();
-_$style(_el$103, /* @once*/ style);
-_$className(_el$103, /* @once*/ style);
+_$style(_el$103, /* @static*/ style);
+_$className(_el$103, /* @static*/ style);
 _$insert(_el$103, count);
 _$effect(
   () => count(),

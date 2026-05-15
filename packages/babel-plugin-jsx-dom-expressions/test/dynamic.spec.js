@@ -8,7 +8,6 @@ pluginTester({
     moduleName: "r-custom",
     builtIns: ["For", "Show"],
     generate: "dynamic",
-    staticMarker: "@once",
     renderers: [
       {
         name: "dom",

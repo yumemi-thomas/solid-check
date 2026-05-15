@@ -7,8 +7,7 @@ pluginTester({
   pluginOptions: {
     moduleName: "r-custom",
     builtIns: ["For", "Show"],
-    generate: "dynamic",
-    staticMarker: "@once"
+    generate: "dynamic"
   },
   title: "Convert JSX",
   fixtures: path.join(__dirname, "__universal_fixtures__"),
