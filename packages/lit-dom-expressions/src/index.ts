@@ -11,7 +11,7 @@ interface Runtime {
   insert(parent: MountableElement, accessor: any, marker?: Node | null, init?: any): any;
   spread<T>(node: Element, accessor: (() => T) | T, skipChildren?: Boolean): void;
   createComponent(Comp: (props: any) => any, props: any): any;
-  addEventListener(
+  addEvent(
     node: Element,
     name: string,
     handler: EventListener | EventListenerObject | (EventListenerObject & AddEventListenerOptions),
@@ -196,9 +196,7 @@ export function createHTML(
     if (name.slice(0, 2) === "on" && !name.includes(":")) {
       const lc = name.slice(2).toLowerCase();
       const delegate = delegateEvents && r.DelegatedEvents.has(lc);
-      options.exprs.push(
-        `r.addEventListener(${tag},"${lc}",exprs[${options.counter++}],${delegate})`
-      );
+      options.exprs.push(`r.addEvent(${tag},"${lc}",exprs[${options.counter++}],${delegate})`);
       delegate && options.delegatedEvents.add(lc);
     } else if (name === "ref") {
       options.exprs.push(`r.ref(() => exprs[${options.counter++}], ${tag})`);

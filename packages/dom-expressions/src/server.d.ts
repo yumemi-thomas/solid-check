@@ -150,12 +150,7 @@ export function setAttribute(node: Element, name: string, value: string): void;
 export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
 
 /** @deprecated not supported on the server side */
-export function addEventListener(
-  node: Element,
-  name: string,
-  handler: () => void,
-  delegate: boolean
-): void;
+export function addEvent(node: Element, name: string, handler: () => void, delegate: boolean): void;
 
 /** @deprecated not supported on the server side */
 export function render(code: () => JSX.Element, element: MountableElement): () => void;

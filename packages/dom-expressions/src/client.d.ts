@@ -58,7 +58,7 @@ export function setAttributeNS(node: Element, namespace: string, name: string, v
 export function className(node: Element, value: JSX.ClassValue, prev?: JSX.ClassValue): void;
 export function setProperty(node: Element, name: string, value: any): void;
 export function setStyleProperty(node: Element, name: string, value: any): void;
-export function addEventListener(
+export function addEvent(
   node: Element,
   name: string,
   handler: EventListener | EventListenerObject | (EventListenerObject & AddEventListenerOptions),

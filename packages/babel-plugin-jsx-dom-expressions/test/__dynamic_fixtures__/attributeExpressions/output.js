@@ -6,7 +6,7 @@ import { setProp as _$setProp } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-custom";
-import { addEventListener as _$addEventListener } from "r-dom";
+import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
@@ -224,7 +224,7 @@ const template14 = _el$17;
 const template15 = _tmpl$0();
 const template16 = _tmpl$1();
 var _el$20 = _tmpl$10();
-_$addEventListener(_el$20, "click", increment, true);
+_$addEvent(_el$20, "click", increment, true);
 const template17 = _el$20;
 var _el$21 = _tmpl$4();
 _$spread(
@@ -248,8 +248,8 @@ const template19 = _el$22;
 var _el$23 = _tmpl$11(),
   _el$24 = _el$23.firstChild,
   _el$25 = _el$24.nextSibling;
-_$addEventListener(_el$24, "input", doSomething, true);
-_$addEventListener(_el$25, "input", doSomethingElse, true);
+_$addEvent(_el$24, "input", doSomething, true);
+_$addEvent(_el$25, "input", doSomethingElse, true);
 _$setAttribute(_el$25, "readonly", value);
 _$effect(
   () => ({

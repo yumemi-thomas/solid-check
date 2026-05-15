@@ -3,7 +3,7 @@ import { delegateEvents as _$delegateEvents } from "r-dom";
 import { getNextMarker as _$getNextMarker } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
-import { addEventListener as _$addEventListener } from "r-dom";
+import { addEvent as _$addEvent } from "r-dom";
 import { style as _$style } from "r-dom";
 import { setStyleProperty as _$setStyleProperty } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
@@ -231,7 +231,7 @@ const template14 = _el$17;
 const template15 = _$getNextElement(_tmpl$0);
 const template16 = _$getNextElement(_tmpl$1);
 var _el$20 = _$getNextElement(_tmpl$10);
-_$addEventListener(_el$20, "click", increment, true);
+_$addEvent(_el$20, "click", increment, true);
 _$runHydrationEvents();
 const template17 = _el$20;
 var _el$21 = _$getNextElement(_tmpl$4);
@@ -257,8 +257,8 @@ const template19 = _el$22;
 var _el$23 = _$getNextElement(_tmpl$11),
   _el$24 = _el$23.firstChild,
   _el$25 = _el$24.nextSibling;
-_$addEventListener(_el$24, "input", doSomething, true);
-_$addEventListener(_el$25, "input", doSomethingElse, true);
+_$addEvent(_el$24, "input", doSomething, true);
+_$addEvent(_el$25, "input", doSomethingElse, true);
 _$setAttribute(_el$25, "readonly", value);
 _$effect(
   () => ({

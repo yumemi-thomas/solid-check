@@ -1286,7 +1286,7 @@ export {
   notSup as dynamicProperty,
   notSup as setAttribute,
   notSup as setAttributeNS,
-  notSup as addEventListener,
+  notSup as addEvent,
   notSup as render,
   notSup as template,
   notSup as setProperty,

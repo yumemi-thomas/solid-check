@@ -1031,7 +1031,7 @@ function transformAttributes(
                   t.callExpression(
                     registerImportMethod(
                       path,
-                      "addEventListener",
+                      "addEvent",
                       getRendererConfig(path, "dom").moduleName
                     ),
                     [elem, t.stringLiteral(ev), handler, t.booleanLiteral(true)]
@@ -1075,7 +1075,7 @@ function transformAttributes(
                   t.callExpression(
                     registerImportMethod(
                       path,
-                      "addEventListener",
+                      "addEvent",
                       getRendererConfig(path, "dom").moduleName
                     ),
                     [elem, t.stringLiteral(ev), handler]

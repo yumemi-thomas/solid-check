@@ -517,7 +517,7 @@ describe("r.assign direct usage", () => {
   });
 });
 
-// JSX onEvent compiles down to r.addEventListener for the non-default
+// JSX onEvent compiles down to r.addEvent for the non-default
 // branches (delegated+array, delegated+plain, non-delegated array+data).
 describe("JSX event wiring variants", () => {
   it("onClick={[handler, data]} stores $$click and $$clickData for delegation", () => {
@@ -616,8 +616,8 @@ describe("spread event handling", () => {
   });
 
   // Direct JSX `onClick={[h, d]}` compiles to `$$click = h; $$clickData = d`;
-  // only the spread path routes through assignProp → addEventListener, which
-  // is where the delegated + array branch of addEventListener actually runs.
+  // only the spread path routes through assignProp -> addEvent, which
+  // is where the delegated + array branch of addEvent actually runs.
   it("onClick={[handler, data]} via spread sets $$click and $$clickData for delegation", () => {
     const handler = jest.fn();
     const data = { id: 7 };

@@ -32,7 +32,7 @@ interface EventHandlersWithUnimplemented extends JSX.CustomEventHandlersLowerCas
   onwebkitanimationiteration: any;
   onwebkitanimationstart: any;
   onwebkittransitionend: any;
-  addEventListener: any;
+  addEvent: any;
   removeEventListener: any;
   oncopy: any;
   oncut: any;

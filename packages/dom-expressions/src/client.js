@@ -226,7 +226,7 @@ export function className(node, value, prev) {
   }
 }
 
-export function addEventListener(node, name, handler, delegate) {
+export function addEvent(node, name, handler, delegate) {
   if (delegate) {
     if (Array.isArray(handler)) {
       node[`$$${name}`] = handler[0];
@@ -658,7 +658,7 @@ function assignProp(node, prop, value, prev, skipRef, nodeName) {
       node.removeEventListener(name, h);
     }
     if (delegate || value) {
-      addEventListener(node, name, value, delegate);
+      addEvent(node, name, value, delegate);
       delegate && delegateEvents([name]);
     }
   } else if (
