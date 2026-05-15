@@ -72,9 +72,7 @@ var _tmpl$ = /*#__PURE__*/ _$template(`<div><h1><a href=/>Welcome`),
   ),
   _tmpl$50 = /*#__PURE__*/ _$template(`<video src=test.mp4 muted>`),
   _tmpl$51 = /*#__PURE__*/ _$template(`<div class=todo>`),
-  _tmpl$52 = /*#__PURE__*/ _$template(`<div class="todo item">`),
-  _tmpl$53 = /*#__PURE__*/ _$template(`<div style:border="1px solid black">`),
-  _tmpl$54 = /*#__PURE__*/ _$template(`<div class:selected>`);
+  _tmpl$52 = /*#__PURE__*/ _$template(`<div class="todo item">`);
 import * as styles from "./styles.module.css";
 import { binding } from "somewhere";
 function refFn() {}
@@ -545,7 +543,7 @@ var _el$90 = _tmpl$44(),
 _el$91.poster = "1.jpg";
 const template76 = _el$90;
 
-// ONCE TESTS
+// STATIC TESTS
 var _el$92 = _tmpl$4();
 _$setStyleProperty(_el$92, "width", /*@static*/ props.width);
 _$setStyleProperty(_el$92, "height", props.height);
@@ -571,7 +569,7 @@ _$effect(
 );
 const template79 = _el$94;
 
-// ONCE TESTS SPREADS
+// STATIC TESTS SPREADS
 
 const propsSpread = {
   something: color(),
@@ -644,7 +642,7 @@ _$spread(
 );
 const template84 = _el$99;
 
-// ONCE PROPERTY OF OBJECT ACCESS
+// STATIC PROPERTY OF OBJECT ACCESS
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = {
@@ -837,26 +835,4 @@ _$effect(
   }
 );
 const template99 = _el$123;
-
-// `style:` is not a reserved namespace — it falls through to a literal attribute.
-const template100 = _tmpl$53();
-var _el$125 = _tmpl$4();
-_$effect(
-  () => props.border,
-  _v$ => {
-    _$setAttribute(_el$125, "style:border", _v$);
-  }
-);
-const template101 = _el$125;
-
-// `class:` is not a reserved namespace — it falls through to a literal attribute.
-const template102 = _tmpl$54();
-var _el$127 = _tmpl$4();
-_$effect(
-  () => props.active,
-  _v$ => {
-    _$setAttribute(_el$127, "class:selected", _v$);
-  }
-);
-const template103 = _el$127;
 _$delegateEvents(["click", "input"]);

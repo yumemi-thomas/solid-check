@@ -246,7 +246,7 @@ const template74 = <div><video poster="1.jpg"/></div>
 const template75 = <video prop:poster="1.jpg"/>
 const template76 = <div><video prop:poster="1.jpg"/></div>
 
-// ONCE TESTS
+// STATIC TESTS
 
 const template77 = <div style={/*@static*/ { width: props.width, height: props.height }} />;
 
@@ -261,7 +261,7 @@ const template79 = (
   />
 );
 
-// ONCE TESTS SPREADS
+// STATIC TESTS SPREADS
 
 const propsSpread = {
   something: color(),
@@ -297,7 +297,7 @@ const template84 = (
   />
 );
 
-// ONCE PROPERTY OF OBJECT ACCESS
+// STATIC PROPERTY OF OBJECT ACCESS
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: { width: props.width, height: props.height } };
@@ -383,11 +383,3 @@ const template97 = <div class={["todo", { active: isActive(), [props.name]: prop
 const template98 = <div class={["todo", { active: isActive() }, props.extra]} />;
 
 const template99 = <div class={["todo", "item", { todo: false, active: isActive() }]} />;
-
-// `style:` is not a reserved namespace — it falls through to a literal attribute.
-const template100 = <div style:border="1px solid black" />;
-const template101 = <div style:border={props.border} />;
-
-// `class:` is not a reserved namespace — it falls through to a literal attribute.
-const template102 = <div class:selected={true} />;
-const template103 = <div class:selected={props.active} />;

@@ -545,7 +545,7 @@ var _el$95 = _tmpl$42(),
 _el$96.poster = "1.jpg";
 const template76 = _el$95;
 
-// ONCE TESTS
+// STATIC TESTS
 var _el$97 = _tmpl$4();
 _$setStyleProperty(_el$97, "width", /*@static*/ props.width);
 _$setStyleProperty(_el$97, "height", props.height);
@@ -571,7 +571,7 @@ _$effect(
 );
 const template79 = _el$99;
 
-// ONCE TESTS SPREADS
+// STATIC TESTS SPREADS
 
 const propsSpread = {
   something: color(),
@@ -644,7 +644,7 @@ _$spread(
 );
 const template84 = _el$104;
 
-// ONCE PROPERTY OF OBJECT ACCESS
+// STATIC PROPERTY OF OBJECT ACCESS
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = {

@@ -246,7 +246,7 @@ const template74 = <div><video poster="1.jpg"/></div>
 const template75 = <video prop:poster="1.jpg"/>
 const template76 = <div><video prop:poster="1.jpg"/></div>
 
-// ONCE TESTS
+// STATIC TESTS
 
 const template77 = <div style={/*@static*/ { width: props.width, height: props.height }} />;
 
@@ -261,7 +261,7 @@ const template79 = (
   />
 );
 
-// ONCE TESTS SPREADS
+// STATIC TESTS SPREADS
 
 const propsSpread = {
   something: color(),
@@ -297,7 +297,7 @@ const template84 = (
   />
 );
 
-// ONCE PROPERTY OF OBJECT ACCESS
+// STATIC PROPERTY OF OBJECT ACCESS
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: { width: props.width, height: props.height } };

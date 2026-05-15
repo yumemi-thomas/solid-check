@@ -487,7 +487,7 @@ const template75 = _$ssr(_tmpl$41, _v$96);
 var _v$97 = _$ssrHydrationKey();
 const template76 = _$ssr(_tmpl$44, _v$97);
 
-// ONCE TESTS
+// STATIC TESTS
 var _v$98 = _$ssrHydrationKey();
 const template77 = _$ssr(
   _tmpl$16,
@@ -515,7 +515,7 @@ const template79 = _$ssr(
   _$ssrAttribute("something", _$escape(color(), true))
 );
 
-// ONCE TESTS SPREADS
+// STATIC TESTS SPREADS
 
 const propsSpread = {
   something: color(),
@@ -561,7 +561,7 @@ const template84 = _$ssrElement(
   true
 );
 
-// ONCE PROPERTY OF OBJECT ACCESS
+// STATIC PROPERTY OF OBJECT ACCESS
 
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = {
