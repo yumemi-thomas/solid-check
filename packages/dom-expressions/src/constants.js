@@ -20,6 +20,12 @@ const ChildProperties = /*#__PURE__*/ new Set([
   "children"
 ]);
 
+// Per-node tag identifying the owning slot's marker. Set on every runtime
+// insertion site so that subsequent reconcile / cleanup work can distinguish
+// "the node still belongs to my slot" from "the node has migrated to another
+// slot in the same parent" without consulting external bookkeeping.
+const $$SLOT = /*#__PURE__*/ Symbol("slot");
+
 // list of Element events that will be delegated
 const DelegatedEvents = /*#__PURE__*/ new Set([
   "beforeinput",
@@ -500,5 +506,6 @@ export {
   VoidElements,
   RawTextElements,
   Namespaces,
-  DOMElements
+  DOMElements,
+  $$SLOT
 };

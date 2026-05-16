@@ -1,4 +1,4 @@
-import { ChildProperties, Namespaces, DelegatedEvents } from "./constants";
+import { ChildProperties, Namespaces, DelegatedEvents, $$SLOT } from "./constants";
 import {
   root,
   effect,
@@ -759,8 +759,6 @@ function insertExpression(parent, value, current, marker) {
   if (value === current) return;
   const t = typeof value,
     multi = marker !== undefined;
-  // is this necessary anymore?
-  // parent = (multi && current[0] && current[0].parentNode) || parent;
 
   if (t === "string" || t === "number") {
     const tc = typeof current;
@@ -772,9 +770,20 @@ function insertExpression(parent, value, current, marker) {
   } else if (value.nodeType) {
     if (Array.isArray(current)) {
       cleanChildren(parent, current, multi ? marker : null, value);
-    } else if (current === undefined || !parent.firstChild) {
+    } else if (current && current.nodeType) {
+      // `current` is a node we previously inserted but it may have been
+      // moved out by user code (e.g. ref-driven migration, JSX wrapping)
+      // since the last render. If it's still here, replace it in place;
+      // otherwise append — never `replaceChild` a node that isn't ours.
+      current.parentNode === parent
+        ? parent.replaceChild(value, current)
+        : parent.appendChild(value);
+    } else if (current && parent.firstChild) {
+      parent.replaceChild(value, parent.firstChild);
+    } else {
       parent.appendChild(value);
-    } else parent.replaceChild(value, parent.firstChild);
+    }
+    if (marker) value[$$SLOT] = marker;
   } else if (Array.isArray(value)) {
     const currentArray = current && Array.isArray(current);
     if (value.length === 0) {
@@ -782,7 +791,7 @@ function insertExpression(parent, value, current, marker) {
     } else if (currentArray) {
       if (current.length === 0) {
         appendNodes(parent, value, marker);
-      } else reconcileArrays(parent, current, value);
+      } else reconcileArrays(parent, current, value, marker);
     } else {
       current && cleanChildren(parent);
       appendNodes(parent, value);
@@ -810,7 +819,11 @@ function normalize(value, current, multi, doNotUnwrap) {
 }
 
 function appendNodes(parent, array, marker = null) {
-  for (let i = 0, len = array.length; i < len; i++) parent.insertBefore(array[i], marker);
+  for (let i = 0, len = array.length; i < len; i++) {
+    const n = array[i];
+    parent.insertBefore(n, marker);
+    if (marker) n[$$SLOT] = marker;
+  }
 }
 
 function cleanChildren(parent, current, marker, replacement) {
@@ -820,15 +833,15 @@ function cleanChildren(parent, current, marker, replacement) {
     for (let i = current.length - 1; i >= 0; i--) {
       const el = current[i];
       if (replacement !== el) {
-        const isParent = el.parentNode === parent;
+        const tag = el[$$SLOT];
+        const owns = el.parentNode === parent && (!tag || tag === marker);
         if (replacement && !inserted && !i)
-          isParent
-            ? parent.replaceChild(replacement, el)
-            : parent.insertBefore(replacement, marker);
-        else isParent && el.remove();
+          owns ? parent.replaceChild(replacement, el) : parent.insertBefore(replacement, marker);
+        else if (owns) el.remove();
       } else inserted = true;
     }
   } else if (replacement) parent.insertBefore(replacement, marker);
+  if (replacement && marker) replacement[$$SLOT] = marker;
 }
 
 function gatherHydratable(element, root) {

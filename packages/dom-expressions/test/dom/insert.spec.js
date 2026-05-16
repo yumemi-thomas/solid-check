@@ -588,3 +588,336 @@ describe("r.insert caching", () => {
     expect(parent.innerHTML).toBe("1text");
   });
 });
+
+describe("r.insert with migrating nodes", () => {
+  // Coverage for nodes that have been moved out of the slot they were
+  // inserted into — by user code, by JSX wrapping, or by an adjacent slot
+  // claiming them — before the next render. The runtime must not throw
+  // and must not destroy the migrated node when cleaning up the source
+  // slot. Tests drive the reactive path (createSignal + createRoot) so the
+  // `current` array is threaded through the insert effect and migration
+  // branches in `cleanChildren` / `reconcileArrays` are actually exercised.
+
+  it("does not throw when a new value wraps the current node (#2030 v1)", () => {
+    // Slot A holds `stage`. Slot B's new value is a wrapper containing `stage`.
+    // JSX construction migrates stage into wrapper before the insert effect
+    // runs, so by the time insertExpression sees value=wrapper and
+    // current=stage, stage has been moved away. The replaceChild on stale
+    // firstChild used to throw "new child contains the parent".
+    const stage = document.createElement("div");
+    stage.textContent = "stage";
+    const parent = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+
+    let current = r.insert(parent, stage, marker);
+    flush();
+    expect(parent.querySelector("div")).toBe(stage);
+
+    // Simulate: wrapper is constructed with stage as a child (JSX appendChild)
+    const wrapper = document.createElement("section");
+    wrapper.appendChild(stage); // migrates stage out of parent into wrapper
+
+    expect(() => {
+      current = r.insert(parent, wrapper, marker, current);
+      flush();
+    }).not.toThrow();
+    expect(parent.querySelector("section")).toBe(wrapper);
+    expect(wrapper.querySelector("div")).toBe(stage);
+  });
+
+  it("does not destroy a node when its source slot clears after migration (#2030 v2)", () => {
+    // Two slots in the same parent. Slot B claims the node first, then slot
+    // A re-renders with `null`. The reconcile in slot A must NOT yank the
+    // node from slot B — it should leave it alone and only replace its own
+    // marker-anchored content.
+    const node = document.createElement("div");
+    node.textContent = "alive";
+    const parent = document.createElement("div");
+    const markerA = parent.appendChild(document.createTextNode(""));
+    const markerB = parent.appendChild(document.createTextNode(""));
+
+    const [aVal, setAVal] = createSignal(node);
+    const [bVal, setBVal] = createSignal(null);
+
+    createRoot(() => {
+      r.insert(parent, aVal, markerA);
+      r.insert(parent, bVal, markerB);
+    });
+    flush();
+    expect(parent.contains(node)).toBe(true);
+
+    // B claims node first, A clears second — A's reconcile sees `current=[node]`
+    // but node has already migrated to slot B's region.
+    setBVal(node);
+    setAVal(null);
+    flush();
+
+    expect(parent.contains(node)).toBe(true);
+    expect(parent.querySelector("div")).toBe(node);
+  });
+
+  it("leaves foreign sibling nodes alone during cleanup", () => {
+    // A node the runtime never inserted (e.g. user-appended via ref) should
+    // not be removed when an adjacent slot cleans up.
+    const slotNode = document.createElement("span");
+    slotNode.textContent = "slot";
+    const foreign = document.createElement("b");
+    foreign.textContent = "foreign";
+    const parent = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+
+    const [val, setVal] = createSignal(slotNode);
+    createRoot(() => {
+      r.insert(parent, val, marker);
+    });
+    flush();
+    parent.appendChild(foreign);
+    expect(parent.contains(foreign)).toBe(true);
+
+    setVal(null);
+    flush();
+    expect(parent.contains(foreign)).toBe(true);
+    expect(parent.contains(slotNode)).toBe(false);
+  });
+
+  it("cleans up a fragment when one node has been migrated out", () => {
+    const n1 = document.createElement("span");
+    n1.textContent = "1";
+    const n2 = document.createElement("span");
+    n2.textContent = "2";
+    const n3 = document.createElement("span");
+    n3.textContent = "3";
+    const parent = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+
+    const [val, setVal] = createSignal([n1, n2, n3]);
+    createRoot(() => {
+      r.insert(parent, val, marker);
+    });
+    flush();
+    expect(parent.querySelectorAll("span").length).toBe(3);
+
+    // External code yanks n2 out and stashes it somewhere else.
+    const other = document.createElement("div");
+    other.appendChild(n2);
+
+    // Slot clears. n1 and n3 should be removed; n2 must remain in `other`.
+    setVal(null);
+    flush();
+    expect(parent.contains(n1)).toBe(false);
+    expect(parent.contains(n3)).toBe(false);
+    expect(other.contains(n2)).toBe(true);
+  });
+
+  // The tests above exercise the `cleanChildren` path (single-clear).
+  // The tests below drive `reconcileArrays` migration branches.
+
+  it("reconcile keeps a migrated node alive when its array drops it", () => {
+    // Insert [n1, n2, n3]; user code migrates n2 to another parent; then
+    // reconcile from [n1, n2, n3] to [n1, n3]. The remove-branch and
+    // map-fallback paths in reconcileArrays must skip n2 (it no longer
+    // belongs to this parent).
+    const n1 = document.createElement("span");
+    const n2 = document.createElement("span");
+    const n3 = document.createElement("span");
+    n1.textContent = "1";
+    n2.textContent = "2";
+    n3.textContent = "3";
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+
+    const [val, setVal] = createSignal([n1, n2, n3]);
+    createRoot(() => {
+      r.insert(parent, val, marker);
+    });
+    flush();
+    expect(parent.querySelectorAll("span").length).toBe(3);
+
+    other.appendChild(n2);
+    expect(other.contains(n2)).toBe(true);
+    expect(parent.contains(n2)).toBe(false);
+
+    setVal([n1, n3]);
+    flush();
+    expect(parent.contains(n1)).toBe(true);
+    expect(parent.contains(n3)).toBe(true);
+    expect(other.contains(n2)).toBe(true);
+  });
+
+  it("reconcile uses marker as after-anchor when tail has migrated", () => {
+    // Insert [n1, n2, n3]; migrate n3 (the tail) elsewhere; then reconcile
+    // by appending newNode at the tail position. The opening
+    // `after = tail.parentNode === parentNode ? tail.nextSibling : marker`
+    // fallback is what makes this safe — otherwise we'd read a sibling
+    // pointer into the foreign parent's region.
+    const n1 = document.createElement("span");
+    const n2 = document.createElement("span");
+    const n3 = document.createElement("span");
+    n1.textContent = "1";
+    n2.textContent = "2";
+    n3.textContent = "3";
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+    const trailing = parent.appendChild(document.createElement("i"));
+    trailing.textContent = "trailing";
+
+    const [val, setVal] = createSignal([n1, n2, n3]);
+    createRoot(() => {
+      r.insert(parent, val, marker);
+    });
+    flush();
+
+    other.appendChild(n3);
+    expect(other.contains(n3)).toBe(true);
+
+    const newNode = document.createElement("span");
+    newNode.textContent = "new";
+    setVal([n1, n2, newNode]);
+    flush();
+
+    expect(parent.contains(n1)).toBe(true);
+    expect(parent.contains(n2)).toBe(true);
+    expect(parent.contains(newNode)).toBe(true);
+    expect(other.contains(n3)).toBe(true);
+    // newNode must be inserted before the slot's marker, leaving the
+    // post-marker trailing sibling intact.
+    expect(newNode.nextSibling).toBe(marker);
+    expect(parent.lastChild).toBe(trailing);
+  });
+
+  it("toggles a single node between two `Show`-style slots in different parents (#2357)", () => {
+    // Canonical solidjs/solid#2357 shape: one DOM element referenced as the
+    // JSX child of two `<Show>`s in different parents, toggled by a single
+    // signal. Each toggle is one reactive flush in which both effects react;
+    // their order in the queue is what the slot-ownership tag protects
+    // against (clear-then-claim vs claim-then-clear must both leave the
+    // element in exactly one parent).
+    const node = document.createElement("div");
+    node.textContent = "shared";
+    const parentA = document.createElement("div");
+    const parentB = document.createElement("div");
+    const markerA = parentA.appendChild(document.createTextNode(""));
+    const markerB = parentB.appendChild(document.createTextNode(""));
+
+    const [mode, setMode] = createSignal("foo");
+
+    createRoot(() => {
+      r.insert(parentA, () => (mode() === "foo" ? node : null), markerA);
+      r.insert(parentB, () => (mode() === "bar" ? node : null), markerB);
+    });
+    flush();
+    expect(parentA.contains(node)).toBe(true);
+    expect(parentB.contains(node)).toBe(false);
+
+    setMode("bar");
+    flush();
+    expect(parentA.contains(node)).toBe(false);
+    expect(parentB.contains(node)).toBe(true);
+
+    setMode("foo");
+    flush();
+    expect(parentA.contains(node)).toBe(true);
+    expect(parentB.contains(node)).toBe(false);
+
+    setMode("bar");
+    flush();
+    expect(parentA.contains(node)).toBe(false);
+    expect(parentB.contains(node)).toBe(true);
+
+    // Final invariant: the node must exist in exactly one place at all times,
+    // never duplicated, never destroyed by the slot it migrated away from.
+    setMode("foo");
+    flush();
+    expect(parentA.contains(node)).toBe(true);
+    expect(parentB.contains(node)).toBe(false);
+    expect(node.isConnected || parentA.contains(node)).toBe(true);
+  });
+
+  it("preserves element identity and state across migration", () => {
+    // The whole point of allowing migration in the first place: the same JS
+    // object reference reaches the destination slot, so anything stored on
+    // that reference (properties, event listeners, internal element state
+    // like <video>.currentTime, <canvas> bitmap, attached widget instances)
+    // comes along. This test asserts identity + arbitrary-property survival;
+    // real-browser tests can validate media/canvas state continuity but jsdom
+    // doesn't simulate playback.
+    const video = document.createElement("video");
+    video.src = "test.mp4";
+    video.currentTime = 12.5;
+    // Stand-in for any state a third-party widget or framework might attach:
+    video._attached = { keepAlive: true, frame: 42 };
+    let blurredOnce = false;
+    video.addEventListener("blur", () => {
+      blurredOnce = true;
+    });
+
+    const parentA = document.createElement("div");
+    const parentB = document.createElement("div");
+    const markerA = parentA.appendChild(document.createTextNode(""));
+    const markerB = parentB.appendChild(document.createTextNode(""));
+
+    const [mode, setMode] = createSignal("a");
+    createRoot(() => {
+      r.insert(parentA, () => (mode() === "a" ? video : null), markerA);
+      r.insert(parentB, () => (mode() === "b" ? video : null), markerB);
+    });
+    flush();
+
+    setMode("b");
+    flush();
+    setMode("a");
+    flush();
+    setMode("b");
+    flush();
+
+    // After three migrations the SAME element object must be the one in B.
+    const found = parentB.querySelector("video");
+    expect(found).toBe(video);
+    // Properties set on the JS reference survive.
+    expect(found.src.endsWith("test.mp4")).toBe(true);
+    expect(found.currentTime).toBe(12.5);
+    expect(found._attached).toEqual({ keepAlive: true, frame: 42 });
+    // Event listeners survive (registered once, still firing).
+    found.dispatchEvent(new Event("blur"));
+    expect(blurredOnce).toBe(true);
+  });
+
+  it("reconcile swap-backward gate falls through safely when head migrated", () => {
+    // Reorder [n1, n2, n3] -> [n3, n2]. n1 was migrated to another parent
+    // before the reconcile and is not in the new list. The symmetric
+    // end-swap detector would normally fire on the prefix/suffix pattern
+    // here; the anchor-ownership gate must redirect to the map branch so
+    // that the destructive `insertBefore(_, n1)` against a foreign anchor
+    // never runs. n1 must remain in `other`, untouched.
+    const n1 = document.createElement("span");
+    const n2 = document.createElement("span");
+    const n3 = document.createElement("span");
+    n1.textContent = "1";
+    n2.textContent = "2";
+    n3.textContent = "3";
+    const parent = document.createElement("div");
+    const other = document.createElement("div");
+    const marker = parent.appendChild(document.createTextNode(""));
+
+    const [val, setVal] = createSignal([n1, n2, n3]);
+    createRoot(() => {
+      r.insert(parent, val, marker);
+    });
+    flush();
+
+    other.appendChild(n1);
+    expect(other.contains(n1)).toBe(true);
+
+    expect(() => {
+      setVal([n3, n2]);
+      flush();
+    }).not.toThrow();
+
+    expect(other.contains(n1)).toBe(true);
+    expect(parent.contains(n2)).toBe(true);
+    expect(parent.contains(n3)).toBe(true);
+    expect(parent.querySelectorAll("span").length).toBe(2);
+  });
+});
