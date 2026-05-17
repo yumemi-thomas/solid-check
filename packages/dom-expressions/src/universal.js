@@ -271,10 +271,15 @@ export function createRenderer({
   return {
     render(code, element) {
       let disposer;
-      root(dispose => {
-        disposer = dispose;
-        insert(element, code());
-      });
+      try {
+        root(dispose => {
+          disposer = dispose;
+          insert(element, code());
+        });
+      } catch (err) {
+        if (disposer) disposer();
+        throw err;
+      }
       return disposer;
     },
     insert,

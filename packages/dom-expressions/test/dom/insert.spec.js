@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as r from "../../src/client";
-import { createRoot, createSignal, flush } from "@solidjs/signals";
+import { createRoot, createSignal, flush, onCleanup } from "@solidjs/signals";
 
 describe("r.insert", () => {
   // <div><!-- insert --></div>
@@ -494,6 +494,39 @@ describe("r.render error handling", () => {
     expect(() => r.render(() => document.createElement("div"), null)).toThrow(
       /element.*doesn't exist/i
     );
+  });
+
+  it("disposes the root scope when the init function throws", () => {
+    const container = document.createElement("div");
+    const cleanup = jest.fn();
+    expect(() =>
+      r.render(() => {
+        onCleanup(cleanup);
+        throw new Error("boom");
+      }, container)
+    ).toThrow("boom");
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("unregisters the delegated root when init throws", () => {
+    const container = document.createElement("div");
+    expect(() =>
+      r.render(() => {
+        throw new Error("boom");
+      }, container)
+    ).toThrow("boom");
+    expect(r.getDelegatedRoot(container)).toBeUndefined();
+  });
+
+  it("does not wipe pre-existing element content on failed init", () => {
+    const container = document.createElement("div");
+    container.innerHTML = "<span>fallback</span>";
+    expect(() =>
+      r.render(() => {
+        throw new Error("boom");
+      }, container)
+    ).toThrow("boom");
+    expect(container.innerHTML).toBe("<span>fallback</span>");
   });
 });
 

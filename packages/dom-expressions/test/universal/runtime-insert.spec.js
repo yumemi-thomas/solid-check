@@ -3,7 +3,7 @@
  */
 import * as r from "./custom";
 import { createRenderer } from "../../src/universal";
-import { createRoot, createSignal, flush, NotReadyError } from "@solidjs/signals";
+import { createRoot, createSignal, flush, NotReadyError, onCleanup } from "@solidjs/signals";
 
 // Static (non-function) accessors skip the effect wiring and call
 // insertExpression synchronously — exercise each branch of that path.
@@ -628,5 +628,19 @@ describe("universal insert caching", () => {
     flush();
 
     expect(parent.innerHTML).toBe("A<!--marker-->");
+  });
+});
+
+describe("universal render error handling", () => {
+  it("disposes the root scope when the init function throws", () => {
+    const parent = document.createElement("div");
+    const cleanup = jest.fn();
+    expect(() =>
+      r.render(() => {
+        onCleanup(cleanup);
+        throw new Error("boom");
+      }, parent)
+    ).toThrow("boom");
+    expect(cleanup).toHaveBeenCalledTimes(1);
   });
 });

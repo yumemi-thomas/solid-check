@@ -53,28 +53,34 @@ export function render(code, element, init, options = {}) {
   }
   let disposer;
   registerDelegatedRoot(element);
-  root(
-    dispose => {
-      disposer = dispose;
-      if (element === document) {
-        const tree = code();
-        effect(
-          () => flatten(tree),
-          () => {}
-        );
-      } else {
-        const tree = code();
-        insert(
-          element,
-          () => tree,
-          element.firstChild ? null : undefined,
-          init,
-          options.insertOptions
-        );
-      }
-    },
-    { id: options.renderId }
-  );
+  try {
+    root(
+      dispose => {
+        disposer = dispose;
+        if (element === document) {
+          const tree = code();
+          effect(
+            () => flatten(tree),
+            () => {}
+          );
+        } else {
+          const tree = code();
+          insert(
+            element,
+            () => tree,
+            element.firstChild ? null : undefined,
+            init,
+            options.insertOptions
+          );
+        }
+      },
+      { id: options.renderId }
+    );
+  } catch (err) {
+    if (disposer) disposer();
+    unregisterDelegatedRoot(element);
+    throw err;
+  }
   return () => {
     disposer();
     unregisterDelegatedRoot(element);
