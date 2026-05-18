@@ -1,5 +1,12 @@
 # lit-dom-expressions
 
+## 0.50.0-next.13
+
+### Patch Changes
+
+- a75a56b: Expose the `ClassValue` type from JSX and lit runtime declarations so consumers can type wrapper props against the supported string, object, and array class forms.
+- f17f7a1: Rename the generated event listener helper from `addEventListener` to `addEvent` so compiled browser bundles no longer introduce a binding that can shadow the native `window.addEventListener` method.
+
 ## 0.50.0-next.12
 
 ### Patch Changes

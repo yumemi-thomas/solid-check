@@ -1,5 +1,15 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.13
+
+### Patch Changes
+
+- f1bcd5f: Stop giving special compiler handling to `style:foo` and `class:foo` JSX namespace syntax, and rename the static compiler marker from `@once` to `@static`. `style:foo` and `class:foo` now fall through to literal HTML attributes (e.g. `<div style:border="1px solid black">` emits `style:border` verbatim).
+
+  Internal optimizations still split `style={{...}}` into `setStyleProperty` calls and `class={{...}}` into `classList.toggle` calls.
+
+- f17f7a1: Rename the generated event listener helper from `addEventListener` to `addEvent` so compiled browser bundles no longer introduce a binding that can shadow the native `window.addEventListener` method.
+
 ## 0.50.0-next.12
 
 ### Patch Changes

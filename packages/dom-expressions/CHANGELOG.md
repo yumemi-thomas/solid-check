@@ -1,5 +1,51 @@
 # dom-expressions
 
+## 0.50.0-next.13
+
+### Patch Changes
+
+- a75a56b: Expose the `ClassValue` type from JSX and lit runtime declarations so consumers can type wrapper props against the supported string, object, and array class forms.
+- 78bb855: Harden DOM-runtime insertion against nodes that have migrated out of their
+  original slot between renders. Resolves the class of bugs reported as
+  solidjs/solid#2030 (a new JSX value that wraps the previous slot's node) and
+  solidjs/solid#2357 (a single node referenced from multiple sibling slots).
+  Previously, `cleanChildren` and `reconcileArrays` could either throw
+  `replaceChild` "new child contains the parent", or silently destroy the
+  migrated node by trusting a stale `current.parentNode === parent` check.
+
+  Every runtime insertion site (`appendNodes`, `insertExpression`'s
+  element-node branch, the replacement path in `cleanChildren`, all four
+  insertion sites in `reconcileArrays`) now tags the inserted node with a
+  per-slot `$$SLOT` Symbol property carrying the slot's marker. Every
+  destructive operation (`remove`, `replaceChild`, `insertBefore` against a
+  sibling anchor) is now gated on parent-and-tag ownership: an untagged node
+  is treated as unclaimed (the slot may manage it), a tagged node is touched
+  only when its tag matches the current slot's marker. Foreign nodes — refs
+  appended by user code, nodes that have migrated to another slot, content
+  inserted by other runtimes — are left alone.
+
+  The `tail.nextSibling` `after` anchor in `reconcileArrays` is also gated:
+  if `a`'s tail has migrated, the `after` falls back to the slot's marker
+  rather than reading a sibling pointer that now points into another slot's
+  region. The symmetric end-swap fast-path (`a[0]===b[n-1] && b[0]===a[n-1]`)
+  gains an anchor-ownership check so it cannot stage moves against a foreign
+  front anchor; mismatched anchors fall through to the map branch which
+  re-gates each destructive op.
+
+  Scope: DOM renderer (`client.js`) only. `universal.js` is intentionally
+  unchanged — universal hosts target older JS environments (Chrome 38+),
+  expando writes on platform nodes can collide with proxy-based node wrappers,
+  and the JSX-DOM-ref migration patterns this fix addresses are not idiomatic
+  on non-DOM platforms. If a real case surfaces on a universal renderer it
+  can be revisited with a host-appropriate storage strategy.
+
+- f1bcd5f: Stop giving special compiler handling to `style:foo` and `class:foo` JSX namespace syntax, and rename the static compiler marker from `@once` to `@static`. `style:foo` and `class:foo` now fall through to literal HTML attributes (e.g. `<div style:border="1px solid black">` emits `style:border` verbatim).
+
+  Internal optimizations still split `style={{...}}` into `setStyleProperty` calls and `class={{...}}` into `classList.toggle` calls.
+
+- f17f7a1: Rename the generated event listener helper from `addEventListener` to `addEvent` so compiled browser bundles no longer introduce a binding that can shadow the native `window.addEventListener` method.
+- a45b224: Dispose the partially-created reactive scope when `render()` (and the universal renderer's `render()`) throws during initial mount. Previously a synchronous throw inside the top-level component would orphan the root and, in the DOM client, leave the delegated-root counter bumped — leaking event-delegation state with no recovery path since the caller never receives the disposer. The throw still propagates; the cleanup just happens before it does. `hydrate()` benefits transitively because it delegates to `render()`.
+
 ## 0.50.0-next.12
 
 ### Patch Changes
