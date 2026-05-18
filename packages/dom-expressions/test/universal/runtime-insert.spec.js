@@ -194,7 +194,7 @@ describe("universal insert transitions", () => {
 });
 
 describe("universal render()", () => {
-  it("renders code into an element and returns a disposer that unmounts", () => {
+  it("removes inserted mount nodes when disposed", () => {
     const parent = document.createElement("div");
     const span = document.createElement("span");
     span.textContent = "mounted";
@@ -203,10 +203,110 @@ describe("universal render()", () => {
     expect(parent.firstChild).toBe(span);
 
     dispose();
-    // The disposer itself does not empty the parent (that's render()'s
-    // caller's concern in the universal build), but after disposal no new
-    // reactive work will fire — exercised simply by calling it cleanly.
+    expect(parent.firstChild).toBeNull();
     expect(() => dispose()).not.toThrow();
+  });
+
+  it("removes array mount nodes when disposed", () => {
+    const parent = document.createElement("div");
+    const first = document.createElement("span");
+    const second = document.createElement("button");
+
+    const dispose = r.render(() => [first, second], parent);
+    expect(parent.childNodes.length).toBe(2);
+    expect(parent.firstChild).toBe(first);
+    expect(parent.lastChild).toBe(second);
+
+    dispose();
+    expect(parent.childNodes.length).toBe(0);
+  });
+
+  it("removes primitive mount nodes when disposed", () => {
+    const parent = document.createElement("div");
+
+    const dispose = r.render(() => "mounted", parent);
+    expect(parent.textContent).toBe("mounted");
+
+    dispose();
+    expect(parent.firstChild).toBeNull();
+  });
+
+  it("removes dynamic mount nodes when disposed", () => {
+    const parent = document.createElement("div");
+    const [value, setValue] = createSignal("first");
+
+    const dispose = r.render(() => () => value(), parent);
+    flush();
+    expect(parent.textContent).toBe("first");
+
+    setValue("second");
+    flush();
+    expect(parent.textContent).toBe("second");
+
+    dispose();
+    expect(parent.firstChild).toBeNull();
+  });
+
+  it("does not remove mount nodes that moved to another parent", () => {
+    const parent = document.createElement("div");
+    const other = document.createElement("section");
+    const span = document.createElement("span");
+
+    const dispose = r.render(() => span, parent);
+    expect(parent.firstChild).toBe(span);
+
+    other.appendChild(span);
+    dispose();
+
+    expect(parent.firstChild).toBeNull();
+    expect(other.firstChild).toBe(span);
+  });
+
+  it("uses renderer cleanupNodes when provided", () => {
+    const cleanupNodes = jest.fn();
+    const renderer = createRenderer({
+      createElement(string) {
+        return document.createElement(string);
+      },
+      createTextNode(value) {
+        return document.createTextNode(value);
+      },
+      replaceText(textNode, value) {
+        textNode.data = value;
+      },
+      setProperty(node, name, value) {
+        if (value == null) node.removeAttribute(name);
+        else node.setAttribute(name, value);
+      },
+      insertNode(parent, node, anchor) {
+        parent.insertBefore(node, anchor);
+      },
+      removeNode(parent, node) {
+        parent.removeChild(node);
+      },
+      cleanupNodes,
+      isTextNode(node) {
+        return node.nodeType === 3;
+      },
+      getParentNode(node) {
+        return node.parentNode;
+      },
+      getFirstChild(node) {
+        return node.firstChild;
+      },
+      getNextSibling(node) {
+        return node.nextSibling;
+      }
+    });
+    const parent = document.createElement("div");
+    const span = document.createElement("span");
+
+    const dispose = renderer.render(() => span, parent);
+    dispose();
+
+    expect(cleanupNodes).toHaveBeenCalledTimes(1);
+    expect(cleanupNodes).toHaveBeenCalledWith(parent, [span]);
+    expect(parent.firstChild).toBe(span);
   });
 });
 

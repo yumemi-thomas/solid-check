@@ -19,18 +19,28 @@ export function createRenderer({
   replaceText,
   insertNode,
   removeNode,
+  cleanupNodes,
   setProperty,
   getParentNode,
   getFirstChild,
   getNextSibling
 }) {
   function insert(parent, accessor, marker, initial, options) {
+    const onUpdate = options && options.onUpdate;
+    let effectOptions = options;
+    if (onUpdate) {
+      const { onUpdate, ...rest } = options;
+      effectOptions = rest;
+    }
     const multi = marker !== undefined;
     if (multi && !initial) initial = [];
     if (typeof accessor !== "function") {
       accessor = normalize(accessor, multi, true);
-      if (typeof accessor !== "function")
-        return insertExpression(parent, accessor, initial, marker);
+      if (typeof accessor !== "function") {
+        insertExpression(parent, accessor, initial, marker);
+        onUpdate && onUpdate(accessor);
+        return;
+      }
     }
     if (multi && initial.length === 0) {
       const sentinel = createSentinel();
@@ -47,10 +57,11 @@ export function createRenderer({
           inner => {
             insertExpression(parent, inner, current, marker);
             current = inner;
+            onUpdate && onUpdate(current);
           },
           prev !== undefined && !(options && options.schedule)
-            ? { ...options, schedule: true }
-            : options
+            ? { ...effectOptions, schedule: true }
+            : effectOptions
         );
         return INNER_OWNED;
       },
@@ -58,8 +69,9 @@ export function createRenderer({
         if (value === INNER_OWNED) return;
         insertExpression(parent, value, current, marker);
         current = value;
+        onUpdate && onUpdate(current);
       },
-      options
+      effectOptions
     );
   }
 
@@ -220,6 +232,31 @@ export function createRenderer({
     removeNode(parent, oldNode);
   }
 
+  function collectNodes(value, nodes) {
+    if (Array.isArray(value)) {
+      for (let i = 0, len = value.length; i < len; i++) collectNodes(value[i], nodes);
+    } else if (value != null && typeof value !== "string" && typeof value !== "number") {
+      nodes.push(value);
+    }
+    return nodes;
+  }
+
+  function collectMounted(parent, value) {
+    const nodes = collectNodes(value, []);
+    if (!nodes.length && (typeof value === "string" || typeof value === "number")) {
+      const node = getFirstChild(parent);
+      if (node) nodes.push(node);
+    }
+    return nodes;
+  }
+
+  function defaultCleanupNodes(parent, nodes) {
+    for (let i = 0, len = nodes.length; i < len; i++) {
+      const node = nodes[i];
+      if (getParentNode(node) === parent) removeNode(parent, node);
+    }
+  }
+
   // TODO: make this better
   function spread(node, props, skipChildren) {
     const prevProps = {};
@@ -270,17 +307,31 @@ export function createRenderer({
 
   return {
     render(code, element) {
-      let disposer;
+      let disposer,
+        disposed = false,
+        mounted = [];
+      const cleanup = cleanupNodes || defaultCleanupNodes;
       try {
         root(dispose => {
           disposer = dispose;
-          insert(element, code());
+          insert(element, code(), undefined, undefined, {
+            onUpdate(value) {
+              mounted = collectMounted(element, value);
+            }
+          });
         });
       } catch (err) {
         if (disposer) disposer();
+        cleanup(element, mounted);
         throw err;
       }
-      return disposer;
+      return () => {
+        if (disposed) return;
+        disposed = true;
+        disposer();
+        cleanup(element, mounted);
+        mounted = [];
+      };
     },
     insert,
     spread,
