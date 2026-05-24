@@ -1,6 +1,6 @@
 # sld-dom-expressions
 
-A tagged-template runtime for fine-grained reactive libraries (e.g. SolidJS).
+A tagged-template runtime for fine-grained reactive libraries such as Solid.js (any signals library can be hooked in).
 
 `sld` parses templates at runtime and installs reactive bindings against the
 resulting DOM. Component references are real JavaScript values — either a name
@@ -15,20 +15,31 @@ npm install sld-dom-expressions
 
 ## Quick start
 
-`createSLDRuntime(runtime)` returns a ready-to-use tag bound to that runtime.
-Components are added via `.define({ ... })`, which returns a new tag with the
+`createSLDRuntime(runtime)` returns a ready-to-use tag bound to the runtime of a signals library.
+Components are registered via `.define({ ... })`, which returns a new tag with the
 combined registry.
 
 ```ts
 import { createSLDRuntime } from "sld-dom-expressions";
+
+// In this example, we will specifically connect Solid.js to sld, but any
+// signals-style library could export a compatible interface.
 import * as web from "@solidjs/web";
+
 import { For, Show, createSignal } from "solid-js";
 import { render } from "@solidjs/web";
 
-const sld = createSLDRuntime(web).define({ For, Show });
+// Create an sld template tag that is reactive to Solid.js signals by
+// passing in the Solid.js web runtime,
+const sld = createSLDRuntime(web)
+  // and make these components available as PascalCase tag names
+  // inside of the template string.
+  .define({ For, Show });
 
 function Counter() {
   const [count, setCount] = createSignal(0);
+
+  // Finally, write reactive templates!
   return sld`
     <button onClick=${() => setCount(c => c + 1)}>
       Count: ${count}
@@ -43,16 +54,30 @@ render(Counter, document.body);
 
 ### `createSLDRuntime(runtime): SLDInstance<{}>`
 
-Binds the runtime once and returns a tag with an empty component registry.
+Binds the runtime once and returns a tag with an empty component registry (`{}`).
 The `runtime` object provides the reactive primitives and HTML facts the tag
-needs at render time. When using `@solidjs/web`, the module itself satisfies
-the shape (`import * as web from "@solidjs/web"`).
+needs at render time. When using `@solidjs/web`, the module's exports (the `web` in
+`import * as web from "@solidjs/web"`) satisfies the shape.
 
-The `Runtime` type is exported for consumers wiring custom reactive cores:
+The `Runtime` type is exported, any signals-style library can implement for use
+with `sld` templates:
 
 ```ts
 import { type Runtime } from "sld-dom-expressions";
 
+import { ... } from '@preact/signals'; // For example, make sld work with Preact Signals
+
+const preactSldRuntime: Runtime = {
+  // ...implement the required shape for sld compatibility, using
+  // Preact Signals primitives...
+}
+
+const sld = createSLDRuntime(preactSldRuntime)
+```
+
+The `Runtime` shape is:
+
+```ts
 interface Runtime {
   insert(parent: Node, accessor: any, marker?: Node | null, init?: any): any;
   spread(node: Element, accessor: any, skipChildren?: boolean): void;
@@ -65,7 +90,7 @@ interface Runtime {
 }
 ```
 
-### `tag.define(components): SLDInstance<T & TNew>`
+### `tag.define(components): SLDInstance<PreviousComponents & NewComponents>`
 
 Returns a new tag with the supplied components merged into the registry.
 The original tag is unchanged.
@@ -78,9 +103,29 @@ const withForAndShow = withFor.define({ Show });
 
 ### `tag.sld`
 
-Self-reference. Lets every template start with `sld\`...\``regardless of
-which local variable name was used to bind the tag — useful for codemods,
-syntax highlighters, and tooling that keys off the literal text`sld\``.
+A self-reference. This makes it possible to start every template with
+`` sld`...` `` regardless of which local variable name was used to reference the
+tag — useful for codemods, syntax highlighters, and tooling that keys off the
+literal text`` sld` ``.
+
+```js
+const withForAndShow = withFor.define({ Show }); // from above
+
+console.log(withForAndShow === withForAndShow.sld) // true
+
+// Both of these are functionally equivalent, but the second one
+// helps tooling that specifically looks for "sld" in code.
+
+withForAndShow`
+  <For ...>...</For>
+  <Show ...>...</Show>
+`
+
+withForAndShow.sld`
+  <For ...>...</For>
+  <Show ...>...</Show>
+`
+```
 
 ### `tag.components`
 
@@ -110,7 +155,7 @@ sld`<${MyComponent}>...<//>`; // shorthand close for inline component (see Limit
 - Pure-whitespace runs between elements are dropped from the AST.
 - Leading and trailing whitespace inside an element is dropped when the
   element contains at least one expression hole.
-- When in doubt, use an expression: `sld\`<p>${" exact "}</p>\``.
+- When in doubt, use an expression: `` sld`<p>${" exact  spaces   "}</p>` ``.
 
 ### Attributes and properties
 
@@ -163,15 +208,23 @@ sld`<Route component=${() => Counter} />`;
 | **Reactivity**     | Signals auto-wrapped                    | Zero-arg functions auto-wrapped (use `() =>` to opt out) |
 | **Component refs** | Identifier in scope                     | Registered name (`<Foo />`) or expression (`<${Foo} />`) |
 
-Because `sld` returns a `JSX.Element` — a single node when the template
-resolves to one root, an array when it resolves to many — consumers that
-need to iterate or spread should normalize:
+Because `sld` returns a `JSX.Element` — which can be a single node when the template
+resolves to one root, or an array when it resolves to many — consumers that
+need to iterate or spread should normalize the result:
 
 ```ts
-const result = sld`<div /><span />`;
-const nodes = Array.isArray(result) ? result : [result];
+const result = sld`<div />`; // div
+const nodes = [result].flat(); // [div]
+```
+```ts
+const result = sld`
+  <div />
+  <span />
+`; // [div, span]
+
+const nodes = [result].flat(); // [div, span]
 ```
 
 ## License
 
-MIT
+You've got a license to build awesome apps: MIT
