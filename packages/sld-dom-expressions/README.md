@@ -58,6 +58,33 @@ function Counter() {
 render(Counter, document.body);
 ```
 
+Depending on your tooling, if for example you only need syntax highlighting,
+you could use a different variable name:
+
+```js
+const html = createSLDRuntime(web).define({ For, Show });
+
+function MyComponent() {
+  return html`
+    <button onClick=${() => console.log('click')}>
+      Click!
+    </button>
+
+    <For each=${...}>
+      ...
+    </For>
+
+    <Show when=${...}>
+      ...
+    </Show>
+  `
+}
+```
+
+But note, the behavior may not be the same if you rely on the name for type
+checking, or for certain formatters like Prettier that may have similar but
+not exactly the same syntax rules.
+
 ## API
 
 ### `createSLDRuntime(runtime): SLDInstance<{}>`
