@@ -58,9 +58,9 @@ render(Counter, document.body);
 Binds the runtime once and returns a tag with an empty component registry (`{}`).
 The `runtime` object provides the reactive primitives and HTML facts the tag
 needs at render time. When using `@solidjs/web`, the module's exports (the `web` in
-`import * as web from "@solidjs/web"`) satisfies the shape.
+`import * as web from "@solidjs/web"`) satisfy the shape.
 
-The `Runtime` type is exported, any signals-style library can implement for use
+The exported `Runtime` type can be implemented by any signals-style library for use
 with `sld` templates:
 
 ```ts
@@ -107,7 +107,7 @@ const withForAndShow = withFor.define({ Show });
 A self-reference. This makes it possible to start every template with
 `` sld`...` `` regardless of which local variable name was used to reference the
 tag — useful for codemods, syntax highlighters, and tooling that keys off the
-literal text`` sld` ``.
+literal text `` sld` ``.
 
 ```js
 const withForAndShow = withFor.define({ Show }); // from above
