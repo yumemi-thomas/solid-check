@@ -1,6 +1,7 @@
 # sld-dom-expressions
 
-A tagged-template runtime for fine-grained reactive libraries such as Solid.js (any signals library can be hooked in).
+A tagged-template runtime for fine-grained signals libraries such as Solid.js.
+Any signals library can be hooked into `sld` by implementing a `Runtime` adapter.
 
 `sld` parses templates at runtime and installs reactive bindings against the
 resulting DOM. Component references are real JavaScript values — either a name
