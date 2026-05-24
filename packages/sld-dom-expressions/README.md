@@ -30,12 +30,11 @@ import * as web from "@solidjs/web";
 import { For, Show, createSignal } from "solid-js";
 import { render } from "@solidjs/web";
 
-// Create an sld template tag that is reactive to Solid.js signals by
-// passing in the Solid.js web runtime,
-const sld = createSLDRuntime(web)
-  // and make these components available as PascalCase tag names
-  // inside of the template string.
-  .define({ For, Show });
+// This creates an sld template tag that is reactive specifically to
+// Solid.js signals by passing in the Solid.js web runtime, and registers
+// two components for use via PascalCase tag names inside of the template
+// strings.
+const sld = createSLDRuntime(web).define({ For, Show });
 
 function Counter() {
   const [count, setCount] = createSignal(0);
@@ -45,6 +44,14 @@ function Counter() {
     <button onClick=${() => setCount(c => c + 1)}>
       Count: ${count}
     </button>
+
+    <For each=${...}>
+      ...
+    </For>
+
+    <Show when=${...}>
+      ...
+    </Show>
   `;
 }
 
@@ -118,13 +125,23 @@ console.log(withForAndShow === withForAndShow.sld) // true
 // helps tooling that specifically looks for "sld" in code.
 
 withForAndShow`
-  <For ...>...</For>
-  <Show ...>...</Show>
+    <For each=${...}>
+      ...
+    </For>
+
+    <Show when=${...}>
+      ...
+    </Show>
 `
 
 withForAndShow.sld`
-  <For ...>...</For>
-  <Show ...>...</Show>
+    <For each=${...}>
+      ...
+    </For>
+
+    <Show when=${...}>
+      ...
+    </Show>
 `
 ```
 
