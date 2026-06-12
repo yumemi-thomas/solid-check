@@ -26,6 +26,11 @@ const ChildProperties = /*#__PURE__*/ new Set([
 // slot in the same parent" without consulting external bookkeeping.
 const $$SLOT = /*#__PURE__*/ Symbol("slot");
 
+// Guard companion to the `_$host` getter applied by `insert`'s `host` option:
+// records which host accessor a node was last tagged with so unchanged nodes
+// skip the `defineProperty` on subsequent updates.
+const $$HOST = /*#__PURE__*/ Symbol("host");
+
 // list of Element events that will be delegated
 const DelegatedEvents = /*#__PURE__*/ new Set([
   "beforeinput",
@@ -507,5 +512,6 @@ export {
   RawTextElements,
   Namespaces,
   DOMElements,
-  $$SLOT
+  $$SLOT,
+  $$HOST
 };

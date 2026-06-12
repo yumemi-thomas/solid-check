@@ -954,3 +954,179 @@ describe("r.insert with migrating nodes", () => {
     expect(parent.querySelectorAll("span").length).toBe(2);
   });
 });
+
+describe("r.insert with host option", () => {
+  // The `host` option is how portals route event retargeting back to their
+  // logical position in the source tree: every top-level node the slot
+  // manages gets a live `_$host` getter backed by the provided accessor.
+  // Crucially the mount parent is a REAL element (no proxy wrapper), so the
+  // slot-ownership checks in cleanChildren/reconcileArrays behave normally —
+  // these tests cover the runtime side of solidjs/solid#2757 and #2758.
+
+  it("tags top-level nodes (including created text nodes) with a live _$host getter", () => {
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    let hostEl = document.createElement("section");
+    const host = () => hostEl;
+
+    const span = document.createElement("span");
+    span.textContent = "content";
+    const [val, setVal] = createSignal([span, "text"]);
+    createRoot(() => {
+      r.insert(mount, val, marker, undefined, { host });
+    });
+    flush();
+
+    expect(span._$host).toBe(hostEl);
+    // strings are normalized into text nodes — they must be tagged too
+    const textNode = span.nextSibling;
+    expect(textNode.nodeType).toBe(3);
+    expect(textNode._$host).toBe(hostEl);
+
+    // the getter is live: when the logical host moves, _$host follows
+    const newHost = document.createElement("article");
+    hostEl = newHost;
+    expect(span._$host).toBe(newHost);
+
+    setVal([span, "text"]);
+    flush();
+    expect(span._$host).toBe(newHost);
+  });
+
+  it("tags nodes on the static (non-reactive) insert path", () => {
+    // Portal with non-reactive children resolves to a plain array and takes
+    // insert's early-return path — no effect is created, but tagging must
+    // still happen.
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    const hostEl = document.createElement("section");
+
+    const span = document.createElement("span");
+    span.textContent = "static";
+    r.insert(mount, [span, "text"], marker, undefined, { host: () => hostEl });
+
+    expect(span._$host).toBe(hostEl);
+    expect(span.nextSibling.nodeType).toBe(3);
+    expect(span.nextSibling._$host).toBe(hostEl);
+  });
+
+  it("tags nodes inserted through the replaceChild path", () => {
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    const hostEl = document.createElement("section");
+
+    const startMarker = document.createTextNode("");
+    const a = document.createElement("span");
+    a.textContent = "a";
+    const b = document.createElement("span");
+    b.textContent = "b";
+
+    const [val, setVal] = createSignal([startMarker, a]);
+    createRoot(() => {
+      r.insert(mount, val, marker, undefined, { host: () => hostEl });
+    });
+    flush();
+    expect(a._$host).toBe(hostEl);
+
+    // single-position swap drives reconcile's replaceChild branch — the
+    // path the old proxy-based tagging never covered
+    setVal([startMarker, b]);
+    flush();
+    expect(mount.contains(a)).toBe(false);
+    expect(mount.contains(b)).toBe(true);
+    expect(b._$host).toBe(hostEl);
+  });
+
+  it("portal-style keyed swaps replace content instead of accumulating (#2757)", () => {
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    const hostEl = document.createElement("section");
+    const startMarker = document.createTextNode("");
+
+    const makeBranch = key => {
+      const el = document.createElement("span");
+      el.textContent = `content for key ${key}`;
+      return el;
+    };
+
+    const [key, setKey] = createSignal(0);
+    createRoot(() => {
+      r.insert(mount, () => [startMarker, makeBranch(key())], marker, undefined, {
+        host: () => hostEl
+      });
+    });
+    flush();
+    expect(mount.querySelectorAll("span").length).toBe(1);
+
+    for (let i = 1; i <= 3; i++) {
+      setKey(i);
+      flush();
+      expect(mount.querySelectorAll("span").length).toBe(1);
+      expect(mount.querySelector("span").textContent).toBe(`content for key ${i}`);
+    }
+  });
+
+  it("clears content fully when the slot empties", () => {
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    const hostEl = document.createElement("section");
+
+    const [val, setVal] = createSignal(["a", "b", "c"]);
+    createRoot(() => {
+      r.insert(mount, val, marker, undefined, { host: () => hostEl });
+    });
+    flush();
+    expect(mount.textContent).toBe("abc");
+
+    setVal([]);
+    flush();
+    expect(mount.textContent).toBe("");
+  });
+
+  it("keeps two host slots on the same mount isolated", () => {
+    const mount = document.createElement("div");
+    const markerA = mount.appendChild(document.createTextNode(""));
+    const markerB = mount.appendChild(document.createTextNode(""));
+    const hostA = document.createElement("section");
+    const hostB = document.createElement("aside");
+
+    const a1 = document.createElement("span");
+    a1.textContent = "a1";
+    const a2 = document.createElement("span");
+    a2.textContent = "a2";
+    const b1 = document.createElement("b");
+    b1.textContent = "b1";
+
+    const [aVal, setAVal] = createSignal([a1]);
+    const [bVal] = createSignal([b1]);
+    createRoot(() => {
+      r.insert(mount, aVal, markerA, undefined, { host: () => hostA });
+      r.insert(mount, bVal, markerB, undefined, { host: () => hostB });
+    });
+    flush();
+    expect(a1._$host).toBe(hostA);
+    expect(b1._$host).toBe(hostB);
+
+    // swapping slot A must not disturb slot B's content or tagging
+    setAVal([a2]);
+    flush();
+    expect(mount.contains(a1)).toBe(false);
+    expect(mount.contains(a2)).toBe(true);
+    expect(mount.contains(b1)).toBe(true);
+    expect(a2._$host).toBe(hostA);
+    expect(b1._$host).toBe(hostB);
+  });
+
+  it("does not tag nodes when no host option is given", () => {
+    const mount = document.createElement("div");
+    const marker = mount.appendChild(document.createTextNode(""));
+    const span = document.createElement("span");
+
+    const [val] = createSignal([span]);
+    createRoot(() => {
+      r.insert(mount, val, marker);
+    });
+    flush();
+    expect(span._$host).toBeUndefined();
+  });
+});

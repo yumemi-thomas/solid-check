@@ -30,7 +30,17 @@ export function insert<T>(
   parent: MountableElement,
   accessor: (() => T) | T,
   marker?: Node | null,
-  init?: JSX.Element
+  init?: JSX.Element,
+  options?: {
+    /**
+     * Live accessor for the slot's logical host in the source tree (portals).
+     * Each top-level node the slot manages is tagged with a `_$host` getter
+     * backed by this accessor so delegated events retarget correctly.
+     */
+    host?: () => Node | null;
+    /** Defer the insert effect to the queue instead of running it inline. */
+    schedule?: boolean;
+  }
 ): JSX.Element;
 export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element;
 export function delegateEvents(eventNames: string[]): void;

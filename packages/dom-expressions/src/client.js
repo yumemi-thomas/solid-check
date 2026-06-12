@@ -1,4 +1,4 @@
-import { ChildProperties, Namespaces, DelegatedEvents, $$SLOT } from "./constants";
+import { ChildProperties, Namespaces, DelegatedEvents, $$SLOT, $$HOST } from "./constants";
 import {
   root,
   effect,
@@ -313,6 +313,7 @@ export function ref(fn, element) {
 
 export function insert(parent, accessor, marker, initial, options) {
   const multi = marker !== undefined;
+  const host = options && options.host;
   if (multi && !initial) initial = [];
   if (isHydrating(parent)) {
     if (!multi && initial === undefined && parent) initial = [...parent.childNodes];
@@ -327,7 +328,11 @@ export function insert(parent, accessor, marker, initial, options) {
   }
   if (typeof accessor !== "function") {
     accessor = normalize(accessor, initial, multi, true);
-    if (typeof accessor !== "function") return insertExpression(parent, accessor, initial, marker);
+    if (typeof accessor !== "function") {
+      insertExpression(parent, accessor, initial, marker);
+      host && tagHost(accessor, host);
+      return;
+    }
   }
   if (multi && initial.length === 0) {
     const placeholder = document.createTextNode("");
@@ -344,6 +349,7 @@ export function insert(parent, accessor, marker, initial, options) {
         inner => {
           insertExpression(parent, inner, current, marker);
           current = inner;
+          host && tagHost(current, host);
         },
         prev !== undefined && !(options && options.schedule)
           ? { ...options, schedule: true }
@@ -355,6 +361,7 @@ export function insert(parent, accessor, marker, initial, options) {
       if (value === INNER_OWNED) return;
       insertExpression(parent, value, current, marker);
       current = value;
+      host && tagHost(current, host);
     },
     options
   );
@@ -822,6 +829,22 @@ function normalize(value, current, multi, doNotUnwrap) {
     }
   }
   return value;
+}
+
+// Applied after each `insert` update when the `host` option is present (e.g.
+// portals): the slot's top-level nodes get a live `_$host` getter so event
+// retargeting can route back to the slot's logical position in the source
+// tree. Tagging here — rather than intercepting individual DOM calls — covers
+// every insertion path (append, replaceChild, reconcile, hydration claim)
+// without touching the hot reconcile loops. `$$HOST` short-circuits nodes
+// already tagged for this host on subsequent updates.
+function tagHost(value, host) {
+  if (Array.isArray(value)) {
+    for (let i = 0, len = value.length; i < len; i++) tagHost(value[i], host);
+  } else if (value && value.nodeType && value[$$HOST] !== host) {
+    value[$$HOST] = host;
+    Object.defineProperty(value, "_$host", { get: host, configurable: true });
+  }
 }
 
 function appendNodes(parent, array, marker = null) {
