@@ -36,3 +36,54 @@ const template25 = <div>{tiles}</div>;
 
 const comma = <div>{expression(), "static"}</div>
 const double = <div>{children()()}</div>
+
+function OrderedParent(props) {
+  return (
+    <section>
+      {props.children}
+      <OrderedSibling />
+    </section>
+  );
+}
+function OrderedNativeParent(props) {
+  return (
+    <section>
+      {props.children}
+      <span>native</span>
+    </section>
+  );
+}
+function OrderedExpressionParent(props) {
+  return (
+    <section>
+      {props.render()}
+      <OrderedSibling />
+    </section>
+  );
+}
+function OrderedConditionalParent(props) {
+  return (
+    <section>
+      {props.when ? <OrderedChild /> : <span>fallback</span>}
+      <OrderedSibling />
+    </section>
+  );
+}
+function OrderedChild() {
+  return <span>child</span>;
+}
+function OrderedSibling() {
+  return <span>sibling</span>;
+}
+const orderedComponent = (
+  <OrderedParent>
+    <OrderedChild />
+  </OrderedParent>
+);
+const orderedNative = (
+  <OrderedNativeParent>
+    <OrderedChild />
+  </OrderedNativeParent>
+);
+const orderedExpression = <OrderedExpressionParent render={() => <OrderedChild />} />;
+const orderedConditional = <OrderedConditionalParent when={true} />;

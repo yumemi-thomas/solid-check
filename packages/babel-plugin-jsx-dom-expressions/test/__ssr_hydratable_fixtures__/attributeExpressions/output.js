@@ -274,14 +274,15 @@ const template24 = _$ssrElement(
 );
 var _v$35 = _$ssrHydrationKey(),
   _v$36 = () => _$escape(props.children),
-  _v$37 = _$ssrElement(
-    "a",
-    _$mergeProps(props, {
-      something: true
-    }),
-    undefined,
-    false
-  );
+  _v$37 = () =>
+    _$ssrElement(
+      "a",
+      _$mergeProps(props, {
+        something: true
+      }),
+      undefined,
+      false
+    );
 const template25 = _$ssr(_tmpl$19, _v$35, _v$36, _v$37);
 const template26 = _$ssrElement(
   "div",

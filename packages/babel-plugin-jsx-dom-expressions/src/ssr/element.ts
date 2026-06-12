@@ -772,6 +772,29 @@ function transformClasslistObject(
   });
 }
 
+function canReturnHydratableChild(node: babelTypes.Node): boolean {
+  if (t.isTSNonNullExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node))
+    return canReturnHydratableChild(node.expression);
+  if (t.isJSXElement(node) || t.isJSXFragment(node) || t.isCallExpression(node)) return true;
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    return !node.computed && t.isIdentifier(node.property, { name: "children" });
+  }
+  if (t.isConditionalExpression(node)) {
+    return canReturnHydratableChild(node.consequent) || canReturnHydratableChild(node.alternate);
+  }
+  return t.isLogicalExpression(node) && canReturnHydratableChild(node.right);
+}
+
+function canChildSlotAllocateIds(node: JSXChildPath): boolean {
+  if (node.isJSXElement() || node.isJSXFragment()) return true;
+  if (node.isJSXSpreadChild()) return true;
+  return node.isJSXExpressionContainer() && canReturnHydratableChild(node.node.expression);
+}
+
+function isDeferredChildSlotExpression(node: babelTypes.Expression): boolean {
+  return t.isFunction(node) || (t.isCallExpression(node) && t.isFunction(node.callee));
+}
+
 function transformChildren(
   path: BabelPath<babelTypes.JSXElement> & { doNotEscape?: boolean },
   results: SSRTransformResult,
@@ -782,12 +805,14 @@ function transformChildren(
   const filteredChildren = filterChildren(path.get("children"));
   const multi = checkLength(filteredChildren),
     markers = hydratable && multi;
+  let orderedInsert = false;
   filteredChildren.forEach((node: JSXChildPath) => {
     if (node.isJSXFragment()) {
       throw new Error(
         `Fragments can only be used top level in JSX. Not used under a <${tagName}>.`
       );
     }
+    const allocatesIds = canChildSlotAllocateIds(node);
     const child = transformNode(node, { doNotEscape, parentResults: results });
     if (!child) return;
     appendToTemplate(results.template, child.template as string | string[]);
@@ -812,20 +837,24 @@ function transformChildren(
         ._groupableTextContent
         ? { group: true }
         : undefined;
+      const expr =
+        hydratable &&
+        orderedInsert &&
+        allocatesIds &&
+        !isDeferredChildSlotExpression(child.exprs[0] as babelTypes.Expression)
+          ? t.arrowFunctionExpression([], child.exprs[0] as babelTypes.Expression)
+          : (child.exprs[0] as babelTypes.Expression);
+      if (hydratable && allocatesIds && isDeferredChildSlotExpression(expr)) orderedInsert = true;
 
       // boxed by textNodes
       if (markers && !child.spreadElement) {
         appendToTemplate(results.template, `<!--$-->`);
         results.template.push("");
-        results.templateValues.push(
-          hoistExpression(path, results, child.exprs[0] as babelTypes.Expression, hoistOpts)
-        );
+        results.templateValues.push(hoistExpression(path, results, expr, hoistOpts));
         appendToTemplate(results.template, `<!--/-->`);
       } else {
         results.template.push("");
-        results.templateValues.push(
-          hoistExpression(path, results, child.exprs[0] as babelTypes.Expression, hoistOpts)
-        );
+        results.templateValues.push(hoistExpression(path, results, expr, hoistOpts));
       }
     }
   });
