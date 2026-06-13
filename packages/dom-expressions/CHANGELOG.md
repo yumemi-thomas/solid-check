@@ -1,5 +1,16 @@
 # dom-expressions
 
+## 0.50.0-next.14
+
+### Patch Changes
+
+- 910e5fe: Add `host` option to `insert` for portal-style slots. Top-level nodes managed by the slot are tagged with a live `_$host` getter after each update, replacing proxy-based DOM call interception. The mount parent is now a real element so slot-ownership checks (`parentNode` identity) behave correctly — fixes portal content accumulating on swaps (solidjs/solid#2757) — and tagging covers the `replaceChild`, reconcile, and hydration claim paths the proxy missed.
+- 58284f7: Make `ClassValue` recursive so nested arrays type-check. The runtime already
+  flattens arbitrarily nested class arrays (e.g. `class={["a", ["b"]]}`), but the
+  type only allowed a single level. `ClassValue` is now `string | number |
+boolean | null | undefined | Record<string, boolean> | ClassValue[]`.
+- a9357a2: Universal renderer `render()` disposers now remove the top-level host nodes they mounted, matching DOM `render()` cleanup semantics. Custom renderers can provide `cleanupNodes(parent, nodes)` to override the default per-node `removeNode` teardown.
+
 ## 0.50.0-next.13
 
 ### Patch Changes

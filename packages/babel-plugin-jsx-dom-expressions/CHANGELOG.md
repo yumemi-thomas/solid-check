@@ -1,5 +1,11 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.14
+
+### Patch Changes
+
+- 9a64f1f: Preserve SSR child evaluation order for deferred hydratable insert slots.
+
 ## 0.50.0-next.13
 
 ### Patch Changes

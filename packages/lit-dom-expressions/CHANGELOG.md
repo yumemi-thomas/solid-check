@@ -1,5 +1,14 @@
 # lit-dom-expressions
 
+## 0.50.0-next.14
+
+### Patch Changes
+
+- 58284f7: Make `ClassValue` recursive so nested arrays type-check. The runtime already
+  flattens arbitrarily nested class arrays (e.g. `class={["a", ["b"]]}`), but the
+  type only allowed a single level. `ClassValue` is now `string | number |
+boolean | null | undefined | Record<string, boolean> | ClassValue[]`.
+
 ## 0.50.0-next.13
 
 ### Patch Changes

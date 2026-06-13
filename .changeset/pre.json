@@ -9,6 +9,7 @@
     "sld-dom-expressions": "0.50.0-next.2"
   },
   "changesets": [
+    "add-insert-host-option",
     "add-jsx-customize-script",
     "add-sld-dom-expressions",
     "export-void-rawtext-element-sets",
@@ -23,6 +24,7 @@
     "fix-sld-template-content",
     "fix-sld-top-level-templates",
     "fix-ssr-bail-double-invocation",
+    "fix-ssr-child-ordering",
     "harden-ssr-escape",
     "hyper-mapArray-row-overexec",
     "hyper-tagged-thunks",
@@ -35,6 +37,7 @@
     "perf-reconcile-single-anchor-end-swap",
     "port-main-maintenance",
     "pr-511-ssr-dedupe-and-xlink-removal",
+    "recursive-classvalue-type",
     "release-0-50-0-next-1",
     "remove-on-namespace-events",
     "remove-style-class-once",
@@ -48,6 +51,7 @@
     "ssr-group-attribute-closures",
     "ssr-perf-pass-and-remove-ssr-run-in-scope",
     "unify-babel-void-elements",
+    "universal-render-dispose-cleans-nodes",
     "wrap-dynamics-optional-chaining"
   ]
 }
