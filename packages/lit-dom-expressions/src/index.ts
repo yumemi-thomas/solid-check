@@ -3,8 +3,12 @@ import { parse, stringify, IDom } from "html-parse-string";
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 export type ClassValue =
   | string
+  | number
+  | boolean
+  | null
+  | undefined
   | Record<string, boolean>
-  | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
+  | ClassValue[];
 interface Runtime {
   effect<T>(fn: (prev?: T) => T, effect: (value: T, prev?: T) => void): void;
   untrack<T>(fn: () => T): T;

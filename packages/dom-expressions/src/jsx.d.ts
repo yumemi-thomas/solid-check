@@ -225,8 +225,12 @@ export namespace JSX {
 
   export type ClassValue =
     | string
+    | number
+    | boolean
+    | null
+    | undefined
     | Record<string, boolean>
-    | Array<string | number | boolean | null | undefined | Record<string, boolean>>;
+    | ClassValue[];
 
   const SERIALIZABLE: unique symbol;
   interface SerializableAttributeValue {
