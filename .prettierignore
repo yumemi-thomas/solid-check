@@ -6,4 +6,5 @@ coverage
 pnpm-lock.yaml
 packages/babel-plugin-jsx-dom-expressions/index.js
 packages/babel-plugin-jsx-dom-expressions/test/__*__/
+packages/jsx-dom-expressions-compiler/__tests__/fixtures/
 packages/dom-expressions/types

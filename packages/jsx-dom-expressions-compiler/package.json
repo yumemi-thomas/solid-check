@@ -1,0 +1,49 @@
+{
+  "name": "jsx-dom-expressions-compiler",
+  "description": "A JSX to DOM Expressions compiler implemented with Oxc",
+  "version": "0.50.0-next.6",
+  "author": "Ryan Carniato",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryansolid/dom-expressions.git",
+    "directory": "packages/jsx-dom-expressions-compiler"
+  },
+  "main": "index.js",
+  "types": "types.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./types.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "types.d.ts",
+    "*.node",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "napi build --release --manifest-path ./Cargo.toml",
+    "build:debug": "napi build --manifest-path ./Cargo.toml",
+    "lint": "cargo clippy --manifest-path ./Cargo.toml -- -D warnings",
+    "test": "pnpm run build:debug && jest --no-cache",
+    "prepublishOnly": "pnpm run build"
+  },
+  "napi": {
+    "binaryName": "jsx-dom-expressions-compiler",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.6.2"
+  }
+}
+
