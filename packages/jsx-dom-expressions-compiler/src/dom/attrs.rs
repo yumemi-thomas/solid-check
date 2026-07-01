@@ -62,22 +62,13 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         for attr in attributes {
-            if let Some(statement) = self.no_inline_style_attribute_statement(attr, element_id)? {
+            if let Some(statement) = self.attribute_operation_statement(attr, element_id)? {
                 operations.push(statement);
                 continue;
             }
-            if self.class_array_attribute_operations(attr, element_id, template, operations)? {
-                continue;
-            }
-            if self.style_object_attribute_operations(attr, element_id, template, operations)? {
-                continue;
-            }
-            if let Some(statement) = self.prop_attribute_statement(attr, element_id)? {
-                operations.push(statement);
-                continue;
-            }
-            if let Some(statement) = self.child_property_attribute_statement(attr, element_id)? {
-                operations.push(statement);
+            if self.class_array_attribute_operations(attr, element_id, template, operations)?
+                || self.style_object_attribute_operations(attr, element_id, template, operations)?
+            {
                 continue;
             }
             match append_static_template_attribute(Some(self), attr, template)? {
@@ -93,6 +84,20 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         }
         Ok(())
+    }
+
+    fn attribute_operation_statement(
+        &mut self,
+        attr: &JSXAttributeItem<'a>,
+        element_id: &str,
+    ) -> Result<Option<Statement<'a>>> {
+        if let Some(statement) = self.no_inline_style_attribute_statement(attr, element_id)? {
+            return Ok(Some(statement));
+        }
+        if let Some(statement) = self.prop_attribute_statement(attr, element_id)? {
+            return Ok(Some(statement));
+        }
+        self.child_property_attribute_statement(attr, element_id)
     }
 
     fn dynamic_attribute_statement(
