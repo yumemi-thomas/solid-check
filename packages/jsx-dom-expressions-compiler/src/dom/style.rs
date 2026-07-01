@@ -6,6 +6,7 @@ use oxc_ast::ast::{
 use oxc_span::Span;
 
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
+use crate::shared::utils::format_number;
 
 impl<'a> AstDomTransform<'a, '_> {
     pub(crate) fn no_inline_style_attribute_statement(
@@ -269,12 +270,4 @@ fn is_reactive_style_property_value(value: &Expression<'_>) -> bool {
             | Expression::ComputedMemberExpression(_)
             | Expression::ChainExpression(_)
     )
-}
-
-fn format_number(value: f64) -> String {
-    if value.fract() == 0.0 {
-        format!("{}", value as i64)
-    } else {
-        value.to_string()
-    }
 }

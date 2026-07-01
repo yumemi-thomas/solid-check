@@ -20,11 +20,7 @@ impl<'a> AstUniversalTransform<'a, '_> {
 
     pub(super) fn next_element_id(&mut self) -> String {
         self.element_index += 1;
-        if self.element_index == 1 {
-            "_el$".to_string()
-        } else {
-            format!("_el${}", self.element_index)
-        }
+        crate::shared::utils::indexed_local("_el", self.element_index)
     }
 
     pub(super) fn variable_statement(

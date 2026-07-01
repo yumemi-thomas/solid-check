@@ -33,10 +33,6 @@ impl<'a> AstDomTransform<'a, '_> {
 
     fn next_this_id(&mut self) -> String {
         self.this_index += 1;
-        if self.this_index == 1 {
-            "_self$".to_string()
-        } else {
-            format!("_self${}", self.this_index)
-        }
+        crate::shared::utils::indexed_local("_self", self.this_index)
     }
 }

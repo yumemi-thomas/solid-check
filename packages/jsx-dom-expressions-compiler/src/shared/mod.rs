@@ -2,6 +2,7 @@ pub(crate) mod array;
 pub(crate) mod ast;
 pub(crate) mod bindings;
 pub(crate) mod component;
+pub(crate) mod component_callee;
 pub(crate) mod component_children;
 pub(crate) mod component_props;
 pub(crate) mod constants;

@@ -55,7 +55,7 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 }
 
-fn push_unique(values: &mut std::vec::Vec<String>, value: &str) {
+pub(crate) fn push_unique(values: &mut std::vec::Vec<String>, value: &str) {
     if !values.iter().any(|existing| existing == value) {
         values.push(value.to_string());
     }

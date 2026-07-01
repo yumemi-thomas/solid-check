@@ -69,6 +69,32 @@ pub(crate) fn visit_class_element<'a, T: JsxTransform<'a>>(
     property.value = Some(target.lower_class_field_value(property.span, value));
 }
 
+/// Every JSX target drives traversal identically — it only customizes the
+/// lowering hooks on `JsxTransform`. This macro wires the `VisitMut` entry
+/// points to the shared dispatch functions above so the delegation lives in one
+/// place instead of being copy-pasted per target.
+macro_rules! impl_jsx_visit_mut {
+    ($target:ident) => {
+        impl<'a> VisitMut<'a> for $target<'a, '_> {
+            fn visit_program(&mut self, program: &mut Program<'a>) {
+                visit_program(self, program);
+            }
+
+            fn visit_statements(&mut self, statements: &mut ArenaVec<'a, Statement<'a>>) {
+                visit_statements(self, statements);
+            }
+
+            fn visit_expression(&mut self, expression: &mut Expression<'a>) {
+                visit_expression(self, expression);
+            }
+
+            fn visit_class_element(&mut self, class_element: &mut ClassElement<'a>) {
+                visit_class_element(self, class_element);
+            }
+        }
+    };
+}
+
 impl<'a> JsxTransform<'a> for AstDomTransform<'a, '_> {
     fn has_error(&self) -> bool {
         self.error.is_some()
@@ -95,24 +121,6 @@ impl<'a> JsxTransform<'a> for AstDomTransform<'a, '_> {
     }
 }
 
-impl<'a> VisitMut<'a> for AstDomTransform<'a, '_> {
-    fn visit_program(&mut self, program: &mut Program<'a>) {
-        visit_program(self, program);
-    }
-
-    fn visit_statements(&mut self, statements: &mut ArenaVec<'a, Statement<'a>>) {
-        visit_statements(self, statements);
-    }
-
-    fn visit_expression(&mut self, expression: &mut Expression<'a>) {
-        visit_expression(self, expression);
-    }
-
-    fn visit_class_element(&mut self, class_element: &mut ClassElement<'a>) {
-        visit_class_element(self, class_element);
-    }
-}
-
 impl<'a> JsxTransform<'a> for AstSsrTransform<'a, '_> {
     fn has_error(&self) -> bool {
         self.error.is_some()
@@ -136,24 +144,6 @@ impl<'a> JsxTransform<'a> for AstSsrTransform<'a, '_> {
 
     fn lower_class_field_value(&mut self, span: Span, value: Expression<'a>) -> Expression<'a> {
         AstSsrTransform::lower_class_field_value(self, span, value)
-    }
-}
-
-impl<'a> VisitMut<'a> for AstSsrTransform<'a, '_> {
-    fn visit_program(&mut self, program: &mut Program<'a>) {
-        visit_program(self, program);
-    }
-
-    fn visit_statements(&mut self, statements: &mut ArenaVec<'a, Statement<'a>>) {
-        visit_statements(self, statements);
-    }
-
-    fn visit_expression(&mut self, expression: &mut Expression<'a>) {
-        visit_expression(self, expression);
-    }
-
-    fn visit_class_element(&mut self, class_element: &mut ClassElement<'a>) {
-        visit_class_element(self, class_element);
     }
 }
 
@@ -189,20 +179,6 @@ impl<'a> JsxTransform<'a> for AstUniversalTransform<'a, '_> {
     }
 }
 
-impl<'a> VisitMut<'a> for AstUniversalTransform<'a, '_> {
-    fn visit_program(&mut self, program: &mut Program<'a>) {
-        visit_program(self, program);
-    }
-
-    fn visit_statements(&mut self, statements: &mut ArenaVec<'a, Statement<'a>>) {
-        visit_statements(self, statements);
-    }
-
-    fn visit_expression(&mut self, expression: &mut Expression<'a>) {
-        visit_expression(self, expression);
-    }
-
-    fn visit_class_element(&mut self, class_element: &mut ClassElement<'a>) {
-        visit_class_element(self, class_element);
-    }
-}
+impl_jsx_visit_mut!(AstDomTransform);
+impl_jsx_visit_mut!(AstSsrTransform);
+impl_jsx_visit_mut!(AstUniversalTransform);

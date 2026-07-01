@@ -2,9 +2,8 @@ use napi::bindgen_prelude::*;
 use oxc_allocator::{Allocator, CloneIn, Vec as ArenaVec};
 use oxc_ast::{
     ast::{
-        Argument, Expression, FormalParameterKind, JSXAttributeItem, JSXAttributeValue, JSXChild,
-        JSXElement, JSXElementName, JSXExpression, JSXFragment, JSXMemberExpression,
-        JSXMemberExpressionObject, ObjectPropertyKind, Program, Statement,
+        Argument, Expression, JSXAttributeItem, JSXAttributeValue, JSXChild, JSXElement,
+        JSXExpression, JSXFragment, ObjectPropertyKind, Program, Statement,
     },
     AstBuilder, NONE,
 };
@@ -14,9 +13,10 @@ use oxc_span::{GetSpan, Span};
 use crate::dom::element::jsx_expression_to_expression;
 use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::{
-    arrow_return_expression, expression_to_argument, import_named, object_getter_property,
-    object_property, variable_statement,
+    arrow_iife, arrow_return_expression, expression_to_argument, import_named,
+    object_getter_property, object_property, variable_statement,
 };
+use crate::shared::component_callee::{component_callee_expression, ComponentCalleeContext};
 use crate::shared::component_props::{
     component_property, component_props_expression, component_spread_expression,
     flush_component_props, ComponentPropContext,
@@ -24,8 +24,7 @@ use crate::shared::component_props::{
 use crate::shared::constants::namespaces;
 use crate::shared::utils::{
     decode_html_entities, element_name, escape_html_text, escape_html_text_expression,
-    is_component_name, is_identifier_key, is_void_element, static_jsx_expression_value,
-    trim_jsx_text,
+    is_component_name, is_void_element, static_jsx_expression_value, trim_jsx_text,
 };
 
 use super::template::SsrTemplate;
@@ -132,7 +131,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
     }
 
     fn lower_component(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>> {
-        let component = self.component_callee_expression(&element.opening_element.name)?;
+        let component = component_callee_expression(self, &element.opening_element.name)?;
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
         let mut force_merge_props = false;
@@ -316,7 +315,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         for attr in attributes {
             match attr {
                 JSXAttributeItem::SpreadAttribute(spread) => {
-                    flush_props(self, spread.span, &mut running_props, &mut prop_objects);
+                    flush_component_props(self, &mut running_props, &mut prop_objects, spread.span);
                     prop_objects.push(spread.argument.clone_in(self.allocator));
                 }
                 JSXAttributeItem::Attribute(attr) => {
@@ -326,7 +325,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 }
             }
         }
-        flush_props(self, Span::new(0, 0), &mut running_props, &mut prop_objects);
+        flush_component_props(self, &mut running_props, &mut prop_objects, Span::new(0, 0));
         Ok(match prop_objects.len() {
             0 => self
                 .ast()
@@ -790,78 +789,6 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         object_getter_property(self.allocator, span, name, value)
     }
 
-    fn component_callee_expression(&mut self, name: &JSXElementName<'a>) -> Result<Expression<'a>> {
-        match name {
-            JSXElementName::Identifier(identifier) => {
-                Ok(self.component_identifier_expression(&identifier.name))
-            }
-            JSXElementName::IdentifierReference(identifier) => {
-                Ok(self.component_identifier_expression(&identifier.name))
-            }
-            JSXElementName::MemberExpression(member) => self.component_member_expression(member),
-            JSXElementName::ThisExpression(this) => Ok(self.capture_this_expression(this.span)),
-            JSXElementName::NamespacedName(_) => Err(Error::from_reason(
-                "SSR namespaced component callees are not implemented in the AST-native milestone yet",
-            )),
-        }
-    }
-
-    fn component_member_expression(
-        &mut self,
-        member: &JSXMemberExpression<'a>,
-    ) -> Result<Expression<'a>> {
-        let object = match &member.object {
-            JSXMemberExpressionObject::IdentifierReference(identifier) => {
-                self.component_identifier_expression(&identifier.name)
-            }
-            JSXMemberExpressionObject::MemberExpression(member) => {
-                self.component_member_expression(member)?
-            }
-            JSXMemberExpressionObject::ThisExpression(this) => {
-                self.capture_this_expression(this.span)
-            }
-        };
-        Ok(if is_identifier_key(&member.property.name) {
-            Expression::StaticMemberExpression(
-                self.ast().alloc_static_member_expression(
-                    member.span,
-                    object,
-                    self.ast()
-                        .identifier_name(member.span, self.ast().ident(&member.property.name)),
-                    false,
-                ),
-            )
-        } else {
-            Expression::ComputedMemberExpression(self.ast().alloc_computed_member_expression(
-                member.span,
-                object,
-                self.ast().expression_string_literal(
-                    member.span,
-                    self.ast().atom(&member.property.name),
-                    None,
-                ),
-                false,
-            ))
-        })
-    }
-
-    fn component_identifier_expression(&mut self, component: &str) -> Expression<'a> {
-        if self.built_ins.iter().any(|built_in| built_in == component) {
-            if !self
-                .built_in_imports
-                .iter()
-                .any(|built_in| built_in == component)
-            {
-                self.built_in_imports.push(component.to_string());
-            }
-            self.ast()
-                .expression_identifier(Span::new(0, 0), self.ast().ident(&format!("_{component}")))
-        } else {
-            self.ast()
-                .expression_identifier(Span::new(0, 0), self.ast().ident(component))
-        }
-    }
-
     fn capture_this_expression(&mut self, span: Span) -> Expression<'a> {
         let name = if let Some(name) = &self.pending_this_capture {
             let name = name.clone();
@@ -869,11 +796,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             name
         } else {
             self.this_index += 1;
-            let name = if self.this_index == 1 {
-                "_self$".to_string()
-            } else {
-                format!("_self${}", self.this_index)
-            };
+            let name = crate::shared::utils::indexed_local("_self", self.this_index);
             self.pending_this_capture = Some(name.clone());
             self.current_this_capture = Some(name.clone());
             name
@@ -956,20 +879,28 @@ impl<'a> ComponentPropContext<'a> for AstSsrTransform<'a, '_> {
     }
 }
 
-fn flush_props<'a>(
-    ctx: &AstSsrTransform<'a, '_>,
-    span: Span,
-    running_props: &mut std::vec::Vec<ObjectPropertyKind<'a>>,
-    prop_objects: &mut std::vec::Vec<Expression<'a>>,
-) {
-    if running_props.is_empty() {
-        return;
+impl<'a> ComponentCalleeContext<'a> for AstSsrTransform<'a, '_> {
+    fn ast(&self) -> AstBuilder<'a> {
+        self.ast()
     }
-    let props = std::mem::take(running_props);
-    prop_objects.push(
-        ctx.ast()
-            .expression_object(span, ctx.ast().vec_from_iter(props)),
-    );
+
+    fn is_built_in(&self, name: &str) -> bool {
+        self.built_ins.iter().any(|built_in| built_in == name)
+    }
+
+    fn register_built_in(&mut self, name: &str) {
+        if !self
+            .built_in_imports
+            .iter()
+            .any(|built_in| built_in == name)
+        {
+            self.built_in_imports.push(name.to_string());
+        }
+    }
+
+    fn capture_this_callee(&mut self, span: Span) -> Result<Expression<'a>> {
+        Ok(self.capture_this_expression(span))
+    }
 }
 
 impl<'a> AstSsrTransform<'a, '_> {
@@ -1032,15 +963,7 @@ impl<'a> AstSsrTransform<'a, '_> {
     }
 
     fn arrow_iife(&self, span: Span, statements: ArenaVec<'a, Statement<'a>>) -> Expression<'a> {
-        let params = self.ast().formal_parameters(
-            span,
-            FormalParameterKind::ArrowFormalParameters,
-            self.ast().vec(),
-            NONE,
-        );
-        let body = self.ast().function_body(span, self.ast().vec(), statements);
-        self.ast()
-            .expression_arrow_function(span, false, false, NONE, params, NONE, body)
+        arrow_iife(self.allocator, span, statements)
     }
 }
 

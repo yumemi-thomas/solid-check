@@ -174,7 +174,7 @@ fn can_omit_attribute_quotes(value: &str) -> bool {
         })
 }
 
-fn format_number(value: f64) -> String {
+pub(crate) fn format_number(value: f64) -> String {
     if value.fract() == 0.0 {
         format!("{}", value as i64)
     } else {
@@ -193,6 +193,17 @@ pub(crate) fn is_identifier_key(name: &str) -> bool {
             .chars()
             .next()
             .is_some_and(|char| char == '_' || char == '$' || char.is_ascii_alphabetic())
+}
+
+/// Builds a 1-based generated local name such as `_el$`, `_el$2`, `_ref$`,
+/// `_c$`, or `_self$`. The first occurrence omits the numeric suffix to match
+/// the Babel plugin's naming.
+pub(crate) fn indexed_local(prefix: &str, index: usize) -> String {
+    if index == 1 {
+        format!("{prefix}$")
+    } else {
+        format!("{prefix}${index}")
+    }
 }
 
 pub(crate) fn template_id(index: usize) -> String {

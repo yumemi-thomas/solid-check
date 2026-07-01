@@ -1,4 +1,4 @@
-use oxc_allocator::Allocator;
+use oxc_allocator::{Allocator, Vec as ArenaVec};
 use oxc_ast::{
     ast::{
         Argument, Expression, FormalParameterKind, FunctionType, ImportOrExportKind,
@@ -177,6 +177,22 @@ pub(crate) fn arrow_return_expression<'a>(
         ast.vec(),
         ast.vec1(ast.statement_return(span, Some(value))),
     );
+    ast.expression_arrow_function(span, false, false, NONE, params, NONE, body)
+}
+
+pub(crate) fn arrow_iife<'a>(
+    allocator: &'a Allocator,
+    span: Span,
+    statements: ArenaVec<'a, Statement<'a>>,
+) -> Expression<'a> {
+    let ast = ast(allocator);
+    let params = ast.formal_parameters(
+        span,
+        FormalParameterKind::ArrowFormalParameters,
+        ast.vec(),
+        NONE,
+    );
+    let body = ast.function_body(span, ast.vec(), statements);
     ast.expression_arrow_function(span, false, false, NONE, params, NONE, body)
 }
 

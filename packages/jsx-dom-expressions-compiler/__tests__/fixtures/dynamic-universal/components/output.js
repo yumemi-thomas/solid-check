@@ -102,7 +102,7 @@ const template5 = _$createComponent(Child, {
 	}
 });
 // builtIns
-const template6 = _$createComponent(_For, {
+const template6 = _$createComponent(_$For, {
 	get each() {
 		return state.list;
 	},
@@ -110,7 +110,7 @@ const template6 = _$createComponent(_For, {
 		return _$createComponent(Loading, {});
 	},
 	get children() {
-		return (item) => _$createComponent(_Show, {
+		return (item) => _$createComponent(_$Show, {
 			get when() {
 				return state.condition;
 			},

@@ -14,6 +14,7 @@ use crate::dom::element::{AstDomTransform, DomTransformConfig};
 use crate::shared::array::expression_to_array_element;
 use crate::shared::ast::arrow_return_expression;
 use crate::shared::ast::expression_to_argument;
+use crate::shared::component_callee::component_callee_expression;
 use crate::shared::component_props::{
     component_property, component_props_expression, component_spread_expression,
     flush_component_props, ComponentPropContext,
@@ -334,7 +335,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
 
     fn lower_component(&mut self, element: &JSXElement<'a>) -> Result<Expression<'a>> {
         self.uses_create_component = true;
-        let component = self.component_callee_expression(&element.opening_element.name)?;
+        let component = component_callee_expression(self, &element.opening_element.name)?;
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
         let mut force_merge_props = false;

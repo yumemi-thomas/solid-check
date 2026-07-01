@@ -8,6 +8,7 @@ use oxc_span::Span;
 
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
 use crate::dom::style::static_style_object_value;
+use crate::shared::bindings::push_unique;
 use crate::shared::constants::{
     child_properties, dom_with_state, has_namespace, inline_elements, namespaces,
     ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS,
@@ -562,10 +563,4 @@ fn is_special_dynamic_attribute(tag_name: &str, name: &str) -> bool {
         || has_namespace(name)
         || child_properties(name)
         || dom_with_state(tag_name, name).is_some()
-}
-
-fn push_unique(values: &mut std::vec::Vec<String>, value: &str) {
-    if !values.iter().any(|candidate| candidate == value) {
-        values.push(value.to_string());
-    }
 }

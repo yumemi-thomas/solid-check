@@ -1,13 +1,14 @@
 use napi::bindgen_prelude::*;
-use oxc_ast::ast::{
-    Expression, JSXAttributeItem, JSXAttributeValue, JSXElement, JSXElementName, JSXExpression,
-    JSXMemberExpression, JSXMemberExpressionObject, Statement,
+use oxc_ast::{
+    ast::{Expression, JSXAttributeItem, JSXAttributeValue, JSXElement, JSXExpression, Statement},
+    AstBuilder,
 };
 use oxc_ast_visit::{walk_mut, VisitMut};
 use oxc_span::{GetSpan, Span};
 
 use crate::dom::element::jsx_expression_to_expression;
 use crate::dom::element::AstDomTransform;
+use crate::shared::component_callee::{component_callee_expression, ComponentCalleeContext};
 use crate::shared::component_children::component_children;
 use crate::shared::component_props::{
     component_property, component_props_expression, component_spread_expression,
@@ -158,83 +159,27 @@ fn replace_this_expression<'a>(ctx: &mut AstDomTransform<'a, '_>, expression: &m
     ThisReplacer { ctx }.visit_expression(expression);
 }
 
-fn component_callee_expression<'a>(
-    ctx: &mut AstDomTransform<'a, '_>,
-    name: &JSXElementName<'a>,
-) -> Result<Expression<'a>> {
-    match name {
-        JSXElementName::Identifier(identifier) => {
-            Ok(ctx.component_identifier_expression(&identifier.name))
-        }
-        JSXElementName::IdentifierReference(identifier) => {
-            Ok(ctx.component_identifier_expression(&identifier.name))
-        }
-        JSXElementName::MemberExpression(member) => component_member_expression(ctx, member),
-        JSXElementName::ThisExpression(this) => Ok(ctx.capture_this_expression(this.span)),
-        JSXElementName::NamespacedName(_) => Err(Error::from_reason(
-            "Component namespace attributes are not implemented in the AST-native milestone yet",
-        )),
+impl<'a> ComponentCalleeContext<'a> for AstDomTransform<'a, '_> {
+    fn ast(&self) -> AstBuilder<'a> {
+        self.ast()
     }
-}
 
-fn component_member_expression<'a>(
-    ctx: &mut AstDomTransform<'a, '_>,
-    member: &JSXMemberExpression<'a>,
-) -> Result<Expression<'a>> {
-    let object = match &member.object {
-        JSXMemberExpressionObject::IdentifierReference(identifier) => {
-            ctx.component_identifier_expression(&identifier.name)
-        }
-        JSXMemberExpressionObject::MemberExpression(member) => {
-            component_member_expression(ctx, member)?
-        }
-        JSXMemberExpressionObject::ThisExpression(this) => ctx.capture_this_expression(this.span),
-    };
-    Ok(member_property_expression(
-        ctx,
-        member.span,
-        object,
-        &member.property.name,
-    ))
-}
-
-fn member_property_expression<'a>(
-    ctx: &AstDomTransform<'a, '_>,
-    span: Span,
-    object: Expression<'a>,
-    property: &str,
-) -> Expression<'a> {
-    if crate::shared::utils::is_identifier_key(property) {
-        ctx.static_member_expression_from_expression(span, object, property)
-    } else {
-        Expression::ComputedMemberExpression(
-            ctx.ast().alloc_computed_member_expression(
-                span,
-                object,
-                ctx.ast()
-                    .expression_string_literal(span, ctx.ast().atom(property), None),
-                false,
-            ),
-        )
+    fn is_built_in(&self, name: &str) -> bool {
+        self.built_ins.iter().any(|built_in| built_in == name)
     }
-}
 
-impl<'a> AstDomTransform<'a, '_> {
-    fn component_identifier_expression(&mut self, component: &str) -> Expression<'a> {
-        if self.built_ins.iter().any(|built_in| built_in == component) {
-            if !self
-                .template_state
-                .built_in_imports
-                .iter()
-                .any(|built_in| built_in == component)
-            {
-                self.template_state
-                    .built_in_imports
-                    .push(component.to_string());
-            }
-            self.identifier_expression(Span::new(0, 0), &format!("_${component}"))
-        } else {
-            self.identifier_expression(Span::new(0, 0), component)
+    fn register_built_in(&mut self, name: &str) {
+        if !self
+            .template_state
+            .built_in_imports
+            .iter()
+            .any(|built_in| built_in == name)
+        {
+            self.template_state.built_in_imports.push(name.to_string());
         }
+    }
+
+    fn capture_this_callee(&mut self, span: Span) -> Result<Expression<'a>> {
+        Ok(self.capture_this_expression(span))
     }
 }

@@ -14,8 +14,8 @@ use oxc_syntax::number::NumberBase;
 
 use crate::dom::element::AstDomTransform;
 use crate::shared::ast::{
-    expression_to_argument, import_named, object_getter_property,
-    object_getter_property_with_setup, object_property, variable_statement,
+    arrow_iife, arrow_return_expression, expression_to_argument, import_named,
+    object_getter_property, object_getter_property_with_setup, object_property, variable_statement,
 };
 use crate::shared::utils::{is_identifier_key, template_id};
 
@@ -402,15 +402,7 @@ impl<'a> AstDomTransform<'a, '_> {
         span: Span,
         statements: ArenaVec<'a, Statement<'a>>,
     ) -> Expression<'a> {
-        let params = self.ast().formal_parameters(
-            span,
-            FormalParameterKind::ArrowFormalParameters,
-            self.ast().vec(),
-            NONE,
-        );
-        let body = self.ast().function_body(span, self.ast().vec(), statements);
-        self.ast()
-            .expression_arrow_function(span, false, false, NONE, params, NONE, body)
+        arrow_iife(self.allocator, span, statements)
     }
 
     pub(crate) fn arrow_return_expression(
@@ -418,20 +410,7 @@ impl<'a> AstDomTransform<'a, '_> {
         span: Span,
         value: Expression<'a>,
     ) -> Expression<'a> {
-        let params = self.ast().formal_parameters(
-            span,
-            FormalParameterKind::ArrowFormalParameters,
-            self.ast().vec(),
-            NONE,
-        );
-        let body = self.ast().function_body(
-            span,
-            self.ast().vec(),
-            self.ast()
-                .vec1(self.ast().statement_return(span, Some(value))),
-        );
-        self.ast()
-            .expression_arrow_function(span, false, false, NONE, params, NONE, body)
+        arrow_return_expression(self.allocator, span, value)
     }
 
     fn import_named(&self, imported: &str, local: &str) -> Statement<'a> {

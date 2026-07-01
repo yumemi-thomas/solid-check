@@ -1,11 +1,9 @@
 use napi::bindgen_prelude::*;
-use oxc_allocator::CloneIn;
-use oxc_ast::ast::{
-    Expression, JSXAttributeItem, JSXAttributeValue, ObjectPropertyKind, Statement,
-};
+use oxc_ast::ast::{JSXAttributeItem, JSXAttributeValue, ObjectPropertyKind, Statement};
 use oxc_span::Span;
 
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
+use crate::shared::component_props::{component_spread_expression, flush_component_props};
 use crate::shared::utils::decode_html_entities;
 
 impl<'a> AstDomTransform<'a, '_> {
@@ -21,24 +19,17 @@ impl<'a> AstDomTransform<'a, '_> {
         for attr in attributes {
             match attr {
                 JSXAttributeItem::SpreadAttribute(spread) => {
-                    flush_object_properties(
-                        self,
-                        spread.span,
-                        &mut running_props,
-                        &mut prop_objects,
+                    flush_component_props(self, &mut running_props, &mut prop_objects, spread.span);
+                    prop_objects.push(
+                        component_spread_expression(self, &spread.argument, spread.span).value,
                     );
-                    prop_objects.push(spread_argument_expression(
-                        self,
-                        &spread.argument,
-                        spread.span,
-                    ));
                 }
                 JSXAttributeItem::Attribute(attr) => {
                     running_props.push(self.spread_attribute_property(attr)?);
                 }
             }
         }
-        flush_object_properties(self, Span::default(), &mut running_props, &mut prop_objects);
+        flush_component_props(self, &mut running_props, &mut prop_objects, Span::default());
 
         let props = match prop_objects.len() {
             0 => self
@@ -118,35 +109,6 @@ impl<'a> AstDomTransform<'a, '_> {
         } else {
             self.object_property(attr.span, &name, value)
         })
-    }
-}
-
-fn flush_object_properties<'a>(
-    ctx: &AstDomTransform<'a, '_>,
-    span: Span,
-    running_props: &mut std::vec::Vec<ObjectPropertyKind<'a>>,
-    prop_objects: &mut std::vec::Vec<Expression<'a>>,
-) {
-    if running_props.is_empty() {
-        return;
-    }
-    let props = std::mem::take(running_props);
-    prop_objects.push(
-        ctx.ast()
-            .expression_object(span, ctx.ast().vec_from_iter(props)),
-    );
-}
-
-fn spread_argument_expression<'a>(
-    ctx: &AstDomTransform<'a, '_>,
-    expression: &Expression<'a>,
-    span: Span,
-) -> Expression<'a> {
-    let expression = expression.clone_in(ctx.allocator);
-    if matches!(expression, Expression::CallExpression(_)) {
-        ctx.arrow_return_expression(span, expression)
-    } else {
-        expression
     }
 }
 

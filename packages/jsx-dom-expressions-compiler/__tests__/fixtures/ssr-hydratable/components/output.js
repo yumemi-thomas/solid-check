@@ -91,7 +91,7 @@ const template5 = Child({
 	}
 });
 // builtIns
-const template6 = _For({
+const template6 = _$For({
 	get each() {
 		return state.list;
 	},
@@ -99,7 +99,7 @@ const template6 = _For({
 		return Loading({});
 	},
 	get children() {
-		return (item) => _Show({
+		return (item) => _$Show({
 			get when() {
 				return state.condition;
 			},
