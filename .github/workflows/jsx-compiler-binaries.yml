@@ -110,10 +110,21 @@ jobs:
       # no npm token. Each platform package must have this repo + workflow
       # configured as its Trusted Publisher on npmjs.com. Provenance is
       # attached automatically when publishing through OIDC.
+      # "Cannot publish over" conflicts are tolerated so the job is idempotent —
+      # a rerun after a partial failure only publishes what's missing.
       - name: Publish platform packages
         working-directory: packages/jsx-compiler
         run: |
+          failed=0
           for dir in npm/*/; do
             echo "Publishing $dir"
-            npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}"
+            if output=$(npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}" 2>&1); then
+              echo "$output"
+            elif echo "$output" | grep -q "cannot publish over"; then
+              echo "Already published — skipping $dir"
+            else
+              echo "$output"
+              failed=1
+            fi
           done
+          exit "$failed"
