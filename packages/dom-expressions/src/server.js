@@ -460,32 +460,38 @@ export function renderToStream(code, options = {}) {
     },
     { id: renderId }
   );
+  // Re-pull pending root holes, splicing sync results into `html` and
+  // re-queueing still-async ones (their retry promises join
+  // `blockingPromises`). Returns true once no holes remain.
+  function resolveRootHoles() {
+    if (!rootHoles) return true;
+    const pending = [];
+    for (const { id, fn } of rootHoles) {
+      const marker = `<!--rh${id}-->`;
+      const res = resolveSSRNode(fn);
+      if (!res.h.length) {
+        html = html.replace(marker, res.t[0]);
+      } else {
+        let out = res.t[0];
+        for (let j = 0; j < res.h.length; j++) {
+          const newId = nextHoleId++;
+          pending.push({ id: newId, fn: res.h[j] });
+          out += `<!--rh${newId}-->` + res.t[j + 1];
+        }
+        html = html.replace(marker, out);
+        for (const p of res.p) blockingPromises.add(p);
+      }
+    }
+    if (pending.length) {
+      rootHoles = pending;
+      return false;
+    }
+    rootHoles = null;
+    return true;
+  }
   function doShell() {
     if (shellCompleted) return;
-    if (rootHoles) {
-      const pending = [];
-      for (const { id, fn } of rootHoles) {
-        const marker = `<!--rh${id}-->`;
-        const res = resolveSSRNode(fn);
-        if (!res.h.length) {
-          html = html.replace(marker, res.t[0]);
-        } else {
-          let out = res.t[0];
-          for (let j = 0; j < res.h.length; j++) {
-            const newId = nextHoleId++;
-            pending.push({ id: newId, fn: res.h[j] });
-            out += `<!--rh${newId}-->` + res.t[j + 1];
-          }
-          html = html.replace(marker, out);
-          for (const p of res.p) blockingPromises.add(p);
-        }
-      }
-      if (pending.length) {
-        rootHoles = pending;
-        return;
-      }
-      rootHoles = null;
-    }
+    if (!resolveRootHoles()) return;
     sharedConfig.context = context;
     html = injectAssets(context.assets, html);
     headStyles = new Set();
@@ -518,7 +524,22 @@ export function renderToStream(code, options = {}) {
           complete();
         };
       } else onCompleteAll = complete;
-      queue(flushEnd);
+      // Like pipe(): wait out blocking promises (ctx.block, root-hole retry
+      // promises) and re-pull root holes until they settle before letting
+      // flushEnd complete the render. Without this, a pending root hole with
+      // an empty fragment registry (e.g. lazy()/async component source with
+      // no other async) completes immediately with an unfinished shell. Only
+      // the holes are resolved here — the rest of the shell assembly stays in
+      // doShell(), which onDone drives once the serializer finishes.
+      function flush() {
+        allSettled(blockingPromises).then(() => {
+          setTimeout(() => {
+            if (!resolveRootHoles()) return flush();
+            queue(flushEnd);
+          });
+        });
+      }
+      flush();
     },
     pipe(w) {
       function flush() {
