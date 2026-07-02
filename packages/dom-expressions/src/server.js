@@ -2,7 +2,11 @@ import { ChildProperties } from "./constants";
 import { sharedConfig, root, ssrHandleError, getOwner, runWithOwner } from "rxcore";
 import { createSerializer, getLocalHeaderScript } from "./serializer";
 
-export { createComponent, effect, memo, untrack } from "rxcore";
+// `mergeProps` comes from the framework like the client/universal entries —
+// prop-merge semantics (function sources, precedence) belong to the reactive
+// core, and a local copy here drifts from them (it resolved function sources
+// for key enumeration only, dropping their values in SSR output).
+export { createComponent, effect, memo, untrack, mergeProps } from "rxcore";
 export { getOwner };
 
 export {
@@ -975,30 +979,6 @@ function tryJoinPlainSSRArray(nodes) {
     out += node.t;
   }
   return out;
-}
-
-export function mergeProps(...sources) {
-  const target = {};
-  for (let i = 0; i < sources.length; i++) {
-    let source = sources[i];
-    if (typeof source === "function") source = source();
-    if (source) {
-      const descriptors = Object.getOwnPropertyDescriptors(source);
-      for (const key in descriptors) {
-        if (key in target) continue;
-        Object.defineProperty(target, key, {
-          enumerable: true,
-          get() {
-            for (let i = sources.length - 1; i >= 0; i--) {
-              const v = (sources[i] || {})[key];
-              if (v !== undefined) return v;
-            }
-          }
-        });
-      }
-    }
-  }
-  return target;
 }
 
 export function getHydrationKey() {
