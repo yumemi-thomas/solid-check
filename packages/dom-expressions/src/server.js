@@ -524,13 +524,6 @@ export function renderToStream(code, options = {}) {
           complete();
         };
       } else onCompleteAll = complete;
-      // Like pipe(): wait out blocking promises (ctx.block, root-hole retry
-      // promises) and re-pull root holes until they settle before letting
-      // flushEnd complete the render. Without this, a pending root hole with
-      // an empty fragment registry (e.g. lazy()/async component source with
-      // no other async) completes immediately with an unfinished shell. Only
-      // the holes are resolved here — the rest of the shell assembly stays in
-      // doShell(), which onDone drives once the serializer finishes.
       function flush() {
         allSettled(blockingPromises).then(() => {
           setTimeout(() => {
