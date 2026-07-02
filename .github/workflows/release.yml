@@ -10,8 +10,16 @@ name: 'Release'
 # version — @dom-expressions/jsx-compiler pins them as optionalDependencies.
 # The preflight step below enforces this.
 
+# The push trigger exists only to register the workflow with GitHub (the
+# default branch has no workflows dir, and dispatch-only workflows off the
+# default branch never register). The publish job is gated to dispatch runs.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - next
+    paths:
+      - '.github/workflows/release.yml'
 
 concurrency:
   group: release
@@ -20,6 +28,7 @@ concurrency:
 jobs:
   publish:
     name: publish main packages
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write # push git tags created by changeset publish
