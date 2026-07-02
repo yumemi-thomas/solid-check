@@ -6,8 +6,8 @@ import { applyRef as _$applyRef } from "r-custom";
 import { insert as _$insert } from "r-custom";
 import { createTextNode as _$createTextNode } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
-import { ref as _$ref } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
+import { ref as _$ref } from "r-custom";
 import { Show, binding } from "somewhere";
 function refFn() {}
 const refConst = null;

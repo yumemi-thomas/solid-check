@@ -1,5 +1,5 @@
 export interface RendererOptions<NodeType> {
-  createElement(tag: string): NodeType;
+  createElement(tag: string, staticProps?: Record<string, unknown>): NodeType;
   createTextNode(value: string): NodeType;
   createSentinel?(): NodeType;
   replaceText(textNode: NodeType, value: string): void;
@@ -18,7 +18,7 @@ export interface Renderer<NodeType> {
   effect<T>(fn: (prev?: T) => T, effect: (value: T, prev?: T) => void): void;
   memo<T>(fn: () => T, equal: boolean): () => T;
   createComponent<T>(Comp: (props: T) => NodeType, props: T): NodeType;
-  createElement(tag: string): NodeType;
+  createElement(tag: string, staticProps?: Record<string, unknown>): NodeType;
   createTextNode(value: string): NodeType;
   insertNode(parent: NodeType, node: NodeType, anchor?: NodeType): void;
   insert<T>(parent: any, accessor: (() => T) | T, marker?: any | null, initial?: any): NodeType;

@@ -2,10 +2,10 @@ import { effect as _$effect } from "r-custom";
 import { createTextNode as _$createTextNode } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
 import { ref as _$ref } from "r-custom";
+import { createElement as _$createElement } from "r-custom";
 import { setProp as _$setProp } from "r-custom";
 import { spread as _$spread } from "r-custom";
 import { mergeProps as _$mergeProps } from "r-custom";
-import { createElement as _$createElement } from "r-custom";
 import { binding } from "somewhere";
 function refFn() {}
 const refConst = null;
@@ -13,7 +13,10 @@ const selected = true;
 let link;
 var _el$ = _$createElement("div"),
   _el$2 = _$createElement("h1"),
-  _el$3 = _$createElement("a");
+  _el$3 = _$createElement("a", {
+    href: "/",
+    readonly: value
+  });
 _$insertNode(_el$, _el$2);
 _$setProp(_el$, "id", "main");
 _$spread(
@@ -56,13 +59,15 @@ _$spread(
 _$insertNode(_el$3, _$createTextNode(`Welcome`));
 var _ref$ = link;
 typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => _ref$, _el$3) : (link = _el$3);
-_$setProp(_el$3, "href", "/");
-_$setProp(_el$3, "readonly", value);
 const template = _el$;
 var _el$5 = _$createElement("div"),
-  _el$6 = _$createElement("div"),
+  _el$6 = _$createElement("div", {
+    textContent: rowId
+  }),
   _el$7 = _$createElement("div"),
-  _el$8 = _$createElement("div");
+  _el$8 = _$createElement("div", {
+    innerHTML: "<div/>"
+  });
 _$insertNode(_el$5, _el$6);
 _$insertNode(_el$5, _el$7);
 _$insertNode(_el$5, _el$8);
@@ -71,8 +76,6 @@ _$spread(
   _$mergeProps(() => getProps("test")),
   true
 );
-_$setProp(_el$6, "textContent", rowId);
-_$setProp(_el$8, "innerHTML", "<div/>");
 _$effect(
   () => row.label,
   (_v$, _$p) => {
@@ -80,16 +83,13 @@ _$effect(
   }
 );
 const template2 = _el$5;
-var _el$9 = _$createElement("div");
-_$setProp(_el$9, "id", /*@static*/ state.id);
-_$setProp(
-  _el$9,
-  "style",
-  /*@static*/ {
+var _el$9 = _$createElement("div", {
+  id: /*@static*/ state.id,
+  style: /*@static*/ {
     "background-color": state.color
-  }
-);
-_$setProp(_el$9, "textContent", /*@static*/ state.content);
+  },
+  textContent: /*@static*/ state.content
+});
 _$effect(
   () => state.name,
   (_v$, _$p) => {
@@ -97,9 +97,10 @@ _$effect(
   }
 );
 const template3 = _el$9;
-var _el$0 = _$createElement("div");
-_$setProp(_el$0, "class", {
-  "ccc:ddd": true
+var _el$0 = _$createElement("div", {
+  class: {
+    "ccc:ddd": true
+  }
 });
 _$effect(
   () => state.class,
@@ -108,12 +109,13 @@ _$effect(
   }
 );
 const template4 = _el$0;
-var _el$1 = _$createElement("div");
-_$setProp(_el$1, "class", "a");
-_$setProp(_el$1, "className", "b");
-const template5 = _el$1;
-var _el$10 = _$createElement("div");
-_$setProp(_el$10, "textContent", "Hi");
+const template5 = _$createElement("div", {
+  class: "a",
+  className: "b"
+});
+var _el$10 = _$createElement("div", {
+  textContent: "Hi"
+});
 _$effect(
   () => someStyle(),
   (_v$, _$p) => {
@@ -147,15 +149,16 @@ var _el$14 = _$createElement("div");
 var _ref$3 = refFactory();
 (typeof _ref$3 === "function" || Array.isArray(_ref$3)) && _$ref(() => _ref$3, _el$14);
 const template10 = _el$14;
-var _el$15 = _$createElement("div");
-_$setProp(_el$15, "prop:htmlFor", thing);
-const template12 = _el$15;
-var _el$16 = _$createElement("input");
-_$setProp(_el$16, "type", "checkbox");
-_$setProp(_el$16, "checked", true);
-const template13 = _el$16;
-var _el$17 = _$createElement("input");
-_$setProp(_el$17, "type", "checkbox");
+const template12 = _$createElement("div", {
+  "prop:htmlFor": thing
+});
+const template13 = _$createElement("input", {
+  type: "checkbox",
+  checked: true
+});
+var _el$17 = _$createElement("input", {
+  type: "checkbox"
+});
 _$effect(
   () => state.visible,
   (_v$, _$p) => {
@@ -163,28 +166,31 @@ _$effect(
   }
 );
 const template14 = _el$17;
-var _el$18 = _$createElement("div");
-_$insertNode(_el$18, _$createTextNode(`\`$\``));
-_$setProp(_el$18, "class", "`a");
-const template15 = _el$18;
-var _el$20 = _$createElement("button");
-_$insertNode(_el$20, _$createTextNode(`Write`));
-_$setProp(_el$20, "class", [
-  "static",
-  {
-    hi: "k"
-  }
-]);
-_$setProp(_el$20, "type", "button");
-const template16 = _el$20;
-var _el$22 = _$createElement("button");
-_$insertNode(_el$22, _$createTextNode(`Hi`));
-_$setProp(_el$22, "class", {
-  a: true,
-  b: true,
-  c: true
+var _el$18 = _$createElement("div", {
+  class: "`a"
 });
-_$setProp(_el$22, "onClick", increment);
+_$insertNode(_el$18, _$createTextNode(`\`$\``));
+const template15 = _el$18;
+var _el$20 = _$createElement("button", {
+  class: [
+    "static",
+    {
+      hi: "k"
+    }
+  ],
+  type: "button"
+});
+_$insertNode(_el$20, _$createTextNode(`Write`));
+const template16 = _el$20;
+var _el$22 = _$createElement("button", {
+  class: {
+    a: true,
+    b: true,
+    c: true
+  },
+  onClick: increment
+});
+_$insertNode(_el$22, _$createTextNode(`Hi`));
 const template17 = _el$22;
 var _el$24 = _$createElement("div");
 _$spread(

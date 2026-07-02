@@ -2,6 +2,13 @@ import { createRenderer } from "../../src/universal";
 
 const PROPERTIES = new Set(["className", "textContent"]);
 
+function setProperty(node, name, value) {
+  if (name === "style") Object.assign(node.style, value);
+  else if (PROPERTIES.has(name)) node[name] = value == null ? "" : value;
+  else if (value == null) node.removeAttribute(name);
+  else node.setAttribute(name, value);
+}
+
 export const {
   render,
   effect,
@@ -17,8 +24,10 @@ export const {
   applyRef,
   ref
 } = createRenderer({
-  createElement(string) {
-    return document.createElement(string);
+  createElement(string, staticProps) {
+    const node = document.createElement(string);
+    for (const name in staticProps) setProperty(node, name, staticProps[name]);
+    return node;
   },
   createTextNode(value) {
     return document.createTextNode(value);
@@ -26,12 +35,7 @@ export const {
   replaceText(textNode, value) {
     textNode.data = value;
   },
-  setProperty(node, name, value) {
-    if (name === "style") Object.assign(node.style, value);
-    else if (PROPERTIES.has(name)) node[name] = value == null ? "" : value;
-    else if (value == null) node.removeAttribute(name);
-    else node.setAttribute(name, value);
-  },
+  setProperty,
   insertNode(parent, node, anchor) {
     parent.insertBefore(node, anchor);
   },

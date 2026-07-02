@@ -2,8 +2,8 @@ use napi::bindgen_prelude::*;
 use oxc_allocator::{Allocator, CloneIn, Vec as ArenaVec};
 use oxc_ast::{
     ast::{
-        Argument, Expression, JSXAttributeItem, JSXAttributeValue, JSXChild, JSXElement,
-        JSXExpression, JSXFragment, ObjectPropertyKind, Program, Statement,
+        Argument, ArrayExpressionElement, Expression, JSXAttributeItem, JSXAttributeValue,
+        JSXChild, JSXElement, JSXExpression, JSXFragment, ObjectPropertyKind, Program, Statement,
     },
     AstBuilder,
 };
@@ -20,8 +20,8 @@ use crate::shared::component_props::{
     flush_component_props, ComponentPropContext,
 };
 use crate::shared::utils::{
-    decode_html_entities, element_name, is_component_name, static_jsx_expression_value,
-    trim_jsx_text,
+    decode_html_entities, element_name, is_component_name, source_from_span,
+    static_jsx_expression_value, trim_jsx_text,
 };
 
 pub(crate) struct AstUniversalTransform<'a, 'source> {
@@ -218,6 +218,26 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
         }
         let element_id = self.next_element_id();
         self.uses_create_element = true;
+        let has_spread = element
+            .opening_element
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)));
+        let mut init_props = std::vec::Vec::new();
+        if !has_spread {
+            for attr in &element.opening_element.attributes {
+                if let Some(prop) = self.init_attribute_property(attr)? {
+                    init_props.push(prop);
+                }
+            }
+        }
+        let mut create_element_args = vec![self.string_arg(element.span, &tag_name)];
+        if !init_props.is_empty() {
+            create_element_args.push(expression_to_argument(
+                self.ast()
+                    .expression_object(element.span, self.ast().vec_from_iter(init_props)),
+            ));
+        }
         let mut setup = std::vec::Vec::new();
         setup.push(self.variable_statement(
             element.span,
@@ -225,16 +245,11 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             self.call_identifier(
                 element.span,
                 &self.helper_local("_$createElement"),
-                vec![self.string_arg(element.span, &tag_name)],
+                create_element_args,
             ),
         ));
 
-        if element
-            .opening_element
-            .attributes
-            .iter()
-            .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)))
-        {
+        if has_spread {
             self.lower_spread_attributes(
                 &element.opening_element.attributes,
                 &element_id,
@@ -243,7 +258,9 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             )?;
         } else {
             for attr in &element.opening_element.attributes {
-                self.lower_attribute(attr, &element_id, &mut setup)?;
+                if self.init_attribute_property(attr)?.is_none() {
+                    self.lower_attribute(attr, &element_id, &mut setup)?;
+                }
             }
         }
         for child in &element.children {
@@ -478,6 +495,52 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
             ),
         ));
         Ok(())
+    }
+
+    fn init_attribute_property(
+        &mut self,
+        attr: &JSXAttributeItem<'a>,
+    ) -> Result<Option<ObjectPropertyKind<'a>>> {
+        let JSXAttributeItem::Attribute(attr) = attr else {
+            return Err(Error::from_reason(
+                "Universal spread attributes are not implemented in the AST-native milestone yet",
+            ));
+        };
+        let name = match &attr.name {
+            oxc_ast::ast::JSXAttributeName::Identifier(name) => name.name.to_string(),
+            oxc_ast::ast::JSXAttributeName::NamespacedName(name) => {
+                format!("{}:{}", name.namespace.name, name.name.name)
+            }
+        };
+        if name == "ref" || name == "children" {
+            return Ok(None);
+        }
+        let value = match &attr.value {
+            None => self.ast().expression_boolean_literal(attr.span, true),
+            Some(JSXAttributeValue::StringLiteral(value)) => self.ast().expression_string_literal(
+                value.span,
+                self.ast().atom(&decode_html_entities(&value.value)),
+                None,
+            ),
+            Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                let expression = crate::dom::element::jsx_expression_to_expression(
+                    &container.expression,
+                    self.allocator,
+                );
+                if !source_from_span(container.span, self.source).contains(&self.static_marker)
+                    && expression_is_dynamic(&expression)
+                {
+                    return Ok(None);
+                }
+                expression
+            }
+            Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
+                return Err(Error::from_reason(
+                    "Universal JSX attribute values are not implemented in the AST-native milestone yet",
+                ));
+            }
+        };
+        Ok(Some(self.object_property(attr.span, &name, value)))
     }
 
     fn component_children_expression(
@@ -872,5 +935,78 @@ impl<'a> ComponentPropContext<'a> for AstUniversalTransform<'a, '_> {
         value: Expression<'a>,
     ) -> ObjectPropertyKind<'a> {
         self.object_getter_property(span, name, value)
+    }
+}
+
+fn expression_is_dynamic(value: &Expression<'_>) -> bool {
+    match value {
+        Expression::CallExpression(_)
+        | Expression::StaticMemberExpression(_)
+        | Expression::PrivateFieldExpression(_)
+        | Expression::ComputedMemberExpression(_)
+        | Expression::ChainExpression(_)
+        | Expression::ConditionalExpression(_)
+        | Expression::LogicalExpression(_)
+        | Expression::PrivateInExpression(_)
+        | Expression::TaggedTemplateExpression(_)
+        | Expression::UpdateExpression(_)
+        | Expression::YieldExpression(_)
+        | Expression::AwaitExpression(_)
+        | Expression::JSXElement(_)
+        | Expression::JSXFragment(_) => true,
+        Expression::ObjectExpression(object) => object.properties.iter().any(|property| {
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                return true;
+            };
+            property.computed || expression_is_dynamic(&property.value)
+        }),
+        Expression::ArrayExpression(array) => array.elements.iter().any(array_element_is_dynamic),
+        Expression::ParenthesizedExpression(parenthesized) => {
+            expression_is_dynamic(&parenthesized.expression)
+        }
+        Expression::TSAsExpression(expression) => expression_is_dynamic(&expression.expression),
+        Expression::TSSatisfiesExpression(expression) => {
+            expression_is_dynamic(&expression.expression)
+        }
+        Expression::TSTypeAssertion(expression) => expression_is_dynamic(&expression.expression),
+        Expression::TSNonNullExpression(expression) => {
+            expression_is_dynamic(&expression.expression)
+        }
+        Expression::TSInstantiationExpression(expression) => {
+            expression_is_dynamic(&expression.expression)
+        }
+        _ => false,
+    }
+}
+
+fn array_element_is_dynamic(element: &ArrayExpressionElement<'_>) -> bool {
+    match element {
+        ArrayExpressionElement::CallExpression(_)
+        | ArrayExpressionElement::StaticMemberExpression(_)
+        | ArrayExpressionElement::PrivateFieldExpression(_)
+        | ArrayExpressionElement::ComputedMemberExpression(_)
+        | ArrayExpressionElement::ChainExpression(_)
+        | ArrayExpressionElement::ConditionalExpression(_)
+        | ArrayExpressionElement::LogicalExpression(_)
+        | ArrayExpressionElement::PrivateInExpression(_)
+        | ArrayExpressionElement::TaggedTemplateExpression(_)
+        | ArrayExpressionElement::UpdateExpression(_)
+        | ArrayExpressionElement::YieldExpression(_)
+        | ArrayExpressionElement::AwaitExpression(_)
+        | ArrayExpressionElement::JSXElement(_)
+        | ArrayExpressionElement::JSXFragment(_)
+        | ArrayExpressionElement::SpreadElement(_) => true,
+        ArrayExpressionElement::ObjectExpression(object) => {
+            object.properties.iter().any(|property| {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return true;
+                };
+                property.computed || expression_is_dynamic(&property.value)
+            })
+        }
+        ArrayExpressionElement::ArrayExpression(array) => {
+            array.elements.iter().any(array_element_is_dynamic)
+        }
+        _ => false,
     }
 }

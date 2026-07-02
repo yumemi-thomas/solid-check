@@ -41,6 +41,9 @@ export function transformElement(
       renderer: "universal"
     };
 
+  const initProps = transformAttributes(path, results);
+  const createElementArgs: t.Expression[] = [t.stringLiteral(tagName)];
+  if (initProps.length) createElementArgs.push(t.objectExpression(initProps));
   results.declarations.push(
     t.variableDeclarator(
       results.id,
@@ -50,12 +53,10 @@ export function transformElement(
           "createElement",
           getRendererConfig(path, "universal").moduleName
         ),
-        [t.stringLiteral(tagName)]
+        createElementArgs
       )
     )
   );
-
-  transformAttributes(path, results);
   transformChildren(path, results);
 
   return results;
@@ -64,15 +65,17 @@ export function transformElement(
 function transformAttributes(
   path: BabelPath<t.JSXElement>,
   results: UniversalTransformResult
-): void {
+): t.ObjectProperty[] {
   let children: t.JSXExpressionContainer | undefined, spreadExpr: t.ExpressionStatement | undefined;
   let attributes = path.get("openingElement").get("attributes") as JSXAttributePath[];
+  const initProps: t.ObjectProperty[] = [];
   const elem = results.id,
     hasChildren = path.node.children.length > 0,
-    config = getConfig(path);
+    config = getConfig(path),
+    hasSpread = attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node));
 
   // preprocess spreads
-  if (attributes.some(attribute => t.isJSXSpreadAttribute(attribute.node))) {
+  if (hasSpread) {
     [attributes, spreadExpr] = processSpreads(path, attributes, {
       elem,
       hasChildren,
@@ -201,19 +204,46 @@ function transformAttributes(
         ) {
           results.dynamics.push({ elem, key, value: value.expression as t.Expression });
         } else {
-          results.exprs.push(
-            t.expressionStatement(setAttr(attribute, elem, key, value.expression as t.Expression))
+          addStaticAttr(
+            attribute,
+            results,
+            initProps,
+            elem,
+            key,
+            value.expression as t.Expression,
+            hasSpread
           );
         }
       } else {
-        results.exprs.push(
-          t.expressionStatement(setAttr(attribute, elem, key, value as t.Expression))
-        );
+        addStaticAttr(attribute, results, initProps, elem, key, value as t.Expression, hasSpread);
       }
     });
   if (spreadExpr) results.exprs.push(spreadExpr);
   if (!hasChildren && children) {
     path.node.children.push(children);
+  }
+  return initProps;
+}
+
+function addStaticAttr(
+  path: BabelPath,
+  results: UniversalTransformResult,
+  initProps: t.ObjectProperty[],
+  elem: t.Expression,
+  key: string,
+  value: t.Expression | t.JSXAttribute["value"],
+  hasSpread: boolean
+) {
+  if (!value) value = t.booleanLiteral(true);
+  if (hasSpread) {
+    results.exprs.push(t.expressionStatement(setAttr(path, elem, key, value as t.Expression)));
+  } else {
+    initProps.push(
+      t.objectProperty(
+        t.isValidIdentifier(key) ? t.identifier(key) : t.stringLiteral(key),
+        value as t.Expression
+      )
+    );
   }
 }
 

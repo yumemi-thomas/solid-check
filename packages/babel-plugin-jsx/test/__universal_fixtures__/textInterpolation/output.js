@@ -1,4 +1,3 @@
-import { setProp as _$setProp } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
 import { insert as _$insert } from "r-custom";
 import { createTextNode as _$createTextNode } from "r-custom";
@@ -131,10 +130,10 @@ const trailingSpaceComponent = _$createComponent(Div, {
   }
 });
 const trailingSpaceFragment = [expr, " "];
-var _el$43 = _$createElement("div");
-_$setProp(_el$43, "normal", "Search&hellip;");
-_$setProp(_el$43, "title", "Search&hellip;");
-const escapeAttribute = _el$43;
+const escapeAttribute = _$createElement("div", {
+  normal: "Search&hellip;",
+  title: "Search&hellip;"
+});
 const escapeCompAttribute = _$createComponent(Div, {
   normal: "Search\u2026",
   title: "Search&hellip;"

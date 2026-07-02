@@ -2,7 +2,6 @@ import { createTextNode as _$createTextNode } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
 import { insert as _$insert } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
-import { setProp as _$setProp } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
 var _el$ = _$createElement("span");
 _$insertNode(_el$, _$createTextNode("Hello "));
@@ -105,9 +104,10 @@ const trailingSpaceComponent = _$createComponent(Div, { get children() {
 	return [expr, " "];
 } });
 const trailingSpaceFragment = [expr, " "];
-var _el$20 = _$createElement("div");
-_$setProp(_el$20, "normal", "Search…");
-_$setProp(_el$20, "title", "Search&hellip;");
+var _el$20 = _$createElement("div", {
+	normal: "Search…",
+	title: "Search&hellip;"
+});
 const escapeAttribute = _el$20;
 const escapeCompAttribute = _$createComponent(Div, {
 	normal: "Search…",

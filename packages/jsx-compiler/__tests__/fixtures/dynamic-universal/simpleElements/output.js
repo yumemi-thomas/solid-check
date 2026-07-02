@@ -1,22 +1,20 @@
 import { createTextNode as _$createTextNode } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
-import { setProp as _$setProp } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
-var _el$ = _$createElement("div");
-_$setProp(_el$, "id", "main");
+var _el$ = _$createElement("div", { id: "main" });
 var _el$2 = _$createElement("style");
 _$insertNode(_el$2, _$createTextNode("div { color: red; }"));
 _$insertNode(_el$, _el$2);
 var _el$3 = _$createElement("h1");
 _$insertNode(_el$3, _$createTextNode("Welcome"));
 _$insertNode(_el$, _el$3);
-var _el$4 = _$createElement("label");
-_$setProp(_el$4, "for", "entry");
+var _el$4 = _$createElement("label", { for: "entry" });
 _$insertNode(_el$4, _$createTextNode("Edit:"));
 _$insertNode(_el$, _el$4);
-var _el$5 = _$createElement("input");
-_$setProp(_el$5, "id", "entry");
-_$setProp(_el$5, "type", "text");
+var _el$5 = _$createElement("input", {
+	id: "entry",
+	type: "text"
+});
 _$insertNode(_el$, _el$5);
 const template = _el$;
 var _el$6 = _$createElement("div");
