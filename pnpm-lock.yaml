@@ -4,6 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@dom-expressions/jsx-compiler-darwin-x64': link:packages/jsx-compiler/npm/darwin-x64
+  '@dom-expressions/jsx-compiler-darwin-arm64': link:packages/jsx-compiler/npm/darwin-arm64
+  '@dom-expressions/jsx-compiler-linux-x64-gnu': link:packages/jsx-compiler/npm/linux-x64-gnu
+  '@dom-expressions/jsx-compiler-linux-arm64-gnu': link:packages/jsx-compiler/npm/linux-arm64-gnu
+  '@dom-expressions/jsx-compiler-win32-x64-msvc': link:packages/jsx-compiler/npm/win32-x64-msvc
+
 importers:
 
   .:
@@ -132,6 +139,22 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.6.2
         version: 3.6.2(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@18.11.18)
+    optionalDependencies:
+      '@dom-expressions/jsx-compiler-darwin-arm64':
+        specifier: link:npm/darwin-arm64
+        version: link:npm/darwin-arm64
+      '@dom-expressions/jsx-compiler-darwin-x64':
+        specifier: link:npm/darwin-x64
+        version: link:npm/darwin-x64
+      '@dom-expressions/jsx-compiler-linux-arm64-gnu':
+        specifier: link:npm/linux-arm64-gnu
+        version: link:npm/linux-arm64-gnu
+      '@dom-expressions/jsx-compiler-linux-x64-gnu':
+        specifier: link:npm/linux-x64-gnu
+        version: link:npm/linux-x64-gnu
+      '@dom-expressions/jsx-compiler-win32-x64-msvc':
+        specifier: link:npm/win32-x64-msvc
+        version: link:npm/win32-x64-msvc
 
   packages/runtime:
     dependencies:
