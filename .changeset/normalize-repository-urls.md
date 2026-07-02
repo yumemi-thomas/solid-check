@@ -3,7 +3,7 @@
 "dom-expressions": patch
 "hyper-dom-expressions": patch
 "lit-dom-expressions": patch
-"sld-dom-expressions": patch
+"tagged-jsx-dom-expressions": patch
 ---
 
 Normalize the `repository` field in every package to the standard npm

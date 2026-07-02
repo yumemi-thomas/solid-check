@@ -152,7 +152,7 @@ importers:
         specifier: ^0.0.9
         version: 0.0.9
 
-  packages/sld-dom-expressions:
+  packages/tagged-jsx-dom-expressions:
     devDependencies:
       dom-expressions:
         specifier: workspace:*

@@ -15,19 +15,19 @@ import {
   parse
 } from "./parse";
 import { tokenize } from "./tokenize";
-import { ComponentRegistry, SLDInstance, Runtime } from "./types";
+import { ComponentRegistry, TaggedJSXInstance, Runtime } from "./types";
 import { type JSX } from "../../dom-expressions/src/jsx";
 
 const flat = (arr: any[]) => {
   return arr.length === 1 ? arr[0] : arr;
 };
 
-export function createSLDRuntime(r: Runtime) {
+export function createTaggedJSXRuntime(r: Runtime) {
   const cache = new WeakMap<TemplateStringsArray, RootNode>();
   const rawTextElements = new Set(r.RawTextElements);
   rawTextElements.delete("template");
 
-  //Walk over text, comment, and element nodes
+  // Walk over text, comment, and element nodes.
   const walker = document.createTreeWalker(document, 129);
 
   const createElement = (name: string) => {
@@ -38,20 +38,20 @@ export function createSLDRuntime(r: Runtime) {
         : document.createElement(name);
   };
 
-  // Internal: build an SLD tag bound to a component registry.
-  const createSLD = <T extends ComponentRegistry>(components: T): SLDInstance<T> => {
-    const sld = (strings: TemplateStringsArray, ...values: any[]) => {
+  // Internal: build a tagged JSX tag bound to a component registry.
+  const createTaggedJSX = <T extends ComponentRegistry>(components: T): TaggedJSXInstance<T> => {
+    const tag = (strings: TemplateStringsArray, ...values: any[]) => {
       const root = getCachedRoot(strings);
 
       return renderChildren(root, values, components);
     };
-    sld.components = components;
-    sld.sld = sld;
-    sld.define = <TNew extends ComponentRegistry>(newComponents: TNew) => {
-      return createSLD({ ...components, ...newComponents });
+    tag.components = components;
+    tag.jsx = tag;
+    tag.define = <TNew extends ComponentRegistry>(newComponents: TNew) => {
+      return createTaggedJSX({ ...components, ...newComponents });
     };
 
-    return sld as SLDInstance<T>;
+    return tag as TaggedJSXInstance<T>;
   };
 
   const getCachedRoot = (strings: TemplateStringsArray): RootNode => {
@@ -64,11 +64,10 @@ export function createSLDRuntime(r: Runtime) {
     return root;
   };
 
-  //build template element with same exact shape as tree so they can be walked through in sync
+  // Build template elements with the same shape as the parsed tree so both can be walked in sync.
   const buildTemplate = (node: RootNode | ChildNode, insideTemplate: boolean): void => {
     if (node.type === ELEMENT_NODE) {
       if (!insideTemplate) {
-        // node.template = r.template(buildInnerHTML(node));
         const template = document.createElement("template");
         template.content.appendChild(buildNodes(node));
         node.template = template;
@@ -98,14 +97,13 @@ export function createSLDRuntime(r: Runtime) {
         let hasSpread = false;
 
         const elem = createElement(node.name);
-        //props located after spread need to be applied after spread for possible overrides
+        // Props located after spread need to be applied after spread for possible overrides.
         node.props = node.props.filter(prop => {
           if (prop.type === STATIC_PROP) {
             if (prop.name.startsWith("prop:")) return true;
             elem.setAttribute(prop.name, prop.value);
             return hasSpread;
           } else if (prop.type === BOOLEAN_PROP) {
-            // attributeHTML += ` ${prop.name}`;
             elem.setAttribute(prop.name, "");
             return hasSpread;
           } else if (prop.type === SPREAD_PROP) {
@@ -135,9 +133,6 @@ export function createSLDRuntime(r: Runtime) {
           throw new Error(`Component "${node.name}" not found in registry`);
         }
       case ELEMENT_NODE:
-        let name = node.name;
-
-        // 3. Standard HTML Element (node.name is guaranteed string here)
         const element = renderChildren(node, values, components) as Element;
         const props = gatherProps(node, values, components);
 
@@ -171,7 +166,6 @@ export function createSLDRuntime(r: Runtime) {
             r.insert(domNode.parentNode!, renderNode(node, values, components), domNode);
             walker.currentNode = domNode;
           } else {
-            // Standard Element path...
             if (node.props.length) {
               const props = gatherProps(node, values, components);
               r.spread(domNode as Element, props, true);
@@ -249,5 +243,5 @@ export function createSLDRuntime(r: Runtime) {
     }
   };
 
-  return createSLD({});
+  return createTaggedJSX({});
 }

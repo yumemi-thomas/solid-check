@@ -1,5 +1,5 @@
 {
-  "name": "sld-dom-expressions",
+  "name": "tagged-jsx-dom-expressions",
   "description": "A Fine-Grained Rendering Runtime API using Tagged Template Literals",
   "version": "0.50.0-next.14",
   "author": "Daniel Kling",
@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ryansolid/dom-expressions.git",
-    "directory": "packages/sld-dom-expressions"
+    "directory": "packages/tagged-jsx-dom-expressions"
   },
   "main": "dist/index.mjs",
   "module": "dist/index.mjs",

@@ -6,7 +6,7 @@
     "dom-expressions": "0.50.0-next.0",
     "hyper-dom-expressions": "0.50.0-next.0",
     "lit-dom-expressions": "0.50.0-next.0",
-    "sld-dom-expressions": "0.50.0-next.2"
+    "tagged-jsx-dom-expressions": "0.50.0-next.2"
   },
   "changesets": [
     "add-insert-host-option",

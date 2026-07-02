@@ -13,41 +13,41 @@ export type FunctionComponent = (...args: any[]) => any;
 export type ComponentRegistry = Record<string, FunctionComponent>;
 
 /**
- * SLD Instance type
+ * Tagged JSX instance type
  * @template T Component registry
  */
-export type SLDInstance<T extends ComponentRegistry> = {
+export type TaggedJSXInstance<T extends ComponentRegistry> = {
   /**
-   * SLD template function
+   * Tagged JSX template function
    * @example
    * ```tsx
-   * const myTemplate = sld`<div>Hello World</div>`
+   * const myTemplate = html`<div>Hello World</div>`
    * ```
    */
   (strings: TemplateStringsArray, ...values: any[]): JSX.Element;
 
   /**
-   * Self reference to SLD instance for tooling
+   * Self reference to tagged JSX instance for tooling
    * @example
    * ```tsx
    * const MyComponent: FunctionComponent = (props) => {
-   *   // Use sld to create a template inside a component
-   *   return mySLD.sld`<div>Hello ${props.name}</div>`
+   *   // Use html to create a template inside a component
+   *   return myTaggedJSX.jsx`<div>Hello ${props.name}</div>`
    * ```
    */
-  sld: SLDInstance<T>;
+  jsx: TaggedJSXInstance<T>;
 
   /**
-   * Create a new SLD instance with additional components added to the registry
+   * Create a new tagged JSX instance with additional components added to the registry
    * @param components New components to add to the registry
    * @example
    * ```tsx
    * const MyComponent: FunctionComponent = (props) => <div>Hello {props.name}</div>
-   * const mySLD = sld.define({MyComponent})
-   * const myTemplate = mySLD`<MyComponent name="World" />`
+   * const myTaggedJSX = html.define({MyComponent})
+   * const myTemplate = myTaggedJSX`<MyComponent name="World" />`
    * ```
    */
-  define<TNew extends ComponentRegistry>(components: TNew): SLDInstance<T & TNew>;
+  define<TNew extends ComponentRegistry>(components: TNew): TaggedJSXInstance<T & TNew>;
 
   /**
    * Component registry

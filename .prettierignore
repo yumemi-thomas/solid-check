@@ -7,3 +7,4 @@ pnpm-lock.yaml
 packages/babel-plugin-jsx-dom-expressions/index.js
 packages/babel-plugin-jsx-dom-expressions/test/__*__/
 packages/dom-expressions/types
+packages/tagged-jsx-dom-expressions/tests/tagged-jsx.test.ts

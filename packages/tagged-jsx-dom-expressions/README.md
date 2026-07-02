@@ -1,9 +1,9 @@
-# sld-dom-expressions
+# tagged-jsx-dom-expressions
 
 A tagged-template runtime for fine-grained signals libraries such as Solid.js.
-Any signals library can be hooked into `sld` by implementing a `Runtime` adapter.
+Any signals library can be hooked into `html` by implementing a `Runtime` adapter.
 
-`sld` parses templates at runtime and installs reactive bindings against the
+`html` parses templates at runtime and installs reactive bindings against the
 resulting DOM. Component references are real JavaScript values — either a name
 registered via `.define()` or an expression hole — never a string parsed at
 render time.
@@ -11,36 +11,43 @@ render time.
 ## Install
 
 ```sh
-npm install sld-dom-expressions
+npm install tagged-jsx-dom-expressions
 ```
+
+## Tooling
+
+For editor support, the
+[Tagged JSX Tools VS Code extension](https://marketplace.visualstudio.com/items?itemName=DanielRKling.tagged-jsx-vscode)
+provides syntax highlighting, formatting, conversion commands, and TypeScript
+diagnostics for JSX inside tagged template literals.
 
 ## Quick start
 
-`createSLDRuntime(runtime)` returns a ready-to-use tag bound to the runtime of a signals library.
+`createTaggedJSXRuntime(runtime)` returns a ready-to-use tag bound to the runtime of a signals library.
 Components are registered via `.define({ ... })`, which returns a new tag with the
 combined registry.
 
 ```ts
-import { createSLDRuntime } from "sld-dom-expressions";
+import { createTaggedJSXRuntime } from "tagged-jsx-dom-expressions";
 
-// In this example, we will specifically connect Solid.js to sld, but any
+// In this example, we will specifically connect Solid.js to tagged JSX, but any
 // signals-style library could export a compatible interface.
 import * as web from "@solidjs/web";
 
 import { For, Show, createSignal } from "solid-js";
 import { render } from "@solidjs/web";
 
-// This creates an sld template tag that is reactive specifically to
+// This creates a tagged JSX template tag that is reactive specifically to
 // Solid.js signals by passing in the Solid.js web runtime, and registers
 // two components for use via PascalCase tag names inside of the template
 // strings.
-const sld = createSLDRuntime(web).define({ For, Show });
+const html = createTaggedJSXRuntime(web).define({ For, Show });
 
 function Counter() {
   const [count, setCount] = createSignal(0);
 
   // Finally, write reactive templates!
-  return sld`
+  return html`
     <button onClick=${() => setCount(c => c + 1)}>
       Count: ${count}
     </button>
@@ -58,36 +65,13 @@ function Counter() {
 render(Counter, document.body);
 ```
 
-Depending on your tooling, if for example you only need syntax highlighting,
-you could use a different variable name:
-
-```js
-const html = createSLDRuntime(web).define({ For, Show });
-
-function MyComponent() {
-  return html`
-    <button onClick=${() => console.log('click')}>
-      Click!
-    </button>
-
-    <For each=${...}>
-      ...
-    </For>
-
-    <Show when=${...}>
-      ...
-    </Show>
-  `
-}
-```
-
-But note, the behavior may not be the same if you rely on the name for type
-checking, or for certain formatters like Prettier that may have similar but
-not exactly the same syntax rules.
+The returned tag can be assigned to any local variable, but `html` matches the
+default editor tooling configuration. If you wrap or rename the tag, the `.jsx`
+self-reference below gives tooling a stable tag name to recognize.
 
 ## API
 
-### `createSLDRuntime(runtime): SLDInstance<{}>`
+### `createTaggedJSXRuntime(runtime): TaggedJSXInstance<{}>`
 
 Binds the runtime once and returns a tag with an empty component registry (`{}`).
 The `runtime` object provides the reactive primitives and HTML facts the tag
@@ -95,19 +79,19 @@ needs at render time. When using `@solidjs/web`, the module's exports (the `web`
 `import * as web from "@solidjs/web"`) satisfy the shape.
 
 The exported `Runtime` type can be implemented by any signals-style library for use
-with `sld` templates:
+with `html` templates:
 
 ```ts
-import { type Runtime } from "sld-dom-expressions";
+import { type Runtime } from "tagged-jsx-dom-expressions";
 
-import { ... } from '@preact/signals'; // For example, make sld work with Preact Signals
+import { ... } from '@preact/signals'; // For example, make tagged JSX work with Preact Signals
 
-const preactSldRuntime: Runtime = {
-  // ...implement the required shape for sld compatibility, using
+const preactTaggedJSXRuntime: Runtime = {
+  // ...implement the required shape for tagged JSX compatibility, using
   // Preact Signals primitives...
 }
 
-const sld = createSLDRuntime(preactSldRuntime)
+const html = createTaggedJSXRuntime(preactTaggedJSXRuntime);
 ```
 
 The `Runtime` shape is:
@@ -125,31 +109,31 @@ interface Runtime {
 }
 ```
 
-### `tag.define(components): SLDInstance<PreviousComponents & NewComponents>`
+### `tag.define(components): TaggedJSXInstance<PreviousComponents & NewComponents>`
 
 Returns a new tag with the supplied components merged into the registry.
 The original tag is unchanged.
 
 ```ts
-const base = createSLDRuntime(web);
+const base = createTaggedJSXRuntime(web);
 const withFor = base.define({ For });
 const withForAndShow = withFor.define({ Show });
 ```
 
-### `tag.sld`
+### `tag.jsx`
 
-A self-reference. This makes it possible to start every template with
-`` sld`...` `` regardless of which local variable name was used to reference the
-tag — useful for codemods, syntax highlighters, and tooling that keys off the
-literal text `` sld` ``.
+A self-reference. This makes it possible to write templates through a `.jsx`
+tag regardless of which local variable name was used to reference the instance.
+That gives codemods, syntax highlighters, and formatters a stable tag name to
+recognize.
 
 ```js
 const withForAndShow = withFor.define({ Show }); // from above
 
-console.log(withForAndShow === withForAndShow.sld) // true
+console.log(withForAndShow === withForAndShow.jsx) // true
 
 // Both of these are functionally equivalent, but the second one
-// helps tooling that specifically looks for "sld" in code.
+// helps tooling that specifically looks for "jsx" in code.
 
 withForAndShow`
     <For each=${...}>
@@ -161,7 +145,7 @@ withForAndShow`
     </Show>
 `
 
-withForAndShow.sld`
+withForAndShow.jsx`
     <For each=${...}>
       ...
     </For>
@@ -181,11 +165,11 @@ The current registry, as a plain object.
 ### Elements and components
 
 ```ts
-sld`<div />`; // self-closing
-sld`<div></div>`; // matched
-sld`<MyComponent />`; // registered component (capitalized)
-sld`<${MyComponent} />`; // inline component via expression hole
-sld`<${MyComponent}>...<//>`; // shorthand close for inline component (see Limitations)
+html`<div />`; // self-closing
+html`<div></div>`; // matched
+html`<MyComponent />`; // registered component (capitalized)
+html`<${MyComponent} />`; // inline component via expression hole
+html`<${MyComponent}>...<//>`; // shorthand close for inline component (see Limitations)
 ```
 
 - Tag names start with `a-zA-Z$_` and may contain `a-zA-Z0-9$.:-_`.
@@ -200,20 +184,20 @@ sld`<${MyComponent}>...<//>`; // shorthand close for inline component (see Limit
 - Pure-whitespace runs between elements are dropped from the AST.
 - Leading and trailing whitespace inside an element is dropped when the
   element contains at least one expression hole.
-- When in doubt, use an expression: `` sld`<p>${" exact  spaces   "}</p>` ``.
+- When in doubt, use an expression: `` html`<p>${" exact  spaces   "}</p>` ``.
 
 ### Attributes and properties
 
 ```ts
-sld`<input value="hi" />`           // static string attribute
-sld`<input disabled />`             // static boolean attribute
-sld`<input value=${val} />`         // dynamic attribute or property (auto)
-sld`<input prop:value=${val} />`    // forced DOM property
-sld`<input attr:foo=${val} />`      // forced HTML attribute
-sld`<input ...${props} />`          // spread
-sld`<input ref=${el => ...} />`     // ref (not reactive)
-sld`<input onClick=${handler} />`   // delegated event when supported by the runtime
-sld`<input onclick=${handler} />`   // bound listener (legacy lowercase)
+html`<input value="hi" />`           // static string attribute
+html`<input disabled />`             // static boolean attribute
+html`<input value=${val} />`         // dynamic attribute or property (auto)
+html`<input prop:value=${val} />`    // forced DOM property
+html`<input attr:foo=${val} />`      // forced HTML attribute
+html`<input ...${props} />`          // spread
+html`<input ref=${el => ...} />`     // ref (not reactive)
+html`<input onClick=${handler} />`   // delegated event when supported by the runtime
+html`<input onclick=${handler} />`   // bound listener (legacy lowercase)
 ```
 
 `children` as an attribute is honored only when the element has no template
@@ -228,22 +212,22 @@ equivalent:
 ```ts
 const [count] = createSignal(0);
 
-sld`<button count=${() => count()} />`;
-sld`<button count=${count} />`;
+html`<button count=${() => count()} />`;
+html`<button count=${count} />`;
 ```
 
 If the value you want to pass is itself a zero-arg function and you don't
 want it auto-wrapped, wrap it again to break the heuristic:
 
 ```ts
-sld`<Route component=${() => Counter} />`;
+html`<Route component=${() => Counter} />`;
 ```
 
 `on*` and `ref` props are never auto-wrapped — they're passed as-is.
 
-## JSX vs `sld`
+## JSX vs `html`
 
-| Feature            | Solid JSX                               | `sld` tagged template                                    |
+| Feature            | Solid JSX                               | `html` tagged template                                    |
 | :----------------- | :-------------------------------------- | :------------------------------------------------------- |
 | **Fragments**      | Required: `<>...</>` for multiple roots | None needed: returns a node, or array of nodes           |
 | **Spread**         | `<div {...props} />`                    | `<div ...${props} />`                                    |
@@ -253,16 +237,16 @@ sld`<Route component=${() => Counter} />`;
 | **Reactivity**     | Signals auto-wrapped                    | Zero-arg functions auto-wrapped (use `() =>` to opt out) |
 | **Component refs** | Identifier in scope                     | Registered name (`<Foo />`) or expression (`<${Foo} />`) |
 
-Because `sld` returns a `JSX.Element` — which can be a single node when the template
+Because `html` returns a `JSX.Element` — which can be a single node when the template
 resolves to one root, or an array when it resolves to many — consumers that
 need to iterate or spread should normalize the result:
 
 ```ts
-const result = sld`<div />`; // div
+const result = html`<div />`; // div
 const nodes = [result].flat(); // [div]
 ```
 ```ts
-const result = sld`
+const result = html`
   <div />
   <span />
 `; // [div, span]
