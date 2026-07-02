@@ -7,7 +7,9 @@ const native = requireNative();
 
 function transform(code, options) {
   if (typeof code !== "string") {
-    throw new TypeError("@dom-expressions/jsx-compiler transform() expects source code as a string");
+    throw new TypeError(
+      "@dom-expressions/jsx-compiler transform() expects source code as a string"
+    );
   }
 
   const nativeOptions = validateOptions(code, options);
@@ -56,7 +58,9 @@ const compatibleBabelDefaults = new Map([]);
 function validateOptions(code, options) {
   if (options == null) return options;
   if (typeof options !== "object" || Array.isArray(options)) {
-    throw new TypeError("@dom-expressions/jsx-compiler transform() expects options to be an object");
+    throw new TypeError(
+      "@dom-expressions/jsx-compiler transform() expects options to be an object"
+    );
   }
 
   const wrapperless = options.wrapConditionals === false || options.memoWrapper === false;
@@ -98,7 +102,9 @@ function validateOptions(code, options) {
         nativeOptions.wrapConditionals = false;
         continue;
       }
-      throw new TypeError("@dom-expressions/jsx-compiler `wrapConditionals` option must be boolean");
+      throw new TypeError(
+        "@dom-expressions/jsx-compiler `wrapConditionals` option must be boolean"
+      );
     }
     if (key === "memoWrapper") {
       if (value === "memo") continue;
@@ -154,7 +160,9 @@ function validateRenderers(renderers) {
     }
     for (const key of Object.keys(renderer)) {
       if (key !== "name" && key !== "moduleName" && key !== "elements") {
-        throw new Error(`@dom-expressions/jsx-compiler received unknown renderer option \`${key}\``);
+        throw new Error(
+          `@dom-expressions/jsx-compiler received unknown renderer option \`${key}\``
+        );
       }
     }
     if (renderer.name !== "dom") {
