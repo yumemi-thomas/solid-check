@@ -1,0 +1,61 @@
+import { createComponent as _$createComponent2 } from "r-custom";
+import { template as _$template } from "r-dom";
+import { effect as _$effect } from "r-dom";
+import { setAttribute as _$setAttribute } from "r-dom";
+var _tmpl$ = /* @__PURE__ */ _$template(`<div>First`);
+var _tmpl$2 = /* @__PURE__ */ _$template(`<div>Last`);
+var _tmpl$3 = /* @__PURE__ */ _$template(`<div>`);
+var _tmpl$4 = /* @__PURE__ */ _$template(`<span>1`);
+var _tmpl$5 = /* @__PURE__ */ _$template(`<span>2`);
+var _tmpl$6 = /* @__PURE__ */ _$template(`<span>3`);
+const multiStatic = [_tmpl$(), _tmpl$2()];
+const multiExpression = [
+	_tmpl$(),
+	inserted,
+	_tmpl$2(),
+	"After"
+];
+const multiDynamic = [
+	(() => {
+		var _el$5 = _tmpl$();
+		_$effect(() => {
+			return state.first;
+		}, (_v$) => {
+			_$setAttribute(_el$5, "id", _v$);
+		});
+		return _el$5;
+	})(),
+	state.inserted,
+	(() => {
+		var _el$6 = _tmpl$2();
+		_$effect(() => {
+			return state.last;
+		}, (_v$) => {
+			_$setAttribute(_el$6, "id", _v$);
+		});
+		return _el$6;
+	})(),
+	"After"
+];
+const singleExpression = inserted;
+const singleDynamic = inserted();
+const greeting = (x) => "Hello " + x;
+const singleTemplateLiteral = greeting`world`;
+const firstStatic = [inserted, _tmpl$3()];
+const firstDynamic = [inserted(), _tmpl$3()];
+const firstComponent = [_$createComponent2(Component, {}), _tmpl$3()];
+const lastStatic = [_tmpl$3(), inserted];
+const lastDynamic = [_tmpl$3(), inserted()];
+const lastComponent = [_tmpl$3(), _$createComponent2(Component, {})];
+const spaces = [
+	_tmpl$4(),
+	" ",
+	_tmpl$5(),
+	" ",
+	_tmpl$6()
+];
+const multiLineTrailing = [
+	_tmpl$4(),
+	_tmpl$5(),
+	_tmpl$6()
+];
