@@ -106,12 +106,14 @@ jobs:
         working-directory: packages/jsx-compiler
         run: pnpm exec napi artifacts
 
+      # Authenticates via OIDC trusted publishing (id-token: write above) —
+      # no npm token. Each platform package must have this repo + workflow
+      # configured as its Trusted Publisher on npmjs.com. Provenance is
+      # attached automatically when publishing through OIDC.
       - name: Publish platform packages
         working-directory: packages/jsx-compiler
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for dir in npm/*/; do
             echo "Publishing $dir"
-            npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}" --provenance
+            npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}"
           done
