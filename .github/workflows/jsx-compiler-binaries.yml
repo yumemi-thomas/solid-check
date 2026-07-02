@@ -1,0 +1,117 @@
+name: 'JSX Compiler Binaries'
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish platform packages to npm'
+        type: boolean
+        default: false
+      npm-tag:
+        description: 'npm dist-tag for published platform packages'
+        type: string
+        default: 'next'
+  push:
+    branches:
+      - next
+    paths:
+      - 'packages/jsx-compiler/**'
+      - '.github/workflows/jsx-compiler-binaries.yml'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: x86_64-apple-darwin
+            host: macos-latest
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+    name: build ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/jsx-compiler
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.1.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
+
+      - name: Build binary
+        working-directory: packages/jsx-compiler
+        run: pnpm exec napi build --platform --no-js --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
+
+      - name: Test binary (native targets)
+        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        working-directory: packages/jsx-compiler
+        run: pnpm exec jest --no-cache
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: packages/jsx-compiler/jsx-compiler.*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish platform packages
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.1.1 --activate
+
+      - name: Install dependencies
+        run: pnpm install --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages/jsx-compiler/artifacts
+
+      - name: Move binaries into platform packages
+        working-directory: packages/jsx-compiler
+        run: pnpm exec napi artifacts
+
+      - name: Publish platform packages
+        working-directory: packages/jsx-compiler
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in npm/*/; do
+            echo "Publishing $dir"
+            npm publish "$dir" --access public --tag "${{ inputs.npm-tag }}" --provenance
+          done

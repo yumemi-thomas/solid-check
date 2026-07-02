@@ -1,5 +1,5 @@
 ---
-"tagged-jsx-dom-expressions": patch
+"@dom-expressions/tagged-jsx": patch
 ---
 
 `createSLDRuntime(runtime)` now returns a ready-to-use tag directly (with an empty component registry) instead of a factory that needs a second call. Components are registered via `.define({ ... })` on the returned tag, which already existed for derivation. This removes the awkward `createSLDRuntime(r)({})` for the no-components case and makes the runtime-binding step single-purpose.

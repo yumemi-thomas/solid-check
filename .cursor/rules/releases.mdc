@@ -17,7 +17,7 @@ Solid 1.x maintenance line.
 includes:
 
 - New or changed runtime APIs (`client.js`, `server.js`, `universal.js`)
-- New or changed compiler output (`babel-plugin-jsx-dom-expressions`)
+- New or changed compiler output (`@dom-expressions/babel-plugin-jsx`)
 - Behavior changes to SSR, hydration, event delegation, or reconciliation
 - Type-definition changes that affect consumers (`jsx.d.ts`, `jsx-h.d.ts`,
   `jsx-properties.d.ts`)
@@ -47,31 +47,42 @@ changeset.
 
 ## Fixed Group
 
-All four published packages are in a `fixed` group in `.changeset/config.json`
-and bump together regardless of which ones are listed in a changeset's
-frontmatter. Because of this, **only list the packages the change actually
-touches** — listing a package in the frontmatter adds the changeset body to
-that package's `CHANGELOG.md`, so listing untouched packages pollutes their
-changelog with notes that don't apply to them.
+All published packages (`@dom-expressions/runtime`,
+`@dom-expressions/babel-plugin-jsx`, `@dom-expressions/jsx-compiler`,
+`@dom-expressions/hyperscript`, `@dom-expressions/tagged-jsx`) are in a
+`fixed` group in `.changeset/config.json` and bump together regardless of
+which ones are listed in a changeset's frontmatter. Because of this, **only
+list the packages the change actually touches** — listing a package in the
+frontmatter adds the changeset body to that package's `CHANGELOG.md`, so
+listing untouched packages pollutes their changelog with notes that don't
+apply to them.
+
+The `@dom-expressions/jsx-compiler-<platform>` binary packages are **not**
+workspace packages and are never listed in changesets; their versions are
+synced from the main compiler package by the root `version` script
+(`napi version` + `sync-optional-deps.mjs`) and they are published by the
+"JSX Compiler Binaries" GitHub Actions workflow, not by `changeset publish`.
 
 Common cases:
 
-- Runtime-only fix in `dom-expressions/server.js`: list `dom-expressions`.
-- Compiler-only fix in `babel-plugin-jsx-dom-expressions`: list that package.
+- Runtime-only fix in `@dom-expressions/runtime` `server.js`: list
+  `@dom-expressions/runtime`.
+- Compiler-only fix in `@dom-expressions/babel-plugin-jsx` or
+  `@dom-expressions/jsx-compiler`: list that package.
 - Paired runtime + compiler change (e.g. a new SSR helper emitted by the
   compiler and implemented in the runtime): list both.
-- Change to `hyper-dom-expressions` or `lit-dom-expressions` source:
-  list that package (plus `dom-expressions` if the shared runtime also
-  changed).
+- Change to `@dom-expressions/hyperscript` or `@dom-expressions/tagged-jsx`
+  source: list that package (plus `@dom-expressions/runtime` if the shared
+  runtime also changed).
 - Release-coordination / tooling / cross-cutting notes that genuinely apply
-  to every package: list all four.
+  to every package: list all of them.
 
-Example — a fix that only touches the compiler and the SSR runtime:
+Example — a fix that only touches the babel plugin and the SSR runtime:
 
 ```markdown
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
 ---
 
 <description of the change>

@@ -1,5 +1,5 @@
 ---
-"hyper-dom-expressions": patch
+"@dom-expressions/hyperscript": patch
 ---
 
 Fix render-prop consumers re-mounting stable children on parent updates in hyperscript. `mapArray`-style helpers (`For`, `Index`, `Show`, etc.) and any third-party JSX-compiled component that re-invokes a callback prop with arguments store whatever the callback returns and re-flatten it on every parent change. With the lazy / tagged-thunk `h(...)` design, returning `h(Row, ...)` from such a callback would store a thunk — re-flattening would re-invoke it and re-run the row component, re-create its DOM, and fire its `onCleanup` even for rows the diff would have kept.

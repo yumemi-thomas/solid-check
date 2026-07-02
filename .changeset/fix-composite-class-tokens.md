@@ -1,6 +1,6 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
 ---
 
 Preserve shared class tokens when diffing object keys that contain multiple class names.

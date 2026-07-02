@@ -1,6 +1,6 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
 ---
 
 Fix SSR escaping gaps reachable from JSX, and tighten the compiler so

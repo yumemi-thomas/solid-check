@@ -1,5 +1,5 @@
 ---
-"dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Speed up DOM and universal reconcile's symmetric end-swap branch on reorder-heavy

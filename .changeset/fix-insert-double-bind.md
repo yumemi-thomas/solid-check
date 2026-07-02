@@ -1,5 +1,5 @@
 ---
-"dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Replace the `memo(accessor, true)` wrap in `insert()` with a conditionally

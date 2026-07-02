@@ -1,6 +1,6 @@
 ---
-"dom-expressions": patch
-"babel-plugin-jsx-dom-expressions": patch
+"@dom-expressions/runtime": patch
+"@dom-expressions/babel-plugin-jsx": patch
 ---
 
 SSR rendering performance pass.

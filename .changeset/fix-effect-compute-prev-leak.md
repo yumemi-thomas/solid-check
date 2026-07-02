@@ -1,5 +1,5 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
 ---
 
 Fix single-dynamic attribute accessors being silently invoked with the

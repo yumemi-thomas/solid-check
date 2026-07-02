@@ -1,10 +1,10 @@
 ---
 description: Babel plugin for compiling JSX to DOM expressions
-globs: packages/babel-plugin-jsx-dom-expressions/**
+globs: packages/babel-plugin-jsx/**
 alwaysApply: false
 ---
 
-# Babel Plugin (`babel-plugin-jsx-dom-expressions`)
+# Babel Plugin (`@dom-expressions/babel-plugin-jsx`)
 
 ## Overview
 
@@ -34,7 +34,7 @@ Compiles JSX into optimized DOM creation code. Supports three output modes: `dom
   - `element.js`, `template.js`
 - `src/config.ts` — plugin configuration and defaults
 
-HTML facts (void elements, raw-text elements, delegated events, namespaces, MathML/SVG element sets, child-property/state-property mappings) live in `dom-expressions/src/constants` and are imported from there — the babel plugin does not maintain its own copies.
+HTML facts (void elements, raw-text elements, delegated events, namespaces, MathML/SVG element sets, child-property/state-property mappings) live in `@dom-expressions/runtime/src/constants` and are imported from there — the babel plugin does not maintain its own copies.
 
 ## Key Concepts
 

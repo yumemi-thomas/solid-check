@@ -1,5 +1,5 @@
 ---
-"hyper-dom-expressions": patch
+"@dom-expressions/hyperscript": patch
 ---
 
 Fix ownership leak when composing control-flow components (`For`, `Show`, etc.) in hyperscript (solidjs/solid#2453). `h(...)` now returns a tagged zero-arity thunk whose body runs under `untrack`, so render effects created inside a child component — notably per-row effects created by `mapArray` inside `For` — are rooted under the child's owner instead of whichever `r.insert` effect happens to consume it. Mutating a parent list signal no longer disposes sibling rows' render effects.

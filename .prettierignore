@@ -4,8 +4,8 @@ lib
 coverage
 .pnpm-store
 pnpm-lock.yaml
-packages/babel-plugin-jsx-dom-expressions/index.js
-packages/babel-plugin-jsx-dom-expressions/test/__*__/
-packages/jsx-dom-expressions-compiler/__tests__/fixtures/
-packages/dom-expressions/types
-packages/tagged-jsx-dom-expressions/tests/tagged-jsx.test.ts
+packages/babel-plugin-jsx/index.js
+packages/babel-plugin-jsx/test/__*__/
+packages/jsx-compiler/__tests__/fixtures/
+packages/runtime/types
+packages/tagged-jsx/tests/tagged-jsx.test.ts

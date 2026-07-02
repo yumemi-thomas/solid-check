@@ -1,6 +1,6 @@
 ---
 description: DOM runtime internals — client rendering, SSR, hydration, and universal renderer
-globs: packages/dom-expressions/src/**
+globs: packages/runtime/src/**
 alwaysApply: false
 ---
 

@@ -1,6 +1,5 @@
 ---
-"dom-expressions": patch
-"lit-dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Make `ClassValue` recursive so nested arrays type-check. The runtime already

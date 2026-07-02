@@ -1,5 +1,5 @@
 ---
-"tagged-jsx-dom-expressions": patch
+"@dom-expressions/tagged-jsx": patch
 ---
 
 Expose `Runtime`, `ComponentRegistry`, and `FunctionComponent` from the

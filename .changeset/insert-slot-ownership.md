@@ -1,5 +1,5 @@
 ---
-"dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Harden DOM-runtime insertion against nodes that have migrated out of their

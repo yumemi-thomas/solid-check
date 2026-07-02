@@ -1,9 +1,8 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
-"hyper-dom-expressions": patch
-"lit-dom-expressions": patch
-"tagged-jsx-dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
+"@dom-expressions/hyperscript": patch
+"@dom-expressions/tagged-jsx": patch
 ---
 
 Normalize the `repository` field in every package to the standard npm

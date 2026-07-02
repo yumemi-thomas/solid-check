@@ -5,6 +5,6 @@ lib/
 coverage/
 types/
 test/runtime.js
-packages/babel-plugin-jsx-dom-expressions/index.js
-!packages/babel-plugin-jsx-dom-expressions/types/
+packages/babel-plugin-jsx/index.js
+!packages/babel-plugin-jsx/types/
 .pnpm-store/

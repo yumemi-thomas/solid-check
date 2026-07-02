@@ -41,8 +41,8 @@ jobs:
     - name: Coveralls
       uses: coverallsapp/github-action@master
       with:
-        base-path: packages/dom-expressions
-        path-to-lcov: "./packages/dom-expressions/coverage/lcov.info"
+        base-path: packages/runtime
+        path-to-lcov: "./packages/runtime/coverage/lcov.info"
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Archive production artifacts

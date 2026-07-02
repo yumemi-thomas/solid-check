@@ -1,5 +1,5 @@
 ---
-"dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Expose `VoidElements` and `RawTextElements` consistently from every

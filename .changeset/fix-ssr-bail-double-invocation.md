@@ -1,5 +1,5 @@
 ---
-"dom-expressions": patch
+"@dom-expressions/runtime": patch
 ---
 
 Fix `ssr()` double-invocation on bail paths.

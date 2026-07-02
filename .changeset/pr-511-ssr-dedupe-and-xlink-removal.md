@@ -1,8 +1,7 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
-"hyper-dom-expressions": patch
-"lit-dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
+"@dom-expressions/hyperscript": patch
 ---
 
 - SSR: Duplicate attributes in JSX without spreads are now deduplicated —

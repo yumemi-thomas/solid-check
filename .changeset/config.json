@@ -4,11 +4,11 @@
   "commit": false,
   "fixed": [
     [
-      "babel-plugin-jsx-dom-expressions",
-      "dom-expressions",
-      "hyper-dom-expressions",
-      "lit-dom-expressions",
-      "tagged-jsx-dom-expressions"
+      "@dom-expressions/babel-plugin-jsx",
+      "@dom-expressions/runtime",
+      "@dom-expressions/hyperscript",
+      "@dom-expressions/tagged-jsx",
+      "@dom-expressions/jsx-compiler"
     ]
   ],
   "linked": [],

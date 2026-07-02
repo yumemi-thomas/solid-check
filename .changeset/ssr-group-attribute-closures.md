@@ -1,6 +1,6 @@
 ---
-"babel-plugin-jsx-dom-expressions": patch
-"dom-expressions": patch
+"@dom-expressions/babel-plugin-jsx": patch
+"@dom-expressions/runtime": patch
 ---
 
 SSR: group contiguous attribute and `textContent` closures into a single
