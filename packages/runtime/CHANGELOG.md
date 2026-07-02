@@ -1,5 +1,30 @@
 # dom-expressions
 
+## 0.50.0-next.15
+
+### Patch Changes
+
+- 42ca328: Awaited renderToStream (`then()`, which renderToStringAsync wraps) now waits out blocking promises and re-pulls pending root holes before completing, matching `pipe()`. Previously a render whose only async was a blocked root hole (e.g. `lazy()` or an async component source with no registered fragment) completed immediately with an unfinished shell.
+- ed01d41: Source server `mergeProps` from rxcore like the client and universal entries instead of shipping a local copy. The local merger resolved function sources for key enumeration only — the per-key getter read values off the raw, un-invoked function — so SSR dropped spread props whose source is a function (`<div {...fn()}>`, `<Dynamic {...props}>`; solidjs/solid#2815). Prop-merge semantics belong to the framework core; renderers must now export `mergeProps` from their server rxcore module (the universal entry already required this).
+- df03fb8: Move all packages under the `@dom-expressions` npm scope with new names:
+  - `dom-expressions` → `@dom-expressions/runtime`
+  - `babel-plugin-jsx-dom-expressions` → `@dom-expressions/babel-plugin-jsx`
+  - `jsx-dom-expressions-compiler` → `@dom-expressions/jsx-compiler`
+  - `hyper-dom-expressions` → `@dom-expressions/hyperscript`
+  - `tagged-jsx-dom-expressions` → `@dom-expressions/tagged-jsx`
+
+  The old unscoped names stop receiving `next` prereleases and remain in use
+  only by the Solid 1.x maintenance line published from `main`.
+
+  `lit-dom-expressions` is dropped from the prerelease line; it has been
+  superseded by `@dom-expressions/tagged-jsx`.
+
+  `@dom-expressions/jsx-compiler` now distributes prebuilt native binaries
+  through per-platform packages (`@dom-expressions/jsx-compiler-darwin-x64`,
+  `-darwin-arm64`, `-linux-x64-gnu`, `-linux-arm64-gnu`, `-win32-x64-msvc`)
+  resolved automatically via `optionalDependencies`, instead of shipping a
+  binary inside the main package.
+
 ## 0.50.0-next.14
 
 ### Patch Changes

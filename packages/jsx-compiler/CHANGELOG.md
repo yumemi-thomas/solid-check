@@ -1,0 +1,28 @@
+# @dom-expressions/jsx-compiler
+
+## 0.50.0-next.15
+
+### Patch Changes
+
+- dc546f3: Add initial AST-native DOM support for plain dynamic attributes by lowering them through reactive effects and `setAttribute`. The compiler now also supports the full Babel DOM `attributeExpressions` fixture, including DOM child-property, style, class/className, state-property, ref, `prop:*`, and spread attribute lowering.
+
+  The Oxc DOM slice now supports inline event handlers for delegated and native events, follows Babel's updated removal of `on:` namespace-event handling, supports `delegateEvents` / `delegatedEvents` configuration, mirrors the Babel/runtime constants needed for void elements, child properties, namespaces, delegated events, and DOM state-property classification, honors Babel-style `omitLastClosingTag` / `omitNestedClosingTags`, `omitQuotes`, `omitAttributeSpacing`, `inlineStyles`, `effectWrapper: false`, paired `wrapConditionals: false` / `memoWrapper: false` wrapperless mode, `requireImportSource`, `staticMarker`, and `validate` template/update options, lowers known namespaced DOM attributes such as `xlink:href` through `setAttributeNS`, covers additional full Babel DOM fixtures including `components`, `SVG`, `conditionalExpressions`, `customElements`, `fragments`, `insertChildren`, `multipleClassAttributes`, and `SVGComponentPartial`, adds parseable `namespaceElements` coverage, supports Solid-compatible custom element context capture through `contextToCustomElements`, adds Babel-aligned `memo` predicate lowering for DOM conditional children and component props plus fragment/component child dynamic expressions, wraps dynamic DOM child member/call/optional/nullish expressions like Babel, handles optional-chain component children and nested fragment conditionals with Babel-shaped getters, memo wrappers, and empty-fragment arrays, supports hydratable DOM fixture output through `getNextElement` template roots, replays queued hydratable delegated events through `runHydrationEvents`, supports dev hydratable DOM validation walks through `getFirstChild` / `getNextSibling`, starts SSR mode with native element/text lowering through `ssr`, dynamic text interpolation through `escape`, plain dynamic native attributes through `escape(..., true)`, hydratable root template keys through `ssrHydrationKey`, defers later hydratable SSR child slots that allocate hydration IDs after deferred children, full coverage for all checked-in Babel SSR and SSR hydratable fixture families, begins universal mode with native elements, static attributes, dynamic text insertion, component calls through shared prop assembly, spread attributes, spread children, and full coverage for the currently checked universal fixtures, adds dynamic mode with DOM-renderer routing, universal fallback, and hybrid DOM/universal dispatch while avoiding duplicate helper import aliases, validates the supported compiler option surface so non-default unsupported Babel options throw instead of being silently ignored, updates the public README and TypeScript declarations for the current option surface, splits SSR/universal target helpers into submodules, shares common AST construction helpers across targets, and expands component lowering with member-expression prop getters, `@static` opt-out, JSX child arrays, dynamic child getters, configured `builtIns` imports, spread props through `mergeProps`, JSX member component callee construction, component ref normalization for identifier/static/simple optional/call/computed refs, return-statement JSX setup lowering, getter setup lowering, and `this` capture for supported class method/field JSX.
+
+- df03fb8: Move all packages under the `@dom-expressions` npm scope with new names:
+  - `dom-expressions` → `@dom-expressions/runtime`
+  - `babel-plugin-jsx-dom-expressions` → `@dom-expressions/babel-plugin-jsx`
+  - `jsx-dom-expressions-compiler` → `@dom-expressions/jsx-compiler`
+  - `hyper-dom-expressions` → `@dom-expressions/hyperscript`
+  - `tagged-jsx-dom-expressions` → `@dom-expressions/tagged-jsx`
+
+  The old unscoped names stop receiving `next` prereleases and remain in use
+  only by the Solid 1.x maintenance line published from `main`.
+
+  `lit-dom-expressions` is dropped from the prerelease line; it has been
+  superseded by `@dom-expressions/tagged-jsx`.
+
+  `@dom-expressions/jsx-compiler` now distributes prebuilt native binaries
+  through per-platform packages (`@dom-expressions/jsx-compiler-darwin-x64`,
+  `-darwin-arm64`, `-linux-x64-gnu`, `-linux-arm64-gnu`, `-win32-x64-msvc`)
+  resolved automatically via `optionalDependencies`, instead of shipping a
+  binary inside the main package.
