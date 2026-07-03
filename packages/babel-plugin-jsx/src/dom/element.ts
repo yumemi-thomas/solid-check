@@ -32,8 +32,7 @@ import {
   trimWhitespace,
   inlineCallExpression,
   hasStaticMarker,
-  canChildSlotAllocateIds,
-  isDeferredChildSlotExpression
+  canChildSlotAllocateIds
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
 import { InlineElements, BlockElements } from "./constants";
@@ -1293,14 +1292,18 @@ function transformChildren(
         markers = config.hydratable && multi;
       // Mirror of the ssr generate's `scope()` wrap: deferred holes that can
       // allocate hydration ids get their own owner scope (insert makes the
-      // outer render effect non-transparent for tagged accessors).
-      if (
-        (child as TransformResult & { allocatesIds?: boolean }).allocatesIds &&
-        isDeferredChildSlotExpression(child.exprs[0] as babelTypes.Expression)
-      ) {
+      // outer render effect non-transparent for tagged accessors). Keyed off
+      // `dynamic` so both generates decide identically for the same source.
+      if ((child as TransformResult & { allocatesIds?: boolean }).allocatesIds && child.dynamic) {
+        let expr = child.exprs[0] as babelTypes.Expression;
+        // The shared transform simplifies `{sig()}` to the bare getter `sig`;
+        // rewrap so tagging the scope doesn't mutate the user's function.
+        if (!t.isFunction(expr) && !(t.isCallExpression(expr) && t.isFunction(expr.callee))) {
+          expr = t.arrowFunctionExpression([], t.callExpression(expr, []));
+        }
         child.exprs[0] = t.callExpression(
           registerImportMethod(path, "scope", getRendererConfig(path, "dom").moduleName),
-          [child.exprs[0] as babelTypes.Expression]
+          [expr]
         );
       }
       // boxed by textNodes

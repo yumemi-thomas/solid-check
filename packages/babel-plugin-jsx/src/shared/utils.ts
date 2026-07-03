@@ -288,10 +288,6 @@ export function canChildSlotAllocateIds(node: NodePath): boolean {
   return node.isJSXExpressionContainer() && canReturnHydratableChild(node.node.expression);
 }
 
-export function isDeferredChildSlotExpression(node: t.Expression): boolean {
-  return t.isFunction(node) || (t.isCallExpression(node) && t.isFunction(node.callee));
-}
-
 export function wrappedByText(list: TransformResult[], startIndex: number): boolean {
   let index = startIndex,
     wrapped;

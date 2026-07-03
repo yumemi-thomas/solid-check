@@ -94,7 +94,10 @@ const template19 = _$createComponent(Module, {
   }
 });
 var _el$13 = _$getNextElement(_tmpl$2);
-_$insert(_el$13, children);
+_$insert(
+  _el$13,
+  _$scope(() => children())
+);
 const template20 = _el$13;
 const template21 = _$createComponent(Module, {
   get children() {

@@ -1,4 +1,5 @@
 import { template as _$template } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { getNextMarker as _$getNextMarker } from "r-dom";
 import { insert as _$insert } from "r-dom";
@@ -146,5 +147,10 @@ var _el$52 = _$getNextElement(_tmpl$17),
   _el$53 = _el$52.firstChild,
   _el$54 = _el$53.nextSibling,
   [_el$55, _co$10] = _$getNextMarker(_el$54.nextSibling);
-_$insert(_el$52, expr, _el$55, _co$10);
+_$insert(
+  _el$52,
+  _$scope(() => expr()),
+  _el$55,
+  _co$10
+);
 const lastElementExpression = _el$52;

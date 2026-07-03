@@ -115,17 +115,15 @@ const template = props => {
   );
   _$insert(
     _el$6,
-    _$scope(
-      (() => {
-        var _ref$4 = props.consumerRef();
-        return _$createComponent(Context.Consumer, {
-          ref(r$) {
-            (typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
-          },
-          children: context => context
-        });
-      })()
-    ),
+    (() => {
+      var _ref$4 = props.consumerRef();
+      return _$createComponent(Context.Consumer, {
+        ref(r$) {
+          (typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
+        },
+        children: context => context
+      });
+    })(),
     _el$12,
     _co$4
   );

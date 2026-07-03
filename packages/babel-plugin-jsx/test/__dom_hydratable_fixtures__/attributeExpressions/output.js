@@ -688,7 +688,10 @@ const style = {
   border: "solid black " + count() + "px"
 };
 var _el$106 = _$getNextElement(_tmpl$45);
-_$insert(_el$106, count);
+_$insert(
+  _el$106,
+  _$scope(() => count())
+);
 _$effect(
   () => ({
     e: count(),
@@ -705,7 +708,10 @@ const template87 = _el$106;
 var _el$107 = _$getNextElement(_tmpl$45);
 _$style(_el$107, /* @static*/ style);
 _$className(_el$107, /* @static*/ style);
-_$insert(_el$107, count);
+_$insert(
+  _el$107,
+  _$scope(() => count())
+);
 _$effect(
   () => count(),
   _v$ => {

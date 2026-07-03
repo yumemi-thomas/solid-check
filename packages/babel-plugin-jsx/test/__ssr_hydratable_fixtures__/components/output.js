@@ -102,19 +102,17 @@ const template = props => {
         )
       )
     ),
-    _v$1 = _$scope(
-      (() => {
-        var _ref$5 = props.consumerRef();
-        return _$escape(
-          Context.Consumer({
-            ref(r$) {
-              (typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$applyRef(_ref$5, r$);
-            },
-            children: context => context
-          })
-        );
-      })()
-    );
+    _v$1 = (() => {
+      var _ref$5 = props.consumerRef();
+      return _$escape(
+        Context.Consumer({
+          ref(r$) {
+            (typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$applyRef(_ref$5, r$);
+          },
+          children: context => context
+        })
+      );
+    })();
   return _$ssr(_tmpl$4, _v$5, _v$7, _v$0, _v$1);
 };
 const template2 = Child({

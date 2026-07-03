@@ -18,8 +18,7 @@ import {
   isComponent,
   convertJSXIdentifier,
   inlineCallExpression,
-  canChildSlotAllocateIds,
-  isDeferredChildSlotExpression
+  canChildSlotAllocateIds
 } from "../shared/utils";
 import { transformNode, getCreateTemplate } from "../shared/transform";
 import { createTemplate } from "./template";
@@ -226,7 +225,11 @@ export function transformElement(
   if (info.topLevel && config.hydratable) {
     results.template.push("");
     results.templateValues.push(
-      hoistExpression(path, results, t.callExpression(registerImportMethod(path, "ssrHydrationKey"), []))
+      hoistExpression(
+        path,
+        results,
+        t.callExpression(registerImportMethod(path, "ssrHydrationKey"), [])
+      )
     );
   }
   transformAttributes(path, results, { ...config, ...info });
@@ -812,8 +815,9 @@ function transformChildren(
       // Deferred holes that can allocate hydration ids evaluate under their
       // own owner scope so retry timing can't skew sibling ids (mirrors the
       // dom generate's `scope()` wrap around the matching insert accessor).
+      // Keyed off `dynamic` so both generates decide identically.
       let expr = child.exprs[0] as babelTypes.Expression;
-      if (allocatesIds && isDeferredChildSlotExpression(expr)) {
+      if (allocatesIds && child.dynamic) {
         expr = t.callExpression(registerImportMethod(path, "scope"), [expr]);
       }
 
