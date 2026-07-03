@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { ssrClassName as _$ssrClassName } from "r-server";
 import { ssrStyle as _$ssrStyle } from "r-server";
 import { ssrGroup as _$ssrGroup } from "r-server";
@@ -273,16 +274,15 @@ const template24 = _$ssrElement(
   true
 );
 var _v$35 = _$ssrHydrationKey(),
-  _v$36 = () => _$escape(props.children),
-  _v$37 = () =>
-    _$ssrElement(
-      "a",
-      _$mergeProps(props, {
-        something: true
-      }),
-      undefined,
-      false
-    );
+  _v$36 = _$scope(() => _$escape(props.children)),
+  _v$37 = _$ssrElement(
+    "a",
+    _$mergeProps(props, {
+      something: true
+    }),
+    undefined,
+    false
+  );
 const template25 = _$ssr(_tmpl$19, _v$35, _v$36, _v$37);
 const template26 = _$ssrElement(
   "div",
@@ -582,7 +582,7 @@ const style = {
 };
 var _v$106 = _$ssrHydrationKey(),
   _v$107 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
-  _v$108 = () => _$escape(count());
+  _v$108 = _$scope(() => _$escape(count()));
 const template87 = _$ssr(
   _tmpl$46,
   _v$106,
@@ -593,7 +593,7 @@ const template87 = _$ssr(
 );
 var _v$109 = _$ssrHydrationKey(),
   _v$110 = () => _$ssrAttribute("aria-label", _$escape(count(), true)),
-  _v$111 = () => _$escape(count());
+  _v$111 = _$scope(() => _$escape(count()));
 const template88 = _$ssr(
   _tmpl$46,
   _v$109,

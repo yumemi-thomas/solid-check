@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -119,5 +120,5 @@ const escapeCompAttribute = Div({
   title: "Search&hellip;"
 });
 var _v$31 = _$ssrHydrationKey(),
-  _v$32 = () => _$escape(expr());
+  _v$32 = _$scope(() => _$escape(expr()));
 const lastElementExpression = _$ssr(_tmpl$17, _v$31, _v$32);

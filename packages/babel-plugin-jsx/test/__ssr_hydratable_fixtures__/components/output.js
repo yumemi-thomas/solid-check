@@ -3,6 +3,7 @@ import { memo as _$memo } from "r-server";
 import { For as _$For } from "r-server";
 import { mergeProps as _$mergeProps } from "r-server";
 import { applyRef as _$applyRef } from "r-server";
+import { scope as _$scope } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -47,7 +48,7 @@ const Child = props => {
     _$ssr(_tmpl$, _v$, _v$2)),
     ((_v$3 = _$ssrHydrationKey()),
     (_ref$2 = set),
-    (_v$4 = () => _$escape(props.children)),
+    (_v$4 = _$scope(() => _$escape(props.children))),
     _$ssr(_tmpl$2, _v$3, _v$4))
   ];
 };
@@ -101,17 +102,19 @@ const template = props => {
         )
       )
     ),
-    _v$1 = (() => {
-      var _ref$5 = props.consumerRef();
-      return _$escape(
-        Context.Consumer({
-          ref(r$) {
-            (typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$applyRef(_ref$5, r$);
-          },
-          children: context => context
-        })
-      );
-    })();
+    _v$1 = _$scope(
+      (() => {
+        var _ref$5 = props.consumerRef();
+        return _$escape(
+          Context.Consumer({
+            ref(r$) {
+              (typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$applyRef(_ref$5, r$);
+            },
+            children: context => context
+          })
+        );
+      })()
+    );
   return _$ssr(_tmpl$4, _v$5, _v$7, _v$0, _v$1);
 };
 const template2 = Child({

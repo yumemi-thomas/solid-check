@@ -336,6 +336,16 @@ export function ref(fn, element) {
   runWithOwner(null, () => applyRef(resolved, element));
 }
 
+// Compiler tag for holes that can allocate hydration ids: the outer insert
+// effect gets its own (non-transparent) id scope, mirroring the server's
+// `scope()` owner. Keeps sibling ids stable no matter when the hole runs.
+export function scope(fn) {
+  fn.$s = true;
+  return fn;
+}
+
+const SCOPE_OPTIONS = { scope: true };
+
 export function insert(parent, accessor, marker, initial, options) {
   const multi = marker !== undefined;
   const host = options && options.host;
@@ -388,7 +398,9 @@ export function insert(parent, accessor, marker, initial, options) {
       current = value;
       host && tagHost(current, host);
     },
-    options
+    // Only the OUTER effect takes the scope — the inner unwrapping effect
+    // stays transparent so content ids keep a fixed depth per hole.
+    accessor.$s ? (options ? { ...options, scope: true } : SCOPE_OPTIONS) : options
   );
 }
 

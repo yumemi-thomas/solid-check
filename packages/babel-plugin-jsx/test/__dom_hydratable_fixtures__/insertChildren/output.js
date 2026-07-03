@@ -3,6 +3,7 @@ import { getNextMarker as _$getNextMarker } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
 import { spread as _$spread } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
@@ -27,7 +28,10 @@ var _el$4 = _$getNextElement(_tmpl$2);
 _$insert(_el$4, _$createComponent(Hello, {}));
 const template4 = _el$4;
 var _el$5 = _$getNextElement(_tmpl$2);
-_$insert(_el$5, () => dynamic.children);
+_$insert(
+  _el$5,
+  _$scope(() => dynamic.children)
+);
 const template5 = _el$5;
 const template6 = _$createComponent(Module, {
   get children() {
@@ -44,7 +48,10 @@ _$runHydrationEvents();
 const template8 = _el$7;
 var _el$8 = _$getNextElement(_tmpl$2);
 _$spread(_el$8, dynamic, true);
-_$insert(_el$8, () => dynamic.children);
+_$insert(
+  _el$8,
+  _$scope(() => dynamic.children)
+);
 _$runHydrationEvents();
 const template9 = _el$8;
 const template10 = _$createComponent(
@@ -66,7 +73,10 @@ const template14 = _$createComponent(Module, {
   children: children
 });
 var _el$1 = _$getNextElement(_tmpl$2);
-_$insert(_el$1, () => dynamic.children);
+_$insert(
+  _el$1,
+  _$scope(() => dynamic.children)
+);
 const template15 = _el$1;
 const template16 = _$createComponent(Module, {
   get children() {
@@ -92,7 +102,10 @@ const template21 = _$createComponent(Module, {
   }
 });
 var _el$14 = _$getNextElement(_tmpl$2);
-_$insert(_el$14, () => state.children());
+_$insert(
+  _el$14,
+  _$scope(() => state.children())
+);
 const template22 = _el$14;
 const template23 = _$createComponent(Module, {
   get children() {
@@ -104,7 +117,12 @@ var _el$15 = _$getNextElement(_tmpl$5),
   _el$17 = _el$16.nextSibling,
   [_el$18, _co$2] = _$getNextMarker(_el$17.nextSibling);
 _$spread(_el$15, dynamic, true);
-_$insert(_el$15, () => dynamic.children, _el$18, _co$2);
+_$insert(
+  _el$15,
+  _$scope(() => dynamic.children),
+  _el$18,
+  _co$2
+);
 _$runHydrationEvents();
 const template24 = _el$15;
 const tiles = [];
@@ -116,5 +134,8 @@ var _el$21 = _$getNextElement(_tmpl$);
 _$insert(_el$21, () => (expression(), "static"));
 const comma = _el$21;
 var _el$22 = _$getNextElement(_tmpl$);
-_$insert(_el$22, () => children()());
+_$insert(
+  _el$22,
+  _$scope(() => children()())
+);
 const double = _el$22;

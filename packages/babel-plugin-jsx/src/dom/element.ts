@@ -31,7 +31,9 @@ import {
   transformCondition,
   trimWhitespace,
   inlineCallExpression,
-  hasStaticMarker
+  hasStaticMarker,
+  canChildSlotAllocateIds,
+  isDeferredChildSlotExpression
 } from "../shared/utils";
 import { transformNode } from "../shared/transform";
 import { InlineElements, BlockElements } from "./constants";
@@ -1217,6 +1219,8 @@ function transformChildren(
           skipId: !results.id || !detectExpressions(filteredChildren, index, config)
         });
         if (!transformed) return memo;
+        (transformed as TransformResult & { allocatesIds?: boolean }).allocatesIds =
+          config.hydratable && canChildSlotAllocateIds(child);
         const i = memo.length;
         if (transformed.text && i && memo[i - 1].text) {
           memo[i - 1].template =
@@ -1287,6 +1291,18 @@ function transformChildren(
       let insert = registerImportMethod(path, "insert", getRendererConfig(path, "dom").moduleName);
       const multi = checkLength(filteredChildren),
         markers = config.hydratable && multi;
+      // Mirror of the ssr generate's `scope()` wrap: deferred holes that can
+      // allocate hydration ids get their own owner scope (insert makes the
+      // outer render effect non-transparent for tagged accessors).
+      if (
+        (child as TransformResult & { allocatesIds?: boolean }).allocatesIds &&
+        isDeferredChildSlotExpression(child.exprs[0] as babelTypes.Expression)
+      ) {
+        child.exprs[0] = t.callExpression(
+          registerImportMethod(path, "scope", getRendererConfig(path, "dom").moduleName),
+          [child.exprs[0] as babelTypes.Expression]
+        );
+      }
       // boxed by textNodes
       if (markers || wrappedByText(childNodes, index)) {
         let exprId: babelTypes.Identifier;

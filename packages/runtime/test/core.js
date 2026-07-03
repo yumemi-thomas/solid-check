@@ -23,6 +23,29 @@ export function ssrHandleError(err) {
   if (err && err._promise) return err._promise;
 }
 
+// Hole id scope (mirrors the framework impl): reserve one id slot at
+// registration, evaluate with the reserved id + zeroed child counter so
+// deferred/retried holes can't shift sibling ids.
+export function ssrScope(fn) {
+  const owner = getOwner();
+  if (!owner || owner.id == null) return fn;
+  const scopeId = getNextChildId(owner);
+  return () => {
+    const prevId = owner.id;
+    const prevCount = owner._childCount;
+    owner.id = scopeId;
+    owner._childCount = 0;
+    try {
+      let v = fn();
+      while (typeof v === "function") v = v();
+      return v;
+    } finally {
+      owner.id = prevId;
+      owner._childCount = prevCount;
+    }
+  };
+}
+
 export function createComponent(Comp, props) {
   if (Comp.prototype && Comp.prototype.isClassComponent) {
     return untrack(() => {
@@ -37,7 +60,7 @@ export const effect = (fn, effectFn, options) =>
   createRenderEffect(
     fn,
     effectFn,
-    options ? { transparent: true, ...options } : { transparent: true }
+    options ? { ...options, transparent: !options.scope } : { transparent: true }
   );
 
 export const memo = (fn, transparent) =>

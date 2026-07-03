@@ -260,6 +260,38 @@ export function toEventName(name: string): string {
   return name.slice(2).toLowerCase();
 }
 
+// === Hole-scope predicates (shared by dom + ssr generates) ===
+//
+// A dynamic element child ("hole") whose evaluation can allocate hydration
+// ids (create hydratable elements, run components, register memos) gets its
+// own owner scope so server and client allocate identical ids regardless of
+// WHEN the hole evaluates (eager, deferred by async, or re-run). Both
+// generates must agree exactly on which holes qualify, so the predicates
+// live here.
+
+function canReturnHydratableChild(node: t.Node): boolean {
+  if (t.isTSNonNullExpression(node) || t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node))
+    return canReturnHydratableChild(node.expression);
+  if (t.isJSXElement(node) || t.isJSXFragment(node) || t.isCallExpression(node)) return true;
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    return !node.computed && t.isIdentifier(node.property, { name: "children" });
+  }
+  if (t.isConditionalExpression(node)) {
+    return canReturnHydratableChild(node.consequent) || canReturnHydratableChild(node.alternate);
+  }
+  return t.isLogicalExpression(node) && canReturnHydratableChild(node.right);
+}
+
+export function canChildSlotAllocateIds(node: NodePath): boolean {
+  if (node.isJSXElement() || node.isJSXFragment()) return true;
+  if (node.isJSXSpreadChild()) return true;
+  return node.isJSXExpressionContainer() && canReturnHydratableChild(node.node.expression);
+}
+
+export function isDeferredChildSlotExpression(node: t.Expression): boolean {
+  return t.isFunction(node) || (t.isCallExpression(node) && t.isFunction(node.callee));
+}
+
 export function wrappedByText(list: TransformResult[], startIndex: number): boolean {
   let index = startIndex,
     wrapped;

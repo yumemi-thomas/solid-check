@@ -7,6 +7,10 @@ import { createSerializer, getLocalHeaderScript } from "./serializer";
 // core, and a local copy here drifts from them (it resolved function sources
 // for key enumeration only, dropping their values in SSR output).
 export { createComponent, effect, memo, untrack, mergeProps } from "rxcore";
+// Hole owner scope (`_$scope(...)` in compiled ssr output) — owner-creating
+// wrapper for deferred child holes that can allocate hydration ids. The
+// framework owns the implementation (owner creation + per-attempt reset).
+export { ssrScope as scope } from "rxcore";
 export { getOwner };
 
 export {

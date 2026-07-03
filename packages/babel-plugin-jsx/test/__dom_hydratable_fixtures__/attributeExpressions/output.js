@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 import { getNextMarker as _$getNextMarker } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
@@ -314,7 +315,12 @@ var _el$30 = _$getNextElement(_tmpl$15),
   _el$32 = _el$30.firstChild,
   [_el$33, _co$] = _$getNextMarker(_el$32.nextSibling),
   _el$31 = _el$33.nextSibling;
-_$insert(_el$30, () => props.children, _el$33, _co$);
+_$insert(
+  _el$30,
+  _$scope(() => props.children),
+  _el$33,
+  _co$
+);
 _$spread(
   _el$31,
   _$mergeProps(props, {

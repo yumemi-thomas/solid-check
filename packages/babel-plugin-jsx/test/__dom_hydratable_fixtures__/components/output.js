@@ -4,6 +4,7 @@ import { For as _$For } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { applyRef as _$applyRef } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { getNextMarker as _$getNextMarker } from "r-dom";
 import { insert as _$insert } from "r-dom";
@@ -41,7 +42,10 @@ const Child = props => {
     (() => {
       var _el$5 = _$getNextElement(_tmpl$2);
       _$ref(() => set, _el$5);
-      _$insert(_el$5, () => props.children);
+      _$insert(
+        _el$5,
+        _$scope(() => props.children)
+      );
       return _el$5;
     })()
   ];
@@ -111,15 +115,17 @@ const template = props => {
   );
   _$insert(
     _el$6,
-    (() => {
-      var _ref$4 = props.consumerRef();
-      return _$createComponent(Context.Consumer, {
-        ref(r$) {
-          (typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
-        },
-        children: context => context
-      });
-    })(),
+    _$scope(
+      (() => {
+        var _ref$4 = props.consumerRef();
+        return _$createComponent(Context.Consumer, {
+          ref(r$) {
+            (typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
+          },
+          children: context => context
+        });
+      })()
+    ),
     _el$12,
     _co$4
   );
