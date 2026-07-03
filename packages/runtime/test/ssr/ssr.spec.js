@@ -109,6 +109,23 @@ describe("renderToString", () => {
     res = r.renderToString(Comp5);
     expect(res).toBe(fixture4);
   });
+
+  // A plain object child isn't renderable; the client dev-warns and skips it.
+  // The server used to crash reading template fields off it (solidjs/solid#2801 bug 6).
+  it("warns and skips plain object children instead of crashing", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const data = { message: "hello" };
+    let res = r.renderToString(() => r.ssr(["<div>", "</div>"], () => data));
+    expect(res).toBe("<div></div>");
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // Non-function hole and nested-in-array shapes take separate paths.
+    res = r.renderToString(() => r.ssr(["<div>", "</div>"], data));
+    expect(res).toBe("<div></div>");
+    res = r.renderToString(() => r.ssr(["<div>", "</div>"], () => ["a", data, "b"]));
+    expect(res).toBe("<div>ab</div>");
+    warn.mockRestore();
+  });
 });
 
 describe("pipeToNodeWritable", () => {

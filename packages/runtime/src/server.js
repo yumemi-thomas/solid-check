@@ -1178,6 +1178,12 @@ function tryResolveString(node) {
       return s;
     }
     if (node.h && node.h.length > 0) return { merge: node };
+    if (node.t === undefined) {
+      // Not a template object — mirror the client's dev warn-and-skip
+      // instead of crashing downstream on a malformed template shape.
+      if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
+      return "";
+    }
     return Array.isArray(node.t) ? node.t[0] : node.t;
   }
   if (t === "function") {
@@ -1225,7 +1231,9 @@ function resolveSSRNode(
         result.h.push(...node.h);
         result.p.push(...node.p);
       }
-    } else result.t[result.t.length - 1] += node.t;
+    } else if (node.t !== undefined) {
+      result.t[result.t.length - 1] += node.t;
+    } else if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, node);
   } else if (t === "function") {
     try {
       resolveSSRNode(node(), result);
