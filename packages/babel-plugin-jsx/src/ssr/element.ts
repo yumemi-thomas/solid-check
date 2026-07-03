@@ -45,7 +45,6 @@ type SSRSpreadTransformResult = TransformResult & {
 interface HoistOptions {
   group?: boolean;
   post?: boolean;
-  skipWrap?: boolean;
 }
 
 interface GroupRun {
@@ -227,12 +226,7 @@ export function transformElement(
   if (info.topLevel && config.hydratable) {
     results.template.push("");
     results.templateValues.push(
-      hoistExpression(
-        path,
-        results,
-        t.callExpression(registerImportMethod(path, "ssrHydrationKey"), []),
-        { skipWrap: true }
-      )
+      hoistExpression(path, results, t.callExpression(registerImportMethod(path, "ssrHydrationKey"), []))
     );
   }
   transformAttributes(path, results, { ...config, ...info });
