@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -102,6 +103,6 @@ const lastElementExpression = _$ssr([
 	"<div",
 	"><div></div>",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(expr());
-});
+}));

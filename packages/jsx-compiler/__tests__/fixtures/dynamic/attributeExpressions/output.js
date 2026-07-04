@@ -1,6 +1,5 @@
 import { createTextNode as _$createTextNode2 } from "r-custom";
 import { insertNode as _$insertNode2 } from "r-custom";
-import { setProp as _$setProp2 } from "r-custom";
 import { createElement as _$createElement2 } from "r-custom";
 import { template as _$template } from "r-dom";
 import { insert as _$insert } from "r-dom";
@@ -583,8 +582,7 @@ const template60 = (() => {
 	});
 	return _el$73;
 })();
-var _el$ = _$createElement2("math");
-_$setProp2(_el$, "display", "block");
+var _el$ = _$createElement2("math", { display: "block" });
 var _el$2 = _$createElement2("mrow");
 _$insertNode2(_el$, _el$2);
 const template61 = _el$;

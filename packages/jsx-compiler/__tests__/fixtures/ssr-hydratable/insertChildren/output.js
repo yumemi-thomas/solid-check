@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -48,9 +49,7 @@ const template13 = _$ssr([
 	"<module",
 	">",
 	"</module>"
-], _$ssrHydrationKey(), () => {
-	return _$escape(children);
-});
+], _$ssrHydrationKey(), _$escape(children));
 const template14 = Module({ get children() {
 	return children;
 } });
@@ -58,9 +57,9 @@ const template15 = _$ssr([
 	"<module",
 	">",
 	"</module>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(dynamic.children);
-});
+}));
 const template16 = Module({ get children() {
 	return dynamic.children;
 } });
@@ -68,9 +67,7 @@ const template18 = _$ssr([
 	"<module",
 	">Hi ",
 	"</module>"
-], _$ssrHydrationKey(), () => {
-	return _$escape(children);
-});
+], _$ssrHydrationKey(), _$escape(children));
 const template19 = Module({ get children() {
 	return ["Hi ", children];
 } });
@@ -78,9 +75,9 @@ const template20 = _$ssr([
 	"<module",
 	">",
 	"</module>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(children());
-});
+}));
 const template21 = Module({ get children() {
 	return children();
 } });
@@ -88,9 +85,9 @@ const template22 = _$ssr([
 	"<module",
 	">",
 	"</module>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.children());
-});
+}));
 const template23 = Module({ get children() {
 	return state.children();
 } });
@@ -111,29 +108,27 @@ const double = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(children()());
-});
+}));
 function OrderedParent(props) {
 	return _$ssr([
 		"<section",
 		">",
 		"",
 		"</section>"
-	], _$ssrHydrationKey(), () => {
+	], _$ssrHydrationKey(), _$scope(() => {
 		return _$escape(props.children);
-	}, () => {
-		return OrderedSibling({});
-	});
+	}), OrderedSibling({}));
 }
 function OrderedNativeParent(props) {
 	return _$ssr([
 		"<section",
 		">",
 		"<span>native</span></section>"
-	], _$ssrHydrationKey(), () => {
+	], _$ssrHydrationKey(), _$scope(() => {
 		return _$escape(props.children);
-	});
+	}));
 }
 function OrderedExpressionParent(props) {
 	return _$ssr([
@@ -141,11 +136,9 @@ function OrderedExpressionParent(props) {
 		">",
 		"",
 		"</section>"
-	], _$ssrHydrationKey(), () => {
+	], _$ssrHydrationKey(), _$scope(() => {
 		return _$escape(props.render());
-	}, () => {
-		return OrderedSibling({});
-	});
+	}), OrderedSibling({}));
 }
 function OrderedConditionalParent(props) {
 	return _$ssr([
@@ -153,11 +146,9 @@ function OrderedConditionalParent(props) {
 		">",
 		"",
 		"</section>"
-	], _$ssrHydrationKey(), () => {
+	], _$ssrHydrationKey(), _$scope(() => {
 		return _$escape(props.when ? OrderedChild({}) : _$ssr(["<span", ">fallback</span>"], _$ssrHydrationKey()));
-	}, () => {
-		return OrderedSibling({});
-	});
+	}), OrderedSibling({}));
 }
 function OrderedChild() {
 	return _$ssr(["<span", ">child</span>"], _$ssrHydrationKey());

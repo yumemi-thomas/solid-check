@@ -23,8 +23,9 @@ use crate::shared::component_props::{
 };
 use crate::shared::constants::namespaces;
 use crate::shared::utils::{
-    decode_html_entities, element_name, escape_html_text, escape_html_text_expression,
-    is_component_name, is_void_element, static_jsx_expression_value, trim_jsx_text,
+    child_slot_allocates_ids, decode_html_entities, element_name, escape_html_text,
+    escape_html_text_expression, is_component_name, is_dynamic_child_slot, is_void_element,
+    static_jsx_expression_value, trim_jsx_text,
 };
 
 use super::template::SsrTemplate;
@@ -42,6 +43,7 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     uses_escape: bool,
     uses_ssr_element: bool,
     uses_merge_props: bool,
+    uses_scope: bool,
     pending_this_capture: Option<String>,
     current_this_capture: Option<String>,
     this_index: usize,
@@ -71,6 +73,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             uses_escape: false,
             uses_ssr_element: false,
             uses_merge_props: false,
+            uses_scope: false,
             pending_this_capture: None,
             current_this_capture: None,
             this_index: 0,
@@ -85,10 +88,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             && !self.uses_escape
             && !self.uses_ssr_element
             && !self.uses_merge_props
+            && !self.uses_scope
         {
             return;
         }
         let mut statements = std::vec::Vec::new();
+        if self.uses_scope {
+            statements.push(self.import_named("scope", "_$scope"));
+        }
         if self.uses_escape {
             statements.push(self.import_named("escape", "_$escape"));
         }
@@ -485,9 +492,8 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         }
         template.current_mut().push('>');
         if !is_void_element(&tag_name) {
-            let mut ordered_insert = false;
             for child in &element.children {
-                self.append_static_child(child, &mut template, &mut ordered_insert)?;
+                self.append_static_child(child, &mut template)?;
             }
             template.current_mut().push_str(&format!("</{tag_name}>"));
         }
@@ -558,9 +564,13 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         &mut self,
         child: &JSXChild<'a>,
         template: &mut SsrTemplate<'a>,
-        ordered_insert: &mut bool,
     ) -> Result<()> {
-        let allocates_ids = self.hydratable && child_slot_allocates_ids(child);
+        // Deferred holes that can allocate hydration ids evaluate under their
+        // own owner scope so retry timing can't skew sibling ids (mirrors the
+        // dom generate's `scope()` wrap around the matching insert accessor).
+        // Both flags come from shared predicates so the generates can't desync.
+        let scope_wrap =
+            self.hydratable && child_slot_allocates_ids(child) && is_dynamic_child_slot(child);
         match child {
             JSXChild::Text(text) => {
                 let text = trim_jsx_text(&text.value);
@@ -570,20 +580,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
             JSXChild::Element(element) if is_component_name(&element.opening_element.name) => {
                 let value = self.lower_component(element)?;
-                self.push_child_expr(template, value, allocates_ids, ordered_insert, element.span);
+                template.push_expr(value);
             }
             JSXChild::Element(element) => {
                 if let Ok(child) = self.ssr_template(element, false) {
                     template.append_template(child);
                 } else {
                     let value = self.lower_spread_element(element)?;
-                    self.push_child_expr(
-                        template,
-                        value,
-                        allocates_ids,
-                        ordered_insert,
-                        element.span,
-                    );
+                    template.push_expr(value);
                 }
             }
             JSXChild::ExpressionContainer(container) => {
@@ -599,29 +603,25 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         jsx_expression_to_expression(&container.expression, self.allocator);
                     self.visit_expression(&mut value);
                     let value = self.escape_expression(container.span, value);
-                    let value = if self.hydratable && allocates_ids {
-                        self.arrow_return_expression(container.span, value)
+                    let value = if scope_wrap {
+                        let value = self.arrow_return_expression(container.span, value);
+                        self.scope_expression(container.span, value)
                     } else {
                         value
                     };
-                    self.push_child_expr(
-                        template,
-                        value,
-                        allocates_ids,
-                        ordered_insert,
-                        container.span,
-                    );
+                    template.push_expr(value);
                 }
             }
             JSXChild::Spread(spread) => {
                 let value =
                     self.escape_expression(spread.span, spread.expression.clone_in(self.allocator));
-                let value = if self.hydratable && allocates_ids {
-                    self.arrow_return_expression(spread.span, value)
+                let value = if scope_wrap {
+                    let value = self.arrow_return_expression(spread.span, value);
+                    self.scope_expression(spread.span, value)
                 } else {
                     value
                 };
-                self.push_child_expr(template, value, allocates_ids, ordered_insert, spread.span);
+                template.push_expr(value);
             }
             JSXChild::Fragment(_) => {
                 return Err(Error::from_reason(
@@ -630,29 +630,6 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             }
         }
         Ok(())
-    }
-
-    fn push_child_expr(
-        &mut self,
-        template: &mut SsrTemplate<'a>,
-        value: Expression<'a>,
-        allocates_ids: bool,
-        ordered_insert: &mut bool,
-        span: Span,
-    ) {
-        let value = if self.hydratable
-            && *ordered_insert
-            && allocates_ids
-            && !is_deferred_child_slot_expression(&value)
-        {
-            self.arrow_return_expression(span, value)
-        } else {
-            value
-        };
-        if self.hydratable && allocates_ids && is_deferred_child_slot_expression(&value) {
-            *ordered_insert = true;
-        }
-        template.push_expr(value);
     }
 
     fn ast(&self) -> AstBuilder<'a> {
@@ -724,6 +701,18 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 .expression_identifier(span, self.ast().ident("_$ssrHydrationKey")),
             NONE,
             self.ast().vec(),
+            false,
+        )
+    }
+
+    fn scope_expression(&mut self, span: Span, value: Expression<'a>) -> Expression<'a> {
+        self.uses_scope = true;
+        self.ast().expression_call(
+            span,
+            self.ast()
+                .expression_identifier(span, self.ast().ident("_$scope")),
+            NONE,
+            self.ast().vec1(expression_to_argument(value)),
             false,
         )
     }
@@ -964,73 +953,6 @@ impl<'a> AstSsrTransform<'a, '_> {
 
     fn arrow_iife(&self, span: Span, statements: ArenaVec<'a, Statement<'a>>) -> Expression<'a> {
         arrow_iife(self.allocator, span, statements)
-    }
-}
-
-fn child_slot_allocates_ids(child: &JSXChild<'_>) -> bool {
-    match child {
-        JSXChild::Element(_) | JSXChild::Fragment(_) | JSXChild::Spread(_) => true,
-        JSXChild::ExpressionContainer(container) => {
-            jsx_expression_can_return_hydratable_child(&container.expression)
-        }
-        _ => false,
-    }
-}
-
-fn jsx_expression_can_return_hydratable_child(expression: &JSXExpression<'_>) -> bool {
-    match expression {
-        JSXExpression::JSXElement(_)
-        | JSXExpression::JSXFragment(_)
-        | JSXExpression::CallExpression(_) => true,
-        JSXExpression::StaticMemberExpression(member) => member.property.name == "children",
-        JSXExpression::ChainExpression(chain) => match &chain.expression {
-            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
-                member.property.name == "children"
-            }
-            _ => false,
-        },
-        JSXExpression::ConditionalExpression(conditional) => {
-            expression_can_return_hydratable_child(&conditional.consequent)
-                || expression_can_return_hydratable_child(&conditional.alternate)
-        }
-        JSXExpression::LogicalExpression(logical) => {
-            expression_can_return_hydratable_child(&logical.right)
-        }
-        _ => false,
-    }
-}
-
-fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::CallExpression(_) => {
-            true
-        }
-        Expression::StaticMemberExpression(member) => member.property.name == "children",
-        Expression::ChainExpression(chain) => match &chain.expression {
-            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
-                member.property.name == "children"
-            }
-            _ => false,
-        },
-        Expression::ConditionalExpression(conditional) => {
-            expression_can_return_hydratable_child(&conditional.consequent)
-                || expression_can_return_hydratable_child(&conditional.alternate)
-        }
-        Expression::LogicalExpression(logical) => {
-            expression_can_return_hydratable_child(&logical.right)
-        }
-        _ => false,
-    }
-}
-
-fn is_deferred_child_slot_expression(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
-        Expression::CallExpression(call) => matches!(
-            call.callee,
-            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-        ),
-        _ => false,
     }
 }
 

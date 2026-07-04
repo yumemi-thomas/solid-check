@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { memo as _$memo } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
@@ -39,9 +40,9 @@ const Child = (props) => {
 				return _ref$2;
 			}, _el$2) : set = _el$2;
 		}
-		_$insert(_el$2, () => {
+		_$insert(_el$2, _$scope(() => {
 			return props.children;
-		});
+		}));
 		return _el$2;
 	})()];
 };

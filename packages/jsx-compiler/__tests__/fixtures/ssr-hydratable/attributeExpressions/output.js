@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -168,11 +169,9 @@ const template25 = _$ssr([
 	">",
 	"",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(props.children);
-}, () => {
-	return _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false);
-});
+}), _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false));
 const template26 = _$ssrElement("div", _$mergeProps({
 	start: "Hi",
 	middle
@@ -465,9 +464,9 @@ const template87 = _$ssr([
 	"\" class=\"",
 	"\">",
 	"</button>"
-], _$ssrHydrationKey(), _$escape(count(), true), _$escape(style, true), _$escape(style, true), () => {
+], _$ssrHydrationKey(), _$escape(count(), true), _$escape(style, true), _$escape(style, true), _$scope(() => {
 	return _$escape(count());
-});
+}));
 const template88 = _$ssr([
 	"<button",
 	" type=\"button\" aria-label=\"",
@@ -483,9 +482,9 @@ const template88 = _$ssr([
 	/* @static*/
 	style,
 	true
-), () => {
+), _$scope(() => {
 	return _$escape(count());
-});
+}));
 const template89 = _$ssr([
 	"<div",
 	" style=\"",

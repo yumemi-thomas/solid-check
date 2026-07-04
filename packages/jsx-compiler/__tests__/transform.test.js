@@ -470,7 +470,7 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain('const view = _$ssr("<div id=\\"main\\"><h1>Hello</h1></div>");');
   });
 
-  it("defers later hydratable SSR child slots after deferred children", () => {
+  it("scope-wraps deferred hydratable SSR child slots and keeps siblings eager", () => {
     const result = transform(
       `
       function OrderedParent(props) {
@@ -490,8 +490,12 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     );
 
     expect(result.code).toContain("return _$ssr(");
+    // The deferred id-allocating hole evaluates under its own owner scope so
+    // retry timing can't skew sibling ids...
+    expect(result.code).toContain("_$scope(() => {");
     expect(result.code).toContain("return _$escape(props.children);");
-    expect(result.code).toContain("return OrderedSibling({});");
+    // ...while component siblings stay eager (no orderedInsert thunking).
+    expect(result.code).toContain("}), OrderedSibling({}));");
   });
 
   it("lowers dynamic children in SSR mode through escape", () => {

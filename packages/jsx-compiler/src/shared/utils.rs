@@ -1,6 +1,6 @@
 use napi::bindgen_prelude::*;
 use oxc_ast::ast::BinaryOperator;
-use oxc_ast::ast::{Expression, JSXElementName, JSXExpression};
+use oxc_ast::ast::{Expression, JSXChild, JSXElementName, JSXExpression};
 use oxc_span::Span;
 
 use crate::shared::constants::void_elements;
@@ -211,5 +211,116 @@ pub(crate) fn template_id(index: usize) -> String {
         "_tmpl$".to_string()
     } else {
         format!("_tmpl${}", index + 1)
+    }
+}
+
+/// Mirror of the Babel plugin's `canChildSlotAllocateIds`: whether a child
+/// slot can produce hydratable content that consumes hydration ids. Shared by
+/// the dom and ssr generates so marking can never desync between them.
+pub(crate) fn child_slot_allocates_ids(child: &JSXChild<'_>) -> bool {
+    match child {
+        JSXChild::Element(_) | JSXChild::Fragment(_) | JSXChild::Spread(_) => true,
+        JSXChild::ExpressionContainer(container) => {
+            jsx_expression_can_return_hydratable_child(&container.expression)
+        }
+        _ => false,
+    }
+}
+
+fn jsx_expression_can_return_hydratable_child(expression: &JSXExpression<'_>) -> bool {
+    match expression {
+        JSXExpression::JSXElement(_)
+        | JSXExpression::JSXFragment(_)
+        | JSXExpression::CallExpression(_) => true,
+        JSXExpression::StaticMemberExpression(member) => member.property.name == "children",
+        JSXExpression::ChainExpression(chain) => match &chain.expression {
+            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+                member.property.name == "children"
+            }
+            _ => false,
+        },
+        JSXExpression::ConditionalExpression(conditional) => {
+            expression_can_return_hydratable_child(&conditional.consequent)
+                || expression_can_return_hydratable_child(&conditional.alternate)
+        }
+        JSXExpression::LogicalExpression(logical) => {
+            expression_can_return_hydratable_child(&logical.right)
+        }
+        _ => false,
+    }
+}
+
+fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::CallExpression(_) => {
+            true
+        }
+        Expression::StaticMemberExpression(member) => member.property.name == "children",
+        Expression::ChainExpression(chain) => match &chain.expression {
+            oxc_ast::ast::ChainElement::StaticMemberExpression(member) => {
+                member.property.name == "children"
+            }
+            _ => false,
+        },
+        Expression::ConditionalExpression(conditional) => {
+            expression_can_return_hydratable_child(&conditional.consequent)
+                || expression_can_return_hydratable_child(&conditional.alternate)
+        }
+        Expression::LogicalExpression(logical) => {
+            expression_can_return_hydratable_child(&logical.right)
+        }
+        _ => false,
+    }
+}
+
+/// Mirror of the Babel plugin's `dynamic` marking for child holes (isDynamic
+/// with member/call checking, JSX tags not counted): decides the `scope()`
+/// wrap together with `child_slot_allocates_ids`. Shared so the dom and ssr
+/// generates classify the same source identically.
+pub(crate) fn is_dynamic_child_slot(child: &JSXChild<'_>) -> bool {
+    match child {
+        JSXChild::ExpressionContainer(container) => {
+            is_dynamic_jsx_expression(&container.expression)
+        }
+        JSXChild::Spread(spread) => is_dynamic_child_expression(&spread.expression),
+        _ => false,
+    }
+}
+
+fn is_dynamic_jsx_expression(expression: &JSXExpression<'_>) -> bool {
+    match expression {
+        JSXExpression::CallExpression(_)
+        | JSXExpression::StaticMemberExpression(_)
+        | JSXExpression::ComputedMemberExpression(_)
+        | JSXExpression::ChainExpression(_) => true,
+        JSXExpression::ConditionalExpression(conditional) => {
+            is_dynamic_child_expression(&conditional.test)
+                || is_dynamic_child_expression(&conditional.consequent)
+                || is_dynamic_child_expression(&conditional.alternate)
+        }
+        JSXExpression::LogicalExpression(logical) => {
+            is_dynamic_child_expression(&logical.left)
+                || is_dynamic_child_expression(&logical.right)
+        }
+        _ => false,
+    }
+}
+
+fn is_dynamic_child_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::CallExpression(_)
+        | Expression::StaticMemberExpression(_)
+        | Expression::ComputedMemberExpression(_)
+        | Expression::ChainExpression(_) => true,
+        Expression::ConditionalExpression(conditional) => {
+            is_dynamic_child_expression(&conditional.test)
+                || is_dynamic_child_expression(&conditional.consequent)
+                || is_dynamic_child_expression(&conditional.alternate)
+        }
+        Expression::LogicalExpression(logical) => {
+            is_dynamic_child_expression(&logical.left)
+                || is_dynamic_child_expression(&logical.right)
+        }
+        _ => false,
     }
 }

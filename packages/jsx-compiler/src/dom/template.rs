@@ -27,6 +27,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_get_next_sibling: bool,
     pub(crate) uses_get_owner: bool,
     pub(crate) uses_insert: bool,
+    pub(crate) uses_scope: bool,
     pub(crate) uses_memo: bool,
     pub(crate) uses_create_component: bool,
     pub(crate) uses_spread: bool,
@@ -61,6 +62,7 @@ impl DomTemplateState {
             uses_get_next_sibling: false,
             uses_get_owner: false,
             uses_insert: false,
+            uses_scope: false,
             uses_memo: false,
             uses_create_component: false,
             uses_spread: false,
@@ -102,6 +104,9 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         if self.template_state.uses_insert {
             statements.push(self.import_named("insert", "_$insert"));
+        }
+        if self.template_state.uses_scope {
+            statements.push(self.import_named("scope", "_$scope"));
         }
         if self.template_state.uses_memo {
             statements.push(self.import_named("memo", "_$memo"));

@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -18,9 +19,9 @@ const Child = (props) => {
 		" ref=\"",
 		"\">",
 		"</div>"
-	], _$ssrHydrationKey(), _$escape(set, true), () => {
+	], _$ssrHydrationKey(), _$escape(set, true), _$scope(() => {
 		return _$escape(props.children);
-	})];
+	}))];
 };
 const template = (props) => {
 	let childRef;

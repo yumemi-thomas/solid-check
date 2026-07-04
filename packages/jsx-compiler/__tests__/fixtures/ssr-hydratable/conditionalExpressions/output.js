@@ -1,3 +1,4 @@
+import { scope as _$scope } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
@@ -20,9 +21,9 @@ const template4 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(simple ? good() : bad);
-});
+}));
 const template4a = _$ssr([
 	"<div",
 	">",
@@ -32,9 +33,9 @@ const template5 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.dynamic ? good() : bad);
-});
+}));
 const template5a = _$ssr([
 	"<div",
 	">",
@@ -44,9 +45,9 @@ const template6 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.dynamic && good());
-});
+}));
 const template6a = _$ssr([
 	"<div",
 	">",
@@ -66,9 +67,9 @@ const template8 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.dynamic && state.something && good());
-});
+}));
 const template8a = _$ssr([
 	"<div",
 	">",
@@ -93,9 +94,9 @@ const template11 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.a ? a() : state.b ? b() : state.c ? "c" : "fallback");
-});
+}));
 const template11a = _$ssr([
 	"<div",
 	">",
@@ -124,9 +125,9 @@ const template20 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.dynamic ? Comp({}) : Comp({}));
-});
+}));
 const template21 = Comp({ render: state?.dynamic ? "a" : "b" });
 const template22 = Comp({ get children() {
 	return state?.dynamic ? "a" : "b";
@@ -154,16 +155,16 @@ const template28 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(state.dynamic ?? Comp({}));
-});
+}));
 const template29 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape((thing() && thing1()) ?? thing2() ?? thing3());
-});
+}));
 const template29a = _$ssr([
 	"<div",
 	">",
@@ -173,9 +174,9 @@ const template30 = _$ssr([
 	"<div",
 	">",
 	"</div>"
-], _$ssrHydrationKey(), () => {
+], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(thing() || thing1() || thing2());
-});
+}));
 const template30a = _$ssr([
 	"<div",
 	">",

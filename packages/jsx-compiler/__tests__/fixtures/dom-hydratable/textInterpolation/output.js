@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<span>Hello `);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<span> John`);
@@ -91,5 +92,7 @@ const escapeCompAttribute = _$createComponent(Div, {
 	title: "Search&hellip;"
 });
 var _el$24 = _$getNextElement(_tmpl$15);
-_$insert(_el$24, expr);
+_$insert(_el$24, _$scope(() => {
+	return expr();
+}));
 const lastElementExpression = _el$24;

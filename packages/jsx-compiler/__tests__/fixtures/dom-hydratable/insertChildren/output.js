@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
@@ -56,9 +57,9 @@ _$spread(_el$7, dynamic, true);
 const template8 = _el$7;
 var _el$8 = _$getNextElement(_tmpl$2);
 _$spread(_el$8, dynamic, true);
-_$insert(_el$8, () => {
+_$insert(_el$8, _$scope(() => {
 	return dynamic.children;
-});
+}));
 const template9 = _el$8;
 const template10 = _$createComponent(Module, _$mergeProps(dynamic, { children: "Hello" }));
 var _el$9 = _$getNextElement(_tmpl$2);
@@ -74,9 +75,9 @@ _$insert(_el$10, children);
 const template13 = _el$10;
 const template14 = _$createComponent(Module, { children });
 var _el$11 = _$getNextElement(_tmpl$2);
-_$insert(_el$11, () => {
+_$insert(_el$11, _$scope(() => {
 	return dynamic.children;
-});
+}));
 const template15 = _el$11;
 const template16 = _$createComponent(Module, { get children() {
 	return dynamic.children;
@@ -88,24 +89,26 @@ const template19 = _$createComponent(Module, { get children() {
 	return ["Hi ", children];
 } });
 var _el$13 = _$getNextElement(_tmpl$2);
-_$insert(_el$13, children);
+_$insert(_el$13, _$scope(() => {
+	return children();
+}));
 const template20 = _el$13;
 const template21 = _$createComponent(Module, { get children() {
 	return children();
 } });
 var _el$14 = _$getNextElement(_tmpl$2);
-_$insert(_el$14, () => {
+_$insert(_el$14, _$scope(() => {
 	return state.children();
-});
+}));
 const template22 = _el$14;
 const template23 = _$createComponent(Module, { get children() {
 	return state.children();
 } });
 var _el$15 = _$getNextElement(_tmpl$5);
 _$spread(_el$15, dynamic, true);
-_$insert(_el$15, () => {
+_$insert(_el$15, _$scope(() => {
 	return dynamic.children;
-});
+}));
 const template24 = _el$15;
 const tiles = [];
 tiles.push(_$getNextElement(_tmpl$6));
@@ -116,7 +119,7 @@ var _el$18 = _$getNextElement(_tmpl$);
 _$insert(_el$18, (expression(), "static"));
 const comma = _el$18;
 var _el$19 = _$getNextElement(_tmpl$);
-_$insert(_el$19, () => {
+_$insert(_el$19, _$scope(() => {
 	return children()();
-});
+}));
 const double = _el$19;

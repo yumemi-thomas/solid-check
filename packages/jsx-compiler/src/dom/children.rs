@@ -8,8 +8,8 @@ use crate::dom::attrs::CloseTagContext;
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
 use crate::dom::static_template::{last_static_element_child, lower_static_native_template};
 use crate::shared::utils::{
-    element_name, escape_html_text, escape_html_text_expression, is_component_name,
-    static_jsx_expression, trim_jsx_text,
+    child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
+    is_component_name, is_dynamic_child_slot, static_jsx_expression, trim_jsx_text,
 };
 
 impl<'a> AstDomTransform<'a, '_> {
@@ -115,6 +115,18 @@ impl<'a> AstDomTransform<'a, '_> {
                             jsx_expression_to_expression(&container.expression, self.allocator);
                         self.visit_expression(&mut value);
                         let value = self.dom_child_expression(container.span, value);
+                        // Mirror of the ssr generate's `scope()` wrap: deferred
+                        // holes that can allocate hydration ids get their own
+                        // owner scope. Both flags come from shared predicates
+                        // so the generates can't desync.
+                        let value = if self.hydratable
+                            && child_slot_allocates_ids(dynamic_child)
+                            && is_dynamic_child_slot(dynamic_child)
+                        {
+                            self.scope_child_expression(container.span, value)
+                        } else {
+                            value
+                        };
                         let marker = marker_name
                             .as_ref()
                             .map(|name| self.identifier_expression(element.span, name))
@@ -136,6 +148,13 @@ impl<'a> AstDomTransform<'a, '_> {
                 JSXChild::Spread(spread) => {
                     self.template_state.uses_insert = true;
                     let value = spread_child_expression(self, spread.span, &spread.expression);
+                    // Spread children always allocate ids; scope keyed off the
+                    // same shared dynamic predicate as the ssr generate.
+                    let value = if self.hydratable && is_dynamic_child_slot(child) {
+                        self.scope_child_expression(spread.span, value)
+                    } else {
+                        value
+                    };
                     let marker = has_following_static_content(&element.children[index + 1..])
                         .then(|| self.child_node_expression(element.span, element_id, 0));
                     operations.push(self.insert_statement(element.span, element_id, value, marker));
@@ -193,6 +212,34 @@ impl<'a> AstDomTransform<'a, '_> {
         operations.push(self.variable_statement(child.span, &child_id, child_lookup));
         operations.extend(child_operations);
         Ok(())
+    }
+
+    /// Wraps an insert accessor in `_$scope(...)`. The child lowering
+    /// simplifies `{sig()}` to the bare getter `sig`; rewrap it as
+    /// `() => sig()` so tagging the scope doesn't mutate the user's function.
+    fn scope_child_expression(
+        &mut self,
+        span: oxc_span::Span,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
+        self.template_state.uses_scope = true;
+        let already_function = match &value {
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => true,
+            Expression::CallExpression(call) => matches!(
+                call.callee,
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            ),
+            _ => false,
+        };
+        let value = if already_function {
+            value
+        } else {
+            let call = self
+                .ast()
+                .expression_call(span, value, oxc_ast::NONE, self.ast().vec(), false);
+            self.arrow_return_expression(span, call)
+        };
+        self.call_identifier(span, "_$scope", vec![value])
     }
 
     fn child_element_expression(

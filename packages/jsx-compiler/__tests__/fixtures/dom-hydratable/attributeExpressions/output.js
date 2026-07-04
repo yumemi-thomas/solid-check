@@ -1,6 +1,7 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { insert as _$insert } from "r-dom";
+import { scope as _$scope } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
 import { ref as _$ref } from "r-dom";
@@ -311,9 +312,9 @@ _$spread(_el$29, _$mergeProps(props, { something: true }), false);
 const template24 = _el$29;
 const template25 = (() => {
 	var _el$30 = _$getNextElement(_tmpl$16);
-	_$insert(_el$30, () => {
+	_$insert(_el$30, _$scope(() => {
 		return props.children;
-	}, _el$30.firstChild);
+	}), _el$30.firstChild);
 	var _el$31 = _el$30.firstChild;
 	_$spread(_el$31, _$mergeProps(props, { something: true }), false);
 	return _el$30;
@@ -715,7 +716,9 @@ const template87 = (() => {
 	}, (_v$, _$p) => {
 		_$className(_el$101, _v$, _$p);
 	});
-	_$insert(_el$101, count);
+	_$insert(_el$101, _$scope(() => {
+		return count();
+	}));
 	return _el$101;
 })();
 const template88 = (() => {
@@ -735,7 +738,9 @@ const template88 = (() => {
 	}, (_v$, _$p) => {
 		_$className(_el$102, _v$, _$p);
 	});
-	_$insert(_el$102, count);
+	_$insert(_el$102, _$scope(() => {
+		return count();
+	}));
 	return _el$102;
 })();
 const template89 = _$getNextElement(_tmpl$48);
