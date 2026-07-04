@@ -346,20 +346,25 @@ export function scope(fn) {
 
 const SCOPE_OPTIONS = { scope: true };
 
+// Drop the `<!--!$-->` text-hole separators the server emits so adjacent
+// text nodes stay individually claimable; the array is compacted in place.
+function stripTextSeparators(nodes) {
+  let j = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].nodeType === 8 && nodes[i].nodeValue === "!$") nodes[i].remove();
+    else nodes[j++] = nodes[i];
+  }
+  nodes.length = j;
+  return nodes;
+}
+
 export function insert(parent, accessor, marker, initial, options) {
   const multi = marker !== undefined;
   const host = options && options.host;
   if (multi && !initial) initial = [];
   if (isHydrating(parent)) {
     if (!multi && initial === undefined && parent) initial = [...parent.childNodes];
-    if (Array.isArray(initial)) {
-      let j = 0;
-      for (let i = 0; i < initial.length; i++) {
-        if (initial[i].nodeType === 8 && initial[i].nodeValue === "!$") initial[i].remove();
-        else initial[j++] = initial[i];
-      }
-      initial.length = j;
-    }
+    if (Array.isArray(initial)) stripTextSeparators(initial);
   }
   if (typeof accessor !== "function") {
     accessor = normalize(accessor, initial, multi, true);
@@ -375,12 +380,44 @@ export function insert(parent, accessor, marker, initial, options) {
     initial = [placeholder];
   }
   let current = initial;
+  // A streamed `$df` fragment swap replaces a hole's region out from under
+  // its bookkeeping (Loading fallback claimed during hydration, settled
+  // content swapped in later). When the tracked nodes are gone mid-hydration,
+  // re-claim the live region so the content pass can match loose text
+  // positionally — elements recover through the registry, text only has
+  // position. The region is `parent`'s children, or for marker-bounded holes
+  // the nodes back to the matching `<!--$-->` start marker.
+  function reclaimSwappedRegion() {
+    if (!sharedConfig.hydrating || !current || !parent.isConnected) return;
+    const first = Array.isArray(current) ? current[0] : current;
+    if (!first || !first.nodeType || first.isConnected) return;
+    let nodes;
+    if (marker) {
+      nodes = [];
+      let node = marker.previousSibling,
+        depth = 0;
+      while (node) {
+        if (node.nodeType === 8) {
+          const v = node.nodeValue;
+          if (v === "/") depth++;
+          else if (v === "$") {
+            if (depth === 0) break;
+            depth--;
+          }
+        }
+        nodes.unshift(node);
+        node = node.previousSibling;
+      }
+    } else nodes = [...parent.childNodes];
+    current = stripTextSeparators(nodes);
+  }
   effect(
     prev => {
+      reclaimSwappedRegion();
       const value = normalize(accessor(), current, multi, true);
       if (typeof value !== "function") return value;
       effect(
-        () => normalize(value, current, multi),
+        () => (reclaimSwappedRegion(), normalize(value, current, multi)),
         inner => {
           insertExpression(parent, inner, current, marker);
           current = inner;
