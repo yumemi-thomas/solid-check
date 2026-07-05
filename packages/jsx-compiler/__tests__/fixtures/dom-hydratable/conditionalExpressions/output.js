@@ -54,7 +54,7 @@ _$insert(_el$8, _$scope((() => {
 		return !!state.dynamic;
 	});
 	return () => {
-		return _c$3() && good();
+		return _c$3() ? good() : state.dynamic;
 	};
 })()));
 const template6 = _el$8;
@@ -64,7 +64,7 @@ _$insert(_el$9, (() => {
 		return !!state.dynamic;
 	});
 	return () => {
-		return _c$4() && good.good;
+		return _c$4() ? good.good : state.dynamic;
 	};
 })());
 const template6a = _el$9;
@@ -80,7 +80,7 @@ _$insert(_el$12, _$scope((() => {
 		return !!(state.dynamic && state.something);
 	});
 	return () => {
-		return _c$5() && good();
+		return _c$5() ? good() : state.dynamic && state.something;
 	};
 })()));
 const template8 = _el$12;
@@ -90,7 +90,7 @@ _$insert(_el$13, (() => {
 		return !!(state.dynamic && state.something);
 	});
 	return () => {
-		return _c$6() && good.good;
+		return _c$6() ? good.good : state.dynamic && state.something;
 	};
 })());
 const template8a = _el$13;
@@ -153,12 +153,12 @@ const template13 = _$createComponent(Comp, { get render() {
 const template14 = _$createComponent(Comp, { get render() {
 	return _$memo(() => {
 		return !!state.dynamic;
-	})() && good();
+	})() ? good() : state.dynamic;
 } });
 const template14a = _$createComponent(Comp, { get render() {
 	return _$memo(() => {
 		return !!state.dynamic;
-	})() && good.good;
+	})() ? good.good : state.dynamic;
 } });
 // no dynamic predicate
 const template15 = _$createComponent(Comp, { get render() {
@@ -293,12 +293,12 @@ const template36a = _$memo(() => {
 const template37 = _$memo(() => {
 	return _$memo(() => {
 		return !!state.dynamic;
-	})() && good();
+	})() ? good() : state.dynamic;
 });
 const template37a = _$memo(() => {
 	return _$memo(() => {
 		return !!state.dynamic;
-	})() && good.good;
+	})() ? good.good : state.dynamic;
 });
 const template38 = _$memo(() => {
 	return state.count > 5 ? state.dynamic ? best : good() : bad;
@@ -309,12 +309,12 @@ const template38a = _$memo(() => {
 const template39 = _$memo(() => {
 	return _$memo(() => {
 		return !!(state.dynamic && state.something);
-	})() && good();
+	})() ? good() : state.dynamic && state.something;
 });
 const template39a = _$memo(() => {
 	return _$memo(() => {
 		return !!(state.dynamic && state.something);
-	})() && good.good;
+	})() ? good.good : state.dynamic && state.something;
 });
 const template40 = _$memo(() => {
 	return state.dynamic && good() || bad;

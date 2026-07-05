@@ -57,23 +57,19 @@ const Child = props => {
           get children() {
             return [
               (() => {
-                var _el$5 = _$createElement("mesh");
-                _$setProp(_el$5, "scale", 2);
-                _$setProp(_el$5, "position", [0, 0, 0]);
-                _$setProp(
-                  _el$5,
-                  "geometry",
-                  (() => {
-                    var _el$1 = _$createElement("boxBufferGeometry");
-                    _$setProp(_el$1, "args", [0, 1, 2]);
-                    return _el$1;
-                  })()
-                );
+                var _el$5 = _$createElement("mesh", {
+                  scale: 2,
+                  position: [0, 0, 0],
+                  geometry: _$createElement("boxBufferGeometry", {
+                    args: [0, 1, 2]
+                  })
+                });
                 _$effect(
                   () =>
                     (() => {
-                      var _el$10 = _$createElement("basicMaterial");
-                      _$setProp(_el$10, "alpha", 0);
+                      var _el$10 = _$createElement("basicMaterial", {
+                        alpha: 0
+                      });
                       _$effect(
                         () => (s() ? "red" : "green"),
                         (_v$, _$p) => {
@@ -140,25 +136,21 @@ const Component = props => {
       return () =>
         _c$()
           ? (() => {
-              var _el$13 = _$createElement("mesh"),
+              var _el$13 = _$createElement("mesh", {
+                  scale: 2,
+                  position: [0, 0, 0],
+                  geometry: _$createElement("boxBufferGeometry", {
+                    args: [0, 1, 2]
+                  })
+                }),
                 _el$14 = _$createElement("pointLight");
               _$insertNode(_el$13, _el$14);
-              _$setProp(_el$13, "scale", 2);
-              _$setProp(_el$13, "position", [0, 0, 0]);
-              _$setProp(
-                _el$13,
-                "geometry",
-                (() => {
-                  var _el$15 = _$createElement("boxBufferGeometry");
-                  _$setProp(_el$15, "args", [0, 1, 2]);
-                  return _el$15;
-                })()
-              );
               _$effect(
                 () =>
                   (() => {
-                    var _el$16 = _$createElement("basicMaterial");
-                    _$setProp(_el$16, "alpha", 0);
+                    var _el$16 = _$createElement("basicMaterial", {
+                      alpha: 0
+                    });
                     _$effect(
                       () => (s() ? "red" : "green"),
                       (_v$, _$p) => {

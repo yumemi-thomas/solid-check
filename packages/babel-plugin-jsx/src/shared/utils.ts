@@ -325,7 +325,7 @@ export function transformCondition(
   inline?: boolean
 ): TransformConditionResult {
   const config = getConfig(path);
-  const expr = path.node as t.Expression;
+  let expr = path.node as t.Expression;
   const memo = registerImportMethod(path, config.memoWrapper, undefined);
   let dTest: boolean | undefined,
     cond: t.Expression | undefined,
@@ -367,12 +367,23 @@ export function transformCondition(
       }));
     if (dTest) {
       cond = nextPath.node.left;
+      // `left && right` is exactly `left ? right : left`. Branch on the
+      // memoized truthiness (so truthy-value churn never re-creates the right
+      // side) but return the raw left in the alternate so the expression keeps
+      // JS value semantics — `0`/`""`/`undefined` flow through instead of
+      // collapsing to `false`, matching the untransformed ssr output (#532).
+      const alternate = t.cloneNode(cond, true);
       if (!t.isBinaryExpression(cond))
         cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
       id = inline
         ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
         : path.scope.generateUidIdentifier("_c$");
-      nextPath.node.left = t.callExpression(id, []);
+      nextPath.replaceWith(
+        t.conditionalExpression(t.callExpression(id, []), nextPath.node.right, alternate)
+      );
+      // replaceWith swaps the node out of the tree; when the `&&` was the
+      // top-level expression the local reference is stale.
+      expr = path.node as t.Expression;
     }
   }
   if (dTest && !inline && cond && id) {

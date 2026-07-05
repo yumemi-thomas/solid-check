@@ -28,12 +28,12 @@ var _v$7 = (() => {
 const template5a = _$ssr(_tmpl$, _v$7);
 var _v$8 = (() => {
   var _c$3 = _$memo(() => !!state.dynamic);
-  return () => _c$3() && _$escape(good());
+  return () => (_c$3() ? _$escape(good()) : _$escape(state.dynamic));
 })();
 const template6 = _$ssr(_tmpl$, _v$8);
 var _v$9 = (() => {
   var _c$4 = _$memo(() => !!state.dynamic);
-  return () => _c$4() && _$escape(good.good);
+  return () => (_c$4() ? _$escape(good.good) : _$escape(state.dynamic));
 })();
 const template6a = _$ssr(_tmpl$, _v$9);
 var _v$0 = (() => {
@@ -54,22 +54,22 @@ var _v$1 = (() => {
 const template7a = _$ssr(_tmpl$, _v$1);
 var _v$10 = (() => {
   var _c$7 = _$memo(() => !!(state.dynamic && state.something));
-  return () => _c$7() && _$escape(good());
+  return () => (_c$7() ? _$escape(good()) : state.dynamic && _$escape(state.something));
 })();
 const template8 = _$ssr(_tmpl$, _v$10);
 var _v$11 = (() => {
   var _c$8 = _$memo(() => !!(state.dynamic && state.something));
-  return () => _c$8() && _$escape(good.good);
+  return () => (_c$8() ? _$escape(good.good) : state.dynamic && _$escape(state.something));
 })();
 const template8a = _$ssr(_tmpl$, _v$11);
 var _v$12 = (() => {
   var _c$9 = _$memo(() => !!state.dynamic);
-  return () => _$escape((_c$9() && good()) || bad);
+  return () => _$escape((_c$9() ? good() : state.dynamic) || bad);
 })();
 const template9 = _$ssr(_tmpl$, _v$12);
 var _v$13 = (() => {
   var _c$0 = _$memo(() => !!state.dynamic);
-  return () => _$escape((_c$0() && good.good) || bad);
+  return () => _$escape((_c$0() ? good.good : state.dynamic) || bad);
 })();
 const template9a = _$ssr(_tmpl$, _v$13);
 var _v$14 = (() => {
@@ -195,12 +195,12 @@ var _v$22 = () => _$escape(state.dynamic ?? Comp({}));
 const template28 = _$ssr(_tmpl$, _v$22);
 var _v$23 = (() => {
   var _c$14 = _$memo(() => !!thing());
-  return () => _$escape((_c$14() && thing1()) ?? thing2() ?? thing3());
+  return () => _$escape((_c$14() ? thing1() : thing()) ?? thing2() ?? thing3());
 })();
 const template29 = _$ssr(_tmpl$, _v$23);
 var _v$24 = (() => {
   var _c$15 = _$memo(() => !!thing.thing);
-  return () => _$escape((_c$15() && thing1.thing1) ?? thing2.thing2 ?? thing3.thing3);
+  return () => _$escape((_c$15() ? thing1.thing1 : thing.thing) ?? thing2.thing2 ?? thing3.thing3);
 })();
 const template29a = _$ssr(_tmpl$, _v$24);
 var _v$25 = () => _$escape(thing() || thing1() || thing2());
@@ -236,8 +236,10 @@ const template35 = _$memo(() => _$escape(simple ? good() : bad));
 const template35a = _$memo(() => _$escape(simple ? good.good : bad));
 const template36 = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good() : bad));
 const template36a = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good.good : bad));
-const template37 = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() && good()));
-const template37a = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() && good.good));
+const template37 = _$memo(() => _$escape(_$memo(() => !!state.dynamic)() ? good() : state.dynamic));
+const template37a = _$memo(() =>
+  _$escape(_$memo(() => !!state.dynamic)() ? good.good : state.dynamic)
+);
 const template38 = _$memo(() =>
   _$escape(
     _$memo(() => state.count > 5)() ? (_$memo(() => !!state.dynamic)() ? best : good()) : bad
@@ -249,10 +251,16 @@ const template38a = _$memo(() =>
   )
 );
 const template39 = _$memo(() =>
-  _$escape(_$memo(() => !!(state.dynamic && state.something))() && good())
+  _$escape(
+    _$memo(() => !!(state.dynamic && state.something))() ? good() : state.dynamic && state.something
+  )
 );
-const template40 = _$memo(() => _$escape((_$memo(() => !!state.dynamic)() && good()) || bad));
-const template40a = _$memo(() => _$escape((_$memo(() => !!state.dynamic)() && good.good) || bad));
+const template40 = _$memo(() =>
+  _$escape((_$memo(() => !!state.dynamic)() ? good() : state.dynamic) || bad)
+);
+const template40a = _$memo(() =>
+  _$escape((_$memo(() => !!state.dynamic)() ? good.good : state.dynamic) || bad)
+);
 const template41 = _$memo(() =>
   _$escape(
     _$memo(() => !!state.a)() ? "a" : _$memo(() => !!state.b)() ? "b" : state.c ? "c" : "fallback"

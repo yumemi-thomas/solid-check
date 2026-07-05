@@ -68,7 +68,7 @@ const template6 = (() => {
 			return !!state.dynamic;
 		});
 		return () => {
-			return _c$3() && good();
+			return _c$3() ? good() : state.dynamic;
 		};
 	})());
 	return _el$8;
@@ -80,7 +80,7 @@ const template6a = (() => {
 			return !!state.dynamic;
 		});
 		return () => {
-			return _c$4() && good.good;
+			return _c$4() ? good.good : state.dynamic;
 		};
 	})());
 	return _el$9;
@@ -102,7 +102,7 @@ const template8 = (() => {
 			return !!(state.dynamic && state.something);
 		});
 		return () => {
-			return _c$5() && good();
+			return _c$5() ? good() : state.dynamic && state.something;
 		};
 	})());
 	return _el$12;
@@ -114,7 +114,7 @@ const template8a = (() => {
 			return !!(state.dynamic && state.something);
 		});
 		return () => {
-			return _c$6() && good.good;
+			return _c$6() ? good.good : state.dynamic && state.something;
 		};
 	})());
 	return _el$13;

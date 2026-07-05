@@ -2,7 +2,6 @@ import { template as _$template } from "r-dom";
 import { delegateEvents as _$delegateEvents } from "r-dom";
 import { createTextNode as _$createTextNode } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
-import { setProp as _$setProp } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
 import { insert as _$insert } from "r-dom";
 import { memo as _$memo } from "r-custom";
@@ -494,10 +493,11 @@ _$setAttribute(_el$74, "i", undefined);
 _$setAttribute(_el$74, "j", null);
 _$setAttribute(_el$74, "k", void 0);
 const template60 = _el$74;
-var _el$75 = _$createElement("math"),
+var _el$75 = _$createElement("math", {
+    display: "block"
+  }),
   _el$76 = _$createElement("mrow");
 _$insertNode(_el$75, _el$76);
-_$setProp(_el$75, "display", "block");
 const template61 = _el$75;
 var _el$77 = _$createElement("mrow"),
   _el$78 = _$createElement("mi"),

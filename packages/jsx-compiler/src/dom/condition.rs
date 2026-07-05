@@ -96,13 +96,18 @@ impl<'a> AstDomTransform<'a, '_> {
         let memo = self.memo_call(span, condition_test);
         let memo_statement = self.variable_statement(span, &condition_id, memo);
         let condition_call = self.call_identifier(span, &condition_id, std::vec::Vec::new());
-        let logical = self.ast().expression_logical(
+        // `left && right` is exactly `left ? right : left`. Branch on the
+        // memoized truthiness but return the raw left in the alternate so the
+        // expression keeps JS value semantics (`0`/`""`/`undefined` flow
+        // through instead of collapsing to `false`), matching the
+        // untransformed ssr output. Mirrors the Babel plugin (#532).
+        let conditional = self.ast().expression_conditional(
             span,
             condition_call,
-            logical.operator,
             self.inline_condition_expression(span, logical.right.clone_in(self.allocator)),
+            logical.left.clone_in(self.allocator),
         );
-        let reactive = self.arrow_return_expression(span, logical);
+        let reactive = self.arrow_return_expression(span, conditional);
         let mut statements = self.ast().vec();
         statements.push(memo_statement);
         statements.push(self.ast().statement_return(span, Some(reactive)));
@@ -139,11 +144,13 @@ impl<'a> AstDomTransform<'a, '_> {
         let memo = self.memo_call(span, condition_test);
         let memo_statement = self.variable_statement(span, &condition_id, memo);
         let condition_call = self.call_identifier(span, &condition_id, std::vec::Vec::new());
-        let left = self.ast().expression_logical(
+        // Same `&&` → ternary rewrite as `logical_child_expression`, keeping
+        // the raw left value in the alternate for JS value semantics.
+        let left = self.ast().expression_conditional(
             span,
             condition_call,
-            LogicalOperator::And,
             self.inline_condition_expression(span, left_logical.right.clone_in(self.allocator)),
+            left_logical.left.clone_in(self.allocator),
         );
         let logical = self.ast().expression_logical(
             span,
@@ -271,11 +278,12 @@ impl<'a> AstDomTransform<'a, '_> {
                     self.boolean_condition_expression(span, logical.left.clone_in(self.allocator));
                 let memo = self.memo_call(span, condition_test);
                 let condition_call = self.call_expression(span, memo, std::vec::Vec::new());
-                self.ast().expression_logical(
+                // `&&` → ternary with the raw left as alternate (JS value semantics).
+                self.ast().expression_conditional(
                     span,
                     condition_call,
-                    logical.operator,
                     self.inline_condition_expression(span, logical.right.clone_in(self.allocator)),
+                    logical.left.clone_in(self.allocator),
                 )
             }
             Expression::LogicalExpression(logical) => self.ast().expression_logical(
