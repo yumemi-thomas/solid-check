@@ -27,9 +27,22 @@ export {
 
 // ---- Asset Manifest ----
 
+// Join defensively rather than trusting the manifest's shape: dev manifests
+// have answered `_base` with non-strings and emitted `file` values with a
+// leading slash (solidjs/solid#2817 layers 1-2). Normalizing here keeps the
+// emitted URLs sane for any reasonable manifest instead of playing contract
+// ping-pong with bundler plugins.
+function joinAssetPath(base, file) {
+  // absolute (`https://cdn/x.js`) and protocol-relative (`//cdn/x.js`) pass through
+  if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(file)) return file;
+  if (typeof base !== "string" || !base) base = "/";
+  if (base[base.length - 1] !== "/") base += "/";
+  return base + (file[0] === "/" ? file.slice(1) : file);
+}
+
 function resolveAssets(moduleUrl, manifest) {
   if (!manifest) return null;
-  const base = manifest._base || "/";
+  const base = manifest._base;
   const entry = manifest[moduleUrl];
   if (!entry) return null;
   const css = [];
@@ -40,8 +53,8 @@ function resolveAssets(moduleUrl, manifest) {
     visited.add(key);
     const e = manifest[key];
     if (!e) return;
-    js.push(base + e.file);
-    if (e.css) for (let i = 0; i < e.css.length; i++) css.push(base + e.css[i]);
+    js.push(joinAssetPath(base, e.file));
+    if (e.css) for (let i = 0; i < e.css.length; i++) css.push(joinAssetPath(base, e.css[i]));
     if (e.imports) for (let i = 0; i < e.imports.length; i++) walk(e.imports[i]);
   };
   walk(moduleUrl);

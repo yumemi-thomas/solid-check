@@ -1006,6 +1006,36 @@ describe("manifest-driven asset resolution", () => {
     const html = r.renderToString(() => r.ssr`<div>x</div>`, { manifest });
     expect(html).toContain("<div>x</div>");
   });
+
+  // solidjs/solid#2817 layers 1-2: dev manifests have answered `_base` with a
+  // non-string (a proxy object) and emitted `file` with a leading slash.
+  // resolveAssets normalizes instead of trusting the manifest's shape.
+  it("normalizes malformed _base and leading-slash files", () => {
+    const cases = [
+      // layer 1: proxy answers _base with an object → fall back to "/"
+      [{ _base: { file: "/_base" }, "a.tsx": { file: "src/a.js" } }, ["/src/a.js"]],
+      // layer 2: base "/" + file "/src/a.js" must not become "//src/a.js"
+      [{ _base: "/", "a.tsx": { file: "/src/a.js" } }, ["/src/a.js"]],
+      // base without trailing slash still separates
+      [{ _base: "/out", "a.tsx": { file: "a.js" } }, ["/out/a.js"]],
+      // absolute URLs pass through untouched
+      [
+        { _base: "/out/", "a.tsx": { file: "https://cdn.example.com/a.js" } },
+        ["https://cdn.example.com/a.js"]
+      ]
+    ];
+    for (const [manifest, js] of cases) {
+      let resolved;
+      r.renderToString(
+        () => {
+          resolved = sharedConfig.context.resolveAssets("a.tsx");
+          return r.ssr`<div>x</div>`;
+        },
+        { manifest }
+      );
+      expect(resolved.js).toEqual(js);
+    }
+  });
 });
 
 // context.getBoundaryModules is exposed on the SSR context so callers can
