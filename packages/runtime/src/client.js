@@ -468,9 +468,16 @@ function loadModuleAssets(mapping) {
     if (hy.modules[moduleUrl]) continue;
     const entryUrl = mapping[moduleUrl];
     if (!hy.loading[moduleUrl]) {
-      hy.loading[moduleUrl] = import(/* @vite-ignore */ entryUrl).then(mod => {
-        hy.modules[moduleUrl] = mod;
-      });
+      hy.loading[moduleUrl] = import(/* @vite-ignore */ entryUrl).then(
+        mod => {
+          hy.modules[moduleUrl] = mod;
+        },
+        err => {
+          // drop the rejected entry so a later boundary/navigation can retry
+          delete hy.loading[moduleUrl];
+          throw err;
+        }
+      );
     }
     pending.push(hy.loading[moduleUrl]);
   }
@@ -534,8 +541,15 @@ export function hydrate(code, element, options = {}) {
             sharedConfig.hydrating = false;
           }
         },
-        () => {
+        err => {
+          // A chunk failed to preload; hydration can't claim the server DOM
+          // (lazy components have no module). Fall back to a fresh client
+          // render replacing the server markup — lazy's own import() gets to
+          // retry through normal channels — instead of a silently dead page.
+          console.error("Hydration module preload failed, falling back to client render:", err);
           sharedConfig.hydrating = false;
+          sharedConfig.registry = undefined;
+          disposer = render(code, element, [...element.childNodes], options);
         }
       );
       return () => disposer && disposer();
