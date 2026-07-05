@@ -311,6 +311,30 @@ export function wrappedByText(list: TransformResult[], startIndex: number): bool
   return false;
 }
 
+const BOOLEAN_BINARY_OPS = new Set([
+  "==",
+  "!=",
+  "===",
+  "!==",
+  "<",
+  ">",
+  "<=",
+  ">=",
+  "instanceof",
+  "in"
+]);
+
+// Statically guaranteed to evaluate to a boolean: the memoized value IS the
+// expression's value (`false` is the only falsy boolean), so no `!!` coercion
+// is needed and the `&&` wrap can keep the logical form instead of the
+// value-preserving ternary (no second evaluation of the left).
+function isBooleanExpression(node: t.Expression): boolean {
+  return (
+    (t.isBinaryExpression(node) && BOOLEAN_BINARY_OPS.has(node.operator)) ||
+    (t.isUnaryExpression(node) && node.operator === "!")
+  );
+}
+
 export function transformCondition(path: ConditionPath, inline: true): ExpressionArrowFunction;
 export function transformCondition(
   path: ConditionPath,
@@ -341,7 +365,7 @@ export function transformCondition(
     dTest = isDynamic(path.get("test"), { checkMember: true });
     if (dTest) {
       cond = expr.test;
-      if (!t.isBinaryExpression(cond))
+      if (!isBooleanExpression(cond))
         cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
       id = inline
         ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
@@ -372,18 +396,25 @@ export function transformCondition(
       // side) but return the raw left in the alternate so the expression keeps
       // JS value semantics — `0`/`""`/`undefined` flow through instead of
       // collapsing to `false`, matching the untransformed ssr output (#532).
-      const alternate = t.cloneNode(cond, true);
-      if (!t.isBinaryExpression(cond))
-        cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
+      // Statically boolean lefts skip the ternary: the memo's value is the
+      // expression's value, so the logical form is already exact and the left
+      // never evaluates twice.
+      const boolLeft = isBooleanExpression(cond);
+      if (!boolLeft) cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
       id = inline
         ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
         : path.scope.generateUidIdentifier("_c$");
-      nextPath.replaceWith(
-        t.conditionalExpression(t.callExpression(id, []), nextPath.node.right, alternate)
-      );
-      // replaceWith swaps the node out of the tree; when the `&&` was the
-      // top-level expression the local reference is stale.
-      expr = path.node as t.Expression;
+      if (boolLeft) {
+        nextPath.node.left = t.callExpression(id, []);
+      } else {
+        const alternate = t.cloneNode(nextPath.node.left, true);
+        nextPath.replaceWith(
+          t.conditionalExpression(t.callExpression(id, []), nextPath.node.right, alternate)
+        );
+        // replaceWith swaps the node out of the tree; when the `&&` was the
+        // top-level expression the local reference is stale.
+        expr = path.node as t.Expression;
+      }
     }
   }
   if (dTest && !inline && cond && id) {

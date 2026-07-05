@@ -160,3 +160,10 @@ const template42 = () => {
 const template43 = () => {
 	return obj1.prop ? obj2.prop ? _tmpl$2() : [] : [];
 };
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = () => {
+	return state.count > 5 && good();
+};
+const template77a = () => {
+	return !state.hidden && good.good;
+};

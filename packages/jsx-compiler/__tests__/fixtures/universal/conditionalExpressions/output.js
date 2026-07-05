@@ -139,3 +139,6 @@ const template43 = obj1.prop ? obj2.prop ? (() => {
 	_$insertNode(_el$30, _$createTextNode("Output"));
 	return _el$30;
 })() : null : null;
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = state.count > 5 && good();
+const template77a = !state.hidden && good.good;

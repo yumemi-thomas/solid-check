@@ -340,3 +340,7 @@ const template42a = _$memo(() =>
 const template43 = _$memo(() =>
   _$memo(() => !!obj1.prop)() ? (_$memo(() => !!obj2.prop)() ? _tmpl$2() : []) : []
 );
+
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = _$memo(() => _$memo(() => state.count > 5)() && good());
+const template77a = _$memo(() => _$memo(() => !state.hidden)() && good.good);

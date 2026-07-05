@@ -88,3 +88,6 @@ const template48 = _$ssr(["<div>", "</div>"], _$escape(cond && Comp({})));
 // mixed fragment content keeps the outer wrap — predicate is conservative
 // and only skips when exactly one significant child is provably safe.
 const template49 = _$ssr(["<div>", "</div>"], _$escape(cond && ["hello ", state.text]));
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = state.count > 5 && good();
+const template77a = !state.hidden && good.good;

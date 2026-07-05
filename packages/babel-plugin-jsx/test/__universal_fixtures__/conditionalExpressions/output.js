@@ -346,3 +346,7 @@ const template43 = _$memo(() =>
       : []
     : []
 );
+
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = _$memo(() => _$memo(() => state.count > 5)() && good());
+const template77a = _$memo(() => _$memo(() => !state.hidden)() && good.good);

@@ -121,3 +121,7 @@ const template48 = <div>{cond && <><Comp /></>}</div>;
 // mixed fragment content keeps the outer wrap — predicate is conservative
 // and only skips when exactly one significant child is provably safe.
 const template49 = <div>{cond && <>hello {state.text}</>}</div>;
+
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = <>{state.count > 5 && good()}</>;
+const template77a = <>{!state.hidden && good.good}</>;

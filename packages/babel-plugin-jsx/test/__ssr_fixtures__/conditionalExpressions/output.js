@@ -300,3 +300,7 @@ const template48 = _$ssr(_tmpl$, _v$33);
 // and only skips when exactly one significant child is provably safe.
 var _v$34 = cond && _$escape(["hello ", _$memo(() => _$escape(state.text))]);
 const template49 = _$ssr(_tmpl$, _v$34);
+
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = _$memo(() => _$escape(_$memo(() => state.count > 5)() && good()));
+const template77a = _$memo(() => _$escape(_$memo(() => !state.hidden)() && good.good));

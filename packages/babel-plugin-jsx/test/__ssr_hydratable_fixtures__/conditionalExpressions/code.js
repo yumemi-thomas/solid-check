@@ -105,3 +105,7 @@ const template42 = <>{state.a ? a() : state.b ? b() : state.c ? "c" : "fallback"
 const template42a = <>{state.a ? a.a : state.b ? b.b : state.c ? "c" : "fallback"}</>;
 
 const template43 = <>{obj1.prop ? obj2.prop ? <div>Output</div> : <></> : <></>}</>
+
+// statically boolean left: memo value IS the expression value, logical form kept
+const template77 = <>{state.count > 5 && good()}</>;
+const template77a = <>{!state.hidden && good.good}</>;

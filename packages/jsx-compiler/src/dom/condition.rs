@@ -1,7 +1,7 @@
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::Expression;
 use oxc_span::Span;
-use oxc_syntax::operator::{LogicalOperator, UnaryOperator};
+use oxc_syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 
 use crate::dom::element::AstDomTransform;
 
@@ -100,14 +100,22 @@ impl<'a> AstDomTransform<'a, '_> {
         // memoized truthiness but return the raw left in the alternate so the
         // expression keeps JS value semantics (`0`/`""`/`undefined` flow
         // through instead of collapsing to `false`), matching the
-        // untransformed ssr output. Mirrors the Babel plugin (#532).
-        let conditional = self.ast().expression_conditional(
-            span,
-            condition_call,
-            self.inline_condition_expression(span, logical.right.clone_in(self.allocator)),
-            logical.left.clone_in(self.allocator),
-        );
-        let reactive = self.arrow_return_expression(span, conditional);
+        // untransformed ssr output. Statically boolean lefts keep the logical
+        // form — the memo's value is the expression's value, no second
+        // evaluation needed. Mirrors the Babel plugin (#532).
+        let right = self.inline_condition_expression(span, logical.right.clone_in(self.allocator));
+        let wrapped = if is_boolean_expression(&logical.left) {
+            self.ast()
+                .expression_logical(span, condition_call, LogicalOperator::And, right)
+        } else {
+            self.ast().expression_conditional(
+                span,
+                condition_call,
+                right,
+                logical.left.clone_in(self.allocator),
+            )
+        };
+        let reactive = self.arrow_return_expression(span, wrapped);
         let mut statements = self.ast().vec();
         statements.push(memo_statement);
         statements.push(self.ast().statement_return(span, Some(reactive)));
@@ -144,14 +152,21 @@ impl<'a> AstDomTransform<'a, '_> {
         let memo = self.memo_call(span, condition_test);
         let memo_statement = self.variable_statement(span, &condition_id, memo);
         let condition_call = self.call_identifier(span, &condition_id, std::vec::Vec::new());
-        // Same `&&` → ternary rewrite as `logical_child_expression`, keeping
-        // the raw left value in the alternate for JS value semantics.
-        let left = self.ast().expression_conditional(
-            span,
-            condition_call,
-            self.inline_condition_expression(span, left_logical.right.clone_in(self.allocator)),
-            left_logical.left.clone_in(self.allocator),
-        );
+        // Same `&&` → ternary rewrite as `logical_child_expression` (logical
+        // form when the left is statically boolean).
+        let and_right =
+            self.inline_condition_expression(span, left_logical.right.clone_in(self.allocator));
+        let left = if is_boolean_expression(&left_logical.left) {
+            self.ast()
+                .expression_logical(span, condition_call, LogicalOperator::And, and_right)
+        } else {
+            self.ast().expression_conditional(
+                span,
+                condition_call,
+                and_right,
+                left_logical.left.clone_in(self.allocator),
+            )
+        };
         let logical = self.ast().expression_logical(
             span,
             left,
@@ -278,13 +293,21 @@ impl<'a> AstDomTransform<'a, '_> {
                     self.boolean_condition_expression(span, logical.left.clone_in(self.allocator));
                 let memo = self.memo_call(span, condition_test);
                 let condition_call = self.call_expression(span, memo, std::vec::Vec::new());
-                // `&&` → ternary with the raw left as alternate (JS value semantics).
-                self.ast().expression_conditional(
-                    span,
-                    condition_call,
-                    self.inline_condition_expression(span, logical.right.clone_in(self.allocator)),
-                    logical.left.clone_in(self.allocator),
-                )
+                // `&&` → ternary with the raw left as alternate (JS value
+                // semantics); logical form when the left is statically boolean.
+                let right =
+                    self.inline_condition_expression(span, logical.right.clone_in(self.allocator));
+                if is_boolean_expression(&logical.left) {
+                    self.ast()
+                        .expression_logical(span, condition_call, LogicalOperator::And, right)
+                } else {
+                    self.ast().expression_conditional(
+                        span,
+                        condition_call,
+                        right,
+                        logical.left.clone_in(self.allocator),
+                    )
+                }
             }
             Expression::LogicalExpression(logical) => self.ast().expression_logical(
                 span,
@@ -309,7 +332,7 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 
     fn boolean_condition_expression(&self, span: Span, value: Expression<'a>) -> Expression<'a> {
-        if matches!(value, Expression::BinaryExpression(_)) {
+        if is_boolean_expression(&value) {
             return value;
         }
         let first = self
@@ -317,6 +340,30 @@ impl<'a> AstDomTransform<'a, '_> {
             .expression_unary(span, UnaryOperator::LogicalNot, value);
         self.ast()
             .expression_unary(span, UnaryOperator::LogicalNot, first)
+    }
+}
+
+/// Statically guaranteed to evaluate to a boolean: the memoized value IS the
+/// expression's value (`false` is the only falsy boolean), so no `!!` coercion
+/// is needed and the `&&` wrap keeps the logical form instead of the
+/// value-preserving ternary. Mirrors the Babel plugin's `isBooleanExpression`.
+fn is_boolean_expression(value: &Expression<'_>) -> bool {
+    match value {
+        Expression::BinaryExpression(binary) => matches!(
+            binary.operator,
+            BinaryOperator::Equality
+                | BinaryOperator::Inequality
+                | BinaryOperator::StrictEquality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::LessThan
+                | BinaryOperator::LessEqualThan
+                | BinaryOperator::GreaterThan
+                | BinaryOperator::GreaterEqualThan
+                | BinaryOperator::Instanceof
+                | BinaryOperator::In
+        ),
+        Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::LogicalNot,
+        _ => false,
     }
 }
 
@@ -335,6 +382,7 @@ fn is_dynamic_condition_branch(value: &Expression<'_>) -> bool {
             is_dynamic_condition_branch(&logical.left)
                 || is_dynamic_condition_branch(&logical.right)
         }
+        Expression::UnaryExpression(unary) => is_dynamic_condition_branch(&unary.argument),
         _ => false,
     }
 }
@@ -356,6 +404,9 @@ fn is_dynamic_condition_test(value: &Expression<'_>) -> bool {
                 || is_dynamic_condition_test(&conditional.consequent)
                 || is_dynamic_condition_test(&conditional.alternate)
         }
+        // Babel's isDynamic traverses generically, so `!state.hidden` counts —
+        // unary arguments must be walked or the generates desync.
+        Expression::UnaryExpression(unary) => is_dynamic_condition_test(&unary.argument),
         _ => false,
     }
 }
