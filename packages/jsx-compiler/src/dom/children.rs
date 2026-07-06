@@ -23,6 +23,13 @@ impl<'a> AstDomTransform<'a, '_> {
     ) -> Result<()> {
         let child_to_be_closed = self.child_close_context(tag_name, CloseTagContext::root());
         let last_static_child = last_static_element_child(&element.children);
+        // Mirror of the Babel generate: when a parent hosts multiple dynamic
+        // slots, each slot needs its own truthy insertion marker — the marker
+        // doubles as the runtime's $$SLOT ownership tag, and shared or null
+        // markers let one slot's cleanup destroy a node that migrated to its
+        // neighbor (solidjs/solid#2830). Slots ride an immediately following
+        // static sibling when one exists, otherwise get a dedicated `<!>`.
+        let per_slot = !self.hydratable && self.dynamic_slot_count(&element.children) > 1;
         let mut index = 0;
         let mut child_node_index = 0;
 
@@ -39,12 +46,25 @@ impl<'a> AstDomTransform<'a, '_> {
                 JSXChild::Element(child) => {
                     if is_component_name(&child.opening_element.name) {
                         self.template_state.uses_insert = true;
-                        let child = self.lower_element(child)?;
+                        let lowered = self.lower_element(child)?;
+                        let marker = if per_slot {
+                            Some(self.per_slot_marker(
+                                &element.children,
+                                index,
+                                element.span,
+                                element_id,
+                                &mut child_node_index,
+                                template,
+                                operations,
+                            ))
+                        } else {
+                            None
+                        };
                         operations.push(self.insert_statement(
                             element.span,
                             element_id,
-                            child,
-                            None,
+                            lowered,
+                            marker,
                         ));
                     } else if let Some(static_template) = lower_static_native_template(
                         self,
@@ -88,9 +108,13 @@ impl<'a> AstDomTransform<'a, '_> {
                     }
 
                     let run_end = dynamic_run_end(&element.children, index);
-                    let previous_is_text = has_previous_static_text(&element.children[..index]);
-                    let next_is_text = has_next_static_text(&element.children[run_end..]);
-                    let marker_name = if previous_is_text && next_is_text {
+                    // Single-slot parents keep the previous marker strategy
+                    // untouched: one shared placeholder when boxed by text,
+                    // the leading static content otherwise.
+                    let shared_marker_name = if !per_slot
+                        && has_previous_static_text(&element.children[..index])
+                        && has_next_static_text(&element.children[run_end..])
+                    {
                         template.push_str("<!>");
                         let marker_name = self.next_element_id();
                         operations.push(self.variable_statement(
@@ -104,6 +128,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         None
                     };
 
+                    let mut run_index = index;
                     for dynamic_child in &element.children[index..run_end] {
                         let JSXChild::ExpressionContainer(container) = dynamic_child else {
                             return Err(Error::from_reason(
@@ -127,20 +152,34 @@ impl<'a> AstDomTransform<'a, '_> {
                         } else {
                             value
                         };
-                        let marker = marker_name
-                            .as_ref()
-                            .map(|name| self.identifier_expression(element.span, name))
-                            .or_else(|| {
-                                has_following_static_content(&element.children[run_end..]).then(
-                                    || self.child_node_expression(element.span, element_id, 0),
-                                )
-                            });
+                        let marker = if per_slot {
+                            Some(self.per_slot_marker(
+                                &element.children,
+                                run_index,
+                                element.span,
+                                element_id,
+                                &mut child_node_index,
+                                template,
+                                operations,
+                            ))
+                        } else {
+                            shared_marker_name
+                                .as_ref()
+                                .map(|name| self.identifier_expression(element.span, name))
+                                .or_else(|| {
+                                    has_following_static_content(&element.children[run_end..])
+                                        .then(|| {
+                                            self.child_node_expression(element.span, element_id, 0)
+                                        })
+                                })
+                        };
                         operations.push(self.insert_statement(
                             element.span,
                             element_id,
                             value,
                             marker,
                         ));
+                        run_index += 1;
                     }
                     index = run_end;
                     continue;
@@ -155,8 +194,20 @@ impl<'a> AstDomTransform<'a, '_> {
                     } else {
                         value
                     };
-                    let marker = has_following_static_content(&element.children[index + 1..])
-                        .then(|| self.child_node_expression(element.span, element_id, 0));
+                    let marker = if per_slot {
+                        Some(self.per_slot_marker(
+                            &element.children,
+                            index,
+                            element.span,
+                            element_id,
+                            &mut child_node_index,
+                            template,
+                            operations,
+                        ))
+                    } else {
+                        has_following_static_content(&element.children[index + 1..])
+                            .then(|| self.child_node_expression(element.span, element_id, 0))
+                    };
                     operations.push(self.insert_statement(element.span, element_id, value, marker));
                 }
                 _ => {
@@ -169,6 +220,122 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         Ok(())
+    }
+
+    /// Number of children that compile to `insert()` calls: dynamic expression
+    /// containers, components, and spread children. Static expressions and
+    /// text inline into the template; native elements walk.
+    fn dynamic_slot_count(&self, children: &[JSXChild<'a>]) -> usize {
+        children
+            .iter()
+            .filter(|child| match child {
+                JSXChild::ExpressionContainer(container) => {
+                    !matches!(container.expression, JSXExpression::EmptyExpression(_))
+                        && self.static_jsx_expression_value(&container.expression).is_none()
+                }
+                JSXChild::Element(child) => is_component_name(&child.opening_element.name),
+                JSXChild::Spread(_) => true,
+                _ => false,
+            })
+            .count()
+    }
+
+    /// Marker for one slot of a multi-slot parent (solidjs/solid#2830): the
+    /// immediately following template node when one exists — unless the slot
+    /// is boxed by text, where a placeholder comment is structurally required
+    /// to keep the surrounding template text nodes from merging — otherwise a
+    /// dedicated `<!>` placeholder appended at the slot's template position.
+    #[allow(clippy::too_many_arguments)]
+    fn per_slot_marker(
+        &mut self,
+        children: &[JSXChild<'a>],
+        index: usize,
+        span: oxc_span::Span,
+        element_id: &str,
+        child_node_index: &mut usize,
+        template: &mut String,
+        operations: &mut std::vec::Vec<Statement<'a>>,
+    ) -> Expression<'a> {
+        if !self.slot_boxed_by_text(children, index)
+            && self.next_child_is_template_node(children, index)
+        {
+            return self.child_node_expression(span, element_id, *child_node_index);
+        }
+        template.push_str("<!>");
+        let marker_name = self.next_element_id();
+        operations.push(self.variable_statement(
+            span,
+            &marker_name,
+            self.child_node_expression(span, element_id, *child_node_index),
+        ));
+        *child_node_index += 1;
+        self.identifier_expression(span, &marker_name)
+    }
+
+    /// Nearest template-contributing sibling on both sides is text (mirrors
+    /// the Babel generate's `wrappedByText`): dynamic slots and components are
+    /// transparent to the walk; a native element or slot-free boundary stops it.
+    fn slot_boxed_by_text(&self, children: &[JSXChild<'a>], index: usize) -> bool {
+        self.nearest_template_sibling_is_text(children[..index].iter().rev())
+            && self.nearest_template_sibling_is_text(children[index + 1..].iter())
+    }
+
+    fn nearest_template_sibling_is_text<'b>(
+        &self,
+        children: impl Iterator<Item = &'b JSXChild<'a>>,
+    ) -> bool
+    where
+        'a: 'b,
+    {
+        for child in children {
+            match child {
+                JSXChild::Text(text) => {
+                    if !trim_jsx_text(&text.value).is_empty() {
+                        return true;
+                    }
+                }
+                JSXChild::ExpressionContainer(container) => {
+                    if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                        continue;
+                    }
+                    if self.static_jsx_expression_value(&container.expression).is_some() {
+                        return true;
+                    }
+                }
+                JSXChild::Element(child) => {
+                    if !is_component_name(&child.opening_element.name) {
+                        return false;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Whether the immediately following retained child contributes a template
+    /// node (non-empty text, static expression, or native element) that can
+    /// serve as this slot's marker.
+    fn next_child_is_template_node(&self, children: &[JSXChild<'a>], index: usize) -> bool {
+        for child in &children[index + 1..] {
+            return match child {
+                JSXChild::Text(text) => {
+                    if trim_jsx_text(&text.value).is_empty() {
+                        continue;
+                    }
+                    true
+                }
+                JSXChild::ExpressionContainer(container) => {
+                    if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
+                        continue;
+                    }
+                    self.static_jsx_expression_value(&container.expression).is_some()
+                }
+                JSXChild::Element(child) => !is_component_name(&child.opening_element.name),
+                _ => false,
+            };
+        }
+        false
     }
 
     fn lower_dynamic_native_child(

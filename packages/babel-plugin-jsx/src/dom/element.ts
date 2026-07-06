@@ -1200,7 +1200,6 @@ function transformChildren(
 ): void {
   let tempPath = (results.id && results.id.name) || "",
     tagName = getTagName(path.node),
-    nextPlaceholder: babelTypes.Identifier | undefined | null,
     childPostExprs: babelTypes.Statement[] = [],
     i = 0;
   const filteredChildren = filterChildren(path.get("children")),
@@ -1231,6 +1230,16 @@ function transformChildren(
       },
       []
     );
+
+  // Dynamic slots under this parent (children compiled to `insert()` calls).
+  // With two or more, slots may not share an insertion marker: the marker is
+  // also the runtime's ownership tag ($$SLOT), and adoption only re-tags when
+  // the marker is truthy — shared or null markers let one slot's cleanup
+  // destroy a node that migrated to its neighbor (solidjs/solid#2830).
+  const dynamicSlots = childNodes.reduce(
+    (n, c) => (c && !c.id && c.exprs.length ? n + 1 : n),
+    0
+  );
 
   childNodes.forEach((child, index) => {
     if (!child) return;
@@ -1284,12 +1293,16 @@ function transformChildren(
       results.isImportNode = results.isImportNode || child.isImportNode;
       results.isWrapped = results.isWrapped || child.isWrapped;
       tempPath = child.id.name;
-      nextPlaceholder = null;
       i++;
     } else if (child.exprs.length) {
       let insert = registerImportMethod(path, "insert", getRendererConfig(path, "dom").moduleName);
       const multi = checkLength(filteredChildren),
-        markers = config.hydratable && multi;
+        markers = config.hydratable && multi,
+        // CSR counterpart of the hydratable per-slot markers: when this parent
+        // hosts multiple dynamic slots, each gets its own truthy marker — the
+        // immediately following sibling when it has a reference, otherwise a
+        // dedicated `<!>` placeholder.
+        perSlot = !markers && dynamicSlots > 1;
       // Mirror of the ssr generate's `scope()` wrap: deferred holes that can
       // allocate hydration ids get their own owner scope (insert makes the
       // outer render effect non-transparent for tagged accessors). Keyed off
@@ -1307,16 +1320,20 @@ function transformChildren(
         );
       }
       // boxed by textNodes
-      if (markers || wrappedByText(childNodes, index)) {
-        let exprId: babelTypes.Identifier;
+      if (markers || perSlot || wrappedByText(childNodes, index)) {
+        let exprId: babelTypes.Identifier | undefined;
         let contentId: babelTypes.Identifier | undefined;
         if (markers) tempPath = createPlaceholder(path, results, tempPath, i++, "$")[0].name;
-        if (nextPlaceholder) {
-          exprId = nextPlaceholder;
-        } else {
-          [exprId, contentId] = createPlaceholder(path, results, tempPath, i++, markers ? "/" : "");
+        // Ride the immediately following sibling's reference when it exists —
+        // unless the slot is boxed by text, where a placeholder is structurally
+        // required to keep the surrounding template text nodes from merging.
+        if (perSlot && !wrappedByText(childNodes, index)) {
+          exprId = (childNodes[index + 1] && childNodes[index + 1].id) || undefined;
         }
-        if (!markers) nextPlaceholder = exprId;
+        if (!exprId) {
+          [exprId, contentId] = createPlaceholder(path, results, tempPath, i++, markers ? "/" : "");
+          tempPath = exprId.name;
+        }
         const args = contentId
           ? ([
               results.id!,
@@ -1330,7 +1347,6 @@ function transformChildren(
               exprId
             ] as babelTypes.Expression[]);
         results.exprs.push(t.expressionStatement(t.callExpression(insert, args)));
-        tempPath = exprId.name;
       } else if (multi) {
         results.exprs.push(
           t.expressionStatement(
@@ -1348,7 +1364,7 @@ function transformChildren(
           )
         );
       }
-    } else nextPlaceholder = null;
+    }
   });
   results.postExprs.unshift(...childPostExprs);
 }

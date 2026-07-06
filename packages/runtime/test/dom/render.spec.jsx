@@ -66,7 +66,9 @@ describe("render", () => {
     const div = document.createElement("div");
     r.render(Component, div);
 
-    expect(div.innerHTML).toBe("<span>John loves Porsche 911 Turbo</span>");
+    // The tail slot carries its own `<!>` ownership marker (multi-slot parent,
+    // solidjs/solid#2830); the first slot rides the static text node.
+    expect(div.innerHTML).toBe("<span>John loves Porsche 911 Turbo<!----></span>");
   });
 });
 

@@ -8,12 +8,13 @@ import { ref as _$ref } from "r-dom";
 var _tmpl$ = /*#__PURE__*/ _$template(`<div>Hello `),
   _tmpl$2 = /*#__PURE__*/ _$template(`<div>`),
   _tmpl$3 = /*#__PURE__*/ _$template(`<div>From Parent`),
-  _tmpl$4 = /*#__PURE__*/ _$template(`<div> | <!> | <!> | <!> | <!> | `),
-  _tmpl$5 = /*#__PURE__*/ _$template(`<div> | <!> | <!> | `),
-  _tmpl$6 = /*#__PURE__*/ _$template(`<div> | <!> |  |  | <!> | `),
-  _tmpl$7 = /*#__PURE__*/ _$template(`<span>1`),
-  _tmpl$8 = /*#__PURE__*/ _$template(`<span>2`),
-  _tmpl$9 = /*#__PURE__*/ _$template(`<span>3`);
+  _tmpl$4 = /*#__PURE__*/ _$template(`<div><!><!><!>`),
+  _tmpl$5 = /*#__PURE__*/ _$template(`<div> | <!> | <!> | <!> | <!> | <!>`),
+  _tmpl$6 = /*#__PURE__*/ _$template(`<div> | <!><!> | <!><!> | <!>`),
+  _tmpl$7 = /*#__PURE__*/ _$template(`<div> | <!> |  |  | <!> | `),
+  _tmpl$8 = /*#__PURE__*/ _$template(`<span>1`),
+  _tmpl$9 = /*#__PURE__*/ _$template(`<span>2`),
+  _tmpl$0 = /*#__PURE__*/ _$template(`<span>3`);
 import { Show } from "somewhere";
 const Child = props => {
   const [s, set] = createSignal();
@@ -39,7 +40,10 @@ const Child = props => {
 const template = props => {
   let childRef;
   const { content } = props;
-  var _el$4 = _tmpl$2();
+  var _el$4 = _tmpl$4(),
+    _el$7 = _el$4.firstChild,
+    _el$8 = _el$7.nextSibling,
+    _el$9 = _el$8.nextSibling;
   _$insert(
     _el$4,
     _$createComponent(
@@ -63,7 +67,7 @@ const template = props => {
         }
       )
     ),
-    null
+    _el$7
   );
   _$insert(
     _el$4,
@@ -89,7 +93,7 @@ const template = props => {
         }
       )
     ),
-    null
+    _el$8
   );
   _$insert(
     _el$4,
@@ -102,7 +106,7 @@ const template = props => {
         children: context => context
       });
     })(),
-    null
+    _el$9
   );
   return _el$4;
 };
@@ -168,129 +172,133 @@ const template8 = _$createComponent(Child, {
 const template9 = _$createComponent(_garbage, {
   children: "Hi"
 });
-var _el$10 = _tmpl$4(),
-  _el$11 = _el$10.firstChild,
-  _el$16 = _el$11.nextSibling,
-  _el$12 = _el$16.nextSibling,
-  _el$17 = _el$12.nextSibling,
-  _el$13 = _el$17.nextSibling,
-  _el$18 = _el$13.nextSibling,
-  _el$14 = _el$18.nextSibling,
+var _el$13 = _tmpl$5(),
+  _el$14 = _el$13.firstChild,
   _el$19 = _el$14.nextSibling,
-  _el$15 = _el$19.nextSibling;
+  _el$15 = _el$19.nextSibling,
+  _el$20 = _el$15.nextSibling,
+  _el$16 = _el$20.nextSibling,
+  _el$21 = _el$16.nextSibling,
+  _el$17 = _el$21.nextSibling,
+  _el$22 = _el$17.nextSibling,
+  _el$18 = _el$22.nextSibling,
+  _el$23 = _el$18.nextSibling;
 _$insert(
-  _el$10,
+  _el$13,
   _$createComponent(Link, {
     children: "new"
   }),
-  _el$11
+  _el$14
 );
 _$insert(
-  _el$10,
+  _el$13,
   _$createComponent(Link, {
     children: "comments"
-  }),
-  _el$16
-);
-_$insert(
-  _el$10,
-  _$createComponent(Link, {
-    children: "show"
-  }),
-  _el$17
-);
-_$insert(
-  _el$10,
-  _$createComponent(Link, {
-    children: "ask"
-  }),
-  _el$18
-);
-_$insert(
-  _el$10,
-  _$createComponent(Link, {
-    children: "jobs"
   }),
   _el$19
 );
 _$insert(
-  _el$10,
+  _el$13,
   _$createComponent(Link, {
-    children: "submit"
+    children: "show"
   }),
-  null
+  _el$20
 );
-const template10 = _el$10;
-var _el$20 = _tmpl$5(),
-  _el$21 = _el$20.firstChild,
-  _el$24 = _el$21.nextSibling,
-  _el$22 = _el$24.nextSibling,
-  _el$25 = _el$22.nextSibling,
-  _el$23 = _el$25.nextSibling;
 _$insert(
-  _el$20,
+  _el$13,
   _$createComponent(Link, {
-    children: "new"
+    children: "ask"
   }),
   _el$21
 );
 _$insert(
-  _el$20,
-  _$createComponent(Link, {
-    children: "comments"
-  }),
-  _el$24
-);
-_$insert(
-  _el$20,
-  _$createComponent(Link, {
-    children: "show"
-  }),
-  _el$24
-);
-_$insert(
-  _el$20,
-  _$createComponent(Link, {
-    children: "ask"
-  }),
-  _el$25
-);
-_$insert(
-  _el$20,
+  _el$13,
   _$createComponent(Link, {
     children: "jobs"
   }),
-  _el$25
+  _el$22
 );
 _$insert(
-  _el$20,
+  _el$13,
   _$createComponent(Link, {
     children: "submit"
   }),
-  null
+  _el$23
 );
-const template11 = _el$20;
-var _el$26 = _tmpl$6(),
-  _el$27 = _el$26.firstChild,
-  _el$32 = _el$27.nextSibling,
-  _el$28 = _el$32.nextSibling,
-  _el$33 = _el$28.nextSibling,
-  _el$31 = _el$33.nextSibling;
+const template10 = _el$13;
+var _el$24 = _tmpl$6(),
+  _el$25 = _el$24.firstChild,
+  _el$28 = _el$25.nextSibling,
+  _el$29 = _el$28.nextSibling,
+  _el$26 = _el$29.nextSibling,
+  _el$30 = _el$26.nextSibling,
+  _el$31 = _el$30.nextSibling,
+  _el$27 = _el$31.nextSibling,
+  _el$32 = _el$27.nextSibling;
 _$insert(
-  _el$26,
+  _el$24,
+  _$createComponent(Link, {
+    children: "new"
+  }),
+  _el$25
+);
+_$insert(
+  _el$24,
   _$createComponent(Link, {
     children: "comments"
   }),
-  _el$32
+  _el$28
 );
 _$insert(
-  _el$26,
+  _el$24,
   _$createComponent(Link, {
     children: "show"
   }),
-  _el$33
+  _el$29
 );
-const template12 = _el$26;
+_$insert(
+  _el$24,
+  _$createComponent(Link, {
+    children: "ask"
+  }),
+  _el$30
+);
+_$insert(
+  _el$24,
+  _$createComponent(Link, {
+    children: "jobs"
+  }),
+  _el$31
+);
+_$insert(
+  _el$24,
+  _$createComponent(Link, {
+    children: "submit"
+  }),
+  _el$32
+);
+const template11 = _el$24;
+var _el$33 = _tmpl$7(),
+  _el$34 = _el$33.firstChild,
+  _el$39 = _el$34.nextSibling,
+  _el$35 = _el$39.nextSibling,
+  _el$40 = _el$35.nextSibling,
+  _el$38 = _el$40.nextSibling;
+_$insert(
+  _el$33,
+  _$createComponent(Link, {
+    children: "comments"
+  }),
+  _el$39
+);
+_$insert(
+  _el$33,
+  _$createComponent(Link, {
+    children: "show"
+  }),
+  _el$40
+);
+const template12 = _el$33;
 class Template13 {
   render() {
     const _self$ = this;
@@ -329,12 +337,12 @@ const Template16 = _$createComponent(
 );
 const Template17 = _$createComponent(Pre, {
   get children() {
-    return [_tmpl$7(), " ", _tmpl$8(), " ", _tmpl$9()];
+    return [_tmpl$8(), " ", _tmpl$9(), " ", _tmpl$0()];
   }
 });
 const Template18 = _$createComponent(Pre, {
   get children() {
-    return [_tmpl$7(), _tmpl$8(), _tmpl$9()];
+    return [_tmpl$8(), _tmpl$9(), _tmpl$0()];
   }
 });
 const Template19 = _$createComponent(
