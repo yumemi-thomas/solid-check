@@ -1236,10 +1236,7 @@ function transformChildren(
   // also the runtime's ownership tag ($$SLOT), and adoption only re-tags when
   // the marker is truthy — shared or null markers let one slot's cleanup
   // destroy a node that migrated to its neighbor (solidjs/solid#2830).
-  const dynamicSlots = childNodes.reduce(
-    (n, c) => (c && !c.id && c.exprs.length ? n + 1 : n),
-    0
-  );
+  const dynamicSlots = childNodes.reduce((n, c) => (c && !c.id && c.exprs.length ? n + 1 : n), 0);
 
   childNodes.forEach((child, index) => {
     if (!child) return;
