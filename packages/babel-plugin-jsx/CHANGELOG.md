@@ -1,5 +1,35 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.16
+
+### Patch Changes
+
+- 04849df: Preserve JS value semantics for wrapped `&&` conditions (#532). The dom generate's condition wrap used to emit `memo(() => !!left)() && right`, collapsing every falsy left value to `false` — visibly wrong for component props (`undefined` became `false`, breaking `== null` checks) and a hydration mismatch against the untransformed server output (`{0 && <div/>}` rendered "0" on the server, nothing on the client). `left && right` is exactly `left ? right : left`, so the wrap now emits `memo(() => !!left)() ? right : left`: branching still keys off the memoized truthiness (truthy-value churn never re-creates the right side) while the alternate returns the raw left, matching the server for free. Statically boolean lefts (comparisons, `!x`) keep the plain `memo(() => left)() && right` form — the memo's value is the expression's value, so it's already exact with no second evaluation. Ported identically to the Rust jsx-compiler.
+- 248f784: fix(compiler): key the hole `scope()` wrap off the transform's `dynamic` flag instead of the transformed expression shape. The dom generate simplifies `{sig()}` to the bare getter `sig`, which the old `isDeferredChildSlotExpression` predicate didn't count as deferred while the matching ssr arrow was — so the server scope-wrapped the hole and the client didn't, shifting every sibling hydration id after it. Bare getters are re-wrapped as `() => sig()` on the dom side so `scope()` doesn't tag the user's function.
+- c2a542b: Fix hydration key mismatches when async holes defer past eager siblings
+  (solidjs/solid#2801 bug 2). Dynamic element children that can allocate
+  hydration ids (conditionals, component-children access, call expressions)
+  are now compiled with their own id scope on both generates: the dom and ssr
+  generates wrap the hole expression in a new `scope()` runtime helper using a
+  shared predicate, so marking cannot desync.
+
+  On the client, `scope(fn)` tags the accessor and `insert()` makes the outer
+  render effect non-transparent (its own id scope) for tagged accessors; the
+  inner unwrapping effect stays transparent so content ids keep a fixed depth.
+  On the server, `scope` (framework-provided via rxcore as `ssrScope`) reserves
+  one id slot at registration and evaluates the hole — including async retries
+  — under that reserved id with a zeroed child counter, so retry timing can no
+  longer shift sibling ids. The ssr generate's `orderedInsert` sibling
+  thunk-wrapping is removed; it is superseded by hole scopes.
+
+  Hole content ids gain one nesting level (e.g. `_hk=10` instead of `_hk=1`)
+  identically on both sides. rxcore implementations must provide an `ssrScope`
+  export and honor a `scope: true` effect option (mapped to a non-transparent
+  render effect).
+
+- bb7470e: Give every dynamic child slot its own insertion marker when a parent hosts more than one (solidjs/solid#2830). Adjacent expression slots used to share a marker (`null` at the tail, a shared following sibling, or one reused `<!>` between text), which collapsed them into a single `$$SLOT` ownership region: a node migrating between adjacent slots was destroyed by the slot it left, arrays exchanging members could throw `NotFoundError`, and a slot emptied via `[]` refilled at the wrong position. Slots in multi-slot parents now ride the immediately following static sibling or get a dedicated `<!>` placeholder — the same per-slot geometry hydratable output has always produced, which is why these shapes already worked after hydration. Zero runtime changes; single-slot parents compile byte-identically to before.
+- 668264f: Universal JSX now passes compile-time static host props to `createElement(tag, staticProps)` so custom renderers can configure nodes before children are inserted. Dynamic props and elements with spreads continue to use the existing `setProp` / `spread` paths.
+
 ## 0.50.0-next.15
 
 ### Patch Changes

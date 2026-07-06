@@ -1,5 +1,58 @@
 # dom-expressions
 
+## 0.50.0-next.16
+
+### Patch Changes
+
+- f2e56fe: fix(client): re-claim a hole's live DOM region when a streamed `$df` fragment swap replaced its tracked nodes mid-hydration (solidjs/solid#2801 bug 1, pending-stream case). A Loading fallback claimed during hydration is swapped out by `$df` before the boundary resumes; insert's node bookkeeping still pointed at the removed fallback, so the content pass fabricated detached text nodes and the first post-hydration refresh appended duplicates. When the tracked nodes are disconnected while hydrating, insert now re-derives the region (parent children, or back to the matching `<!--$-->` for marker-bounded holes) so loose text re-claims positionally — elements already recovered via `_hk`.
+- b431fe7: Handle module preload failures during hydration instead of hanging silently (solidjs/solid#2817 layer 3). `loadModuleAssets` drops rejected entries from the loading cache so later boundaries/navigations can retry, and the root `_assets` path in `hydrate()` falls back to a fresh client render (with a console diagnostic) instead of leaving the page permanently dead.
+- 016b460: Server rendering a plain (non-template) object child now dev-warns and skips it, matching the client, instead of crashing with `Cannot read properties of undefined (reading 'fn')` (solidjs/solid#2801 bug 6)
+- c40ac21: Fix style object updates so shared or constant style objects are not mutated while diffing, and nullish property values correctly remove the applied style.
+- c2a542b: Fix hydration key mismatches when async holes defer past eager siblings
+  (solidjs/solid#2801 bug 2). Dynamic element children that can allocate
+  hydration ids (conditionals, component-children access, call expressions)
+  are now compiled with their own id scope on both generates: the dom and ssr
+  generates wrap the hole expression in a new `scope()` runtime helper using a
+  shared predicate, so marking cannot desync.
+
+  On the client, `scope(fn)` tags the accessor and `insert()` makes the outer
+  render effect non-transparent (its own id scope) for tagged accessors; the
+  inner unwrapping effect stays transparent so content ids keep a fixed depth.
+  On the server, `scope` (framework-provided via rxcore as `ssrScope`) reserves
+  one id slot at registration and evaluates the hole — including async retries
+  — under that reserved id with a zeroed child counter, so retry timing can no
+  longer shift sibling ids. The ssr generate's `orderedInsert` sibling
+  thunk-wrapping is removed; it is superseded by hole scopes.
+
+  Hole content ids gain one nesting level (e.g. `_hk=10` instead of `_hk=1`)
+  identically on both sides. rxcore implementations must provide an `ssrScope`
+  export and honor a `scope: true` effect option (mapped to a non-transparent
+  render effect).
+
+- fa24389: Fix delegated events never reaching outer roots when a render root is
+  rendered inside another root's DOM (embedded widgets, microfrontends).
+  The first (innermost) container listener marked the event consumed for
+  every other root, so an outer root's delegated handlers were silently
+  skipped even though the native event bubbled through its elements: a
+  plain `addEventListener` on the same element fired while the delegated
+  handler didn't.
+
+  `$$EVENT_OWNER` now records the boundary of the most recent walk instead
+  of a consumed flag: an ancestor container whose subtree contains that boundary
+  resumes the handler walk from it up to its own boundary, so each root's
+  handlers fire exactly once, innermost-out, matching native bubbling.
+  `stopPropagation()` inside a nested root still suppresses outer roots (it
+  stops the native event before their listeners run), and hydration event
+  replay now relays queued events through all matching roots innermost-first
+  so pre- and post-hydration clicks behave identically. Apps that relied on
+  nested roots to isolate clicks from outer handlers should use
+  `stopPropagation()`, which remains the documented mechanism. Non-nested
+  apps are unaffected; the resume path is unreachable unless an inner root
+  already handled the event.
+
+- 75b4ab2: Normalize manifest asset URL joining in `resolveAssets` (solidjs/solid#2817 layers 1-2). A non-string `_base` (e.g. a dev-manifest proxy answering every key) falls back to `/`, leading-slash `file` values no longer produce `//` URLs, and absolute/protocol-relative URLs pass through untouched — the server runtime emits sane module URLs for any reasonable manifest shape instead of relying on bundler plugins getting the contract exactly right.
+- 668264f: Universal JSX now passes compile-time static host props to `createElement(tag, staticProps)` so custom renderers can configure nodes before children are inserted. Dynamic props and elements with spreads continue to use the existing `setProp` / `spread` paths.
+
 ## 0.50.0-next.15
 
 ### Patch Changes
