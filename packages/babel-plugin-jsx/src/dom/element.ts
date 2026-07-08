@@ -1173,9 +1173,35 @@ function transformAttributes(
   results.hasHydratableEvent = results.hasHydratableEvent || hasHydratableEvent;
 }
 
+// Children that compile to `insert()` calls and contribute no markup of their
+// own: dynamic expression containers, components, and spread children. Mirrors
+// the `!child.id && child.exprs.length` count in transformChildren.
+function countDynamicSlots(children: JSXChildPath[]): number {
+  let count = 0;
+  for (const child of children) {
+    const node = child.node;
+    if (
+      t.isJSXText(node) ||
+      (t.isJSXExpressionContainer(node) &&
+        getStaticExpression(child as BabelPath<babelTypes.JSXExpressionContainer>) !== false) ||
+      (t.isJSXElement(node) && !isComponent(getTagName(node)))
+    )
+      continue;
+    count++;
+  }
+  return count;
+}
+
 function findLastElement(children: JSXChildPath[], hydratable?: boolean): number {
   let lastElement = -1,
     tagName;
+  // Counterpart of transformChildren's per-slot markers: with two or more
+  // dynamic slots under this parent (CSR only), a trailing dynamic child
+  // appends a dedicated `<!>` placeholder to the template, so an earlier
+  // element may not omit its closing tag — the still-open element would
+  // swallow the placeholder as a child while the generated
+  // firstChild/nextSibling walk expects it as a sibling.
+  const perSlotMarkers = !hydratable && countDynamicSlots(children) > 1;
   for (let i = children.length - 1; i >= 0; i--) {
     const node = children[i].node;
     if (
@@ -1189,6 +1215,9 @@ function findLastElement(children: JSXChildPath[], hydratable?: boolean): number
       lastElement = i;
       break;
     }
+    // This trailing dynamic slot will emit a per-slot placeholder after any
+    // preceding element's markup: nothing here may omit its closing tag.
+    if (perSlotMarkers) break;
   }
   return lastElement;
 }

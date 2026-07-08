@@ -31,6 +31,12 @@ impl<'a> AstDomTransform<'a, '_> {
         // neighbor (solidjs/solid#2830). Slots ride an immediately following
         // static sibling when one exists, otherwise get a dedicated `<!>`.
         let per_slot = !self.hydratable && self.dynamic_slot_count(&element.children) > 1;
+        // Per-slot placeholders land after the last static element's markup
+        // when dynamic slots trail it; a still-open element would swallow the
+        // `<!>` placeholders as children while the generated node walk expects
+        // them as siblings — so that element keeps its closing tag.
+        let last_static_child = last_static_child
+            .filter(|&i| !(per_slot && self.dynamic_slot_count(&element.children[i + 1..]) > 0));
         let mut index = 0;
         let mut child_node_index = 0;
 
