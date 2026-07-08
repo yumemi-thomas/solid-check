@@ -29,7 +29,7 @@ const Child = (props) => {
 		}
 		_$insert(_el$, () => {
 			return props.name;
-		});
+		}, null);
 		return _el$;
 	})(), (() => {
 		var _el$2 = _tmpl$2();

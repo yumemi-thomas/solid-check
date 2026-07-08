@@ -12,6 +12,7 @@ import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
+import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div><div></div><div></div><div innerHTML="&lt;div/>">`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<div foo>`);
@@ -359,7 +360,7 @@ const template28 = (() => {
 	}, true);
 	_$insert(_el$35, () => {
 		return api() ? "checked" : "unchecked";
-	});
+	}, null);
 	var _el$36 = _el$34.firstChild.nextSibling;
 	_$spread(_el$36, () => {
 		return api();
@@ -815,3 +816,4 @@ const template88 = (() => {
 	_$insert(_el$100, count);
 	return _el$100;
 })();
+_$delegateEvents(["click", "input"]);

@@ -38,7 +38,7 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     });
 
     expect(result.code).toContain('import { insert as _$insert } from "r-dom";');
-    expect(result.code).toContain("_$insert(_el$, name);");
+    expect(result.code).toContain("_$insert(_el$, name, null);");
   });
 
   it("memoizes dynamic conditional DOM child predicates by default", () => {
@@ -160,7 +160,7 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     });
 
     expect(result.code).toContain("_$template(`<span>Hello `)");
-    expect(result.code).toContain("_$insert(_el$, name);");
+    expect(result.code).toContain("_$insert(_el$, name, null);");
   });
 
   it("serializes the current static DOM attribute subset", () => {
@@ -199,7 +199,7 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     });
 
     expect(result.code).toContain("<span>Hello ");
-    expect(result.code).toContain("_$insert(_el$, name);");
+    expect(result.code).toContain("_$insert(_el$, name, null);");
   });
 
   it("returns a source map when requested", () => {

@@ -7,6 +7,7 @@ use oxc_ast_visit::VisitMut;
 use crate::dom::attrs::CloseTagContext;
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
 use crate::dom::static_template::{last_static_element_child, lower_static_native_template};
+use crate::dom::template::InsertMarker;
 use crate::shared::utils::{
     child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
     is_component_name, is_dynamic_child_slot, static_jsx_expression, trim_jsx_text,
@@ -47,19 +48,17 @@ impl<'a> AstDomTransform<'a, '_> {
                     if is_component_name(&child.opening_element.name) {
                         self.template_state.uses_insert = true;
                         let lowered = self.lower_element(child)?;
-                        let marker = if per_slot {
-                            Some(self.per_slot_marker(
-                                &element.children,
-                                index,
-                                element.span,
-                                element_id,
-                                &mut child_node_index,
-                                template,
-                                operations,
-                            ))
-                        } else {
-                            None
-                        };
+                        let marker = self.dynamic_slot_marker(
+                            &element.children,
+                            index,
+                            index + 1,
+                            per_slot,
+                            element.span,
+                            element_id,
+                            &mut child_node_index,
+                            template,
+                            operations,
+                        );
                         operations.push(self.insert_statement(
                             element.span,
                             element_id,
@@ -128,8 +127,10 @@ impl<'a> AstDomTransform<'a, '_> {
                         None
                     };
 
-                    let mut run_index = index;
-                    for dynamic_child in &element.children[index..run_end] {
+                    for (run_offset, dynamic_child) in
+                        element.children[index..run_end].iter().enumerate()
+                    {
+                        let run_index = index + run_offset;
                         let JSXChild::ExpressionContainer(container) = dynamic_child else {
                             return Err(Error::from_reason(
                                 "Dynamic child run included a non-expression child",
@@ -152,26 +153,23 @@ impl<'a> AstDomTransform<'a, '_> {
                         } else {
                             value
                         };
-                        let marker = if per_slot {
-                            Some(self.per_slot_marker(
+                        let marker = if let Some(name) = shared_marker_name.as_ref() {
+                            Some(InsertMarker {
+                                marker: self.identifier_expression(element.span, name),
+                                initial: None,
+                            })
+                        } else {
+                            self.dynamic_slot_marker(
                                 &element.children,
                                 run_index,
+                                run_end,
+                                per_slot,
                                 element.span,
                                 element_id,
                                 &mut child_node_index,
                                 template,
                                 operations,
-                            ))
-                        } else {
-                            shared_marker_name
-                                .as_ref()
-                                .map(|name| self.identifier_expression(element.span, name))
-                                .or_else(|| {
-                                    has_following_static_content(&element.children[run_end..])
-                                        .then(|| {
-                                            self.child_node_expression(element.span, element_id, 0)
-                                        })
-                                })
+                            )
                         };
                         operations.push(self.insert_statement(
                             element.span,
@@ -179,7 +177,6 @@ impl<'a> AstDomTransform<'a, '_> {
                             value,
                             marker,
                         ));
-                        run_index += 1;
                     }
                     index = run_end;
                     continue;
@@ -194,20 +191,17 @@ impl<'a> AstDomTransform<'a, '_> {
                     } else {
                         value
                     };
-                    let marker = if per_slot {
-                        Some(self.per_slot_marker(
-                            &element.children,
-                            index,
-                            element.span,
-                            element_id,
-                            &mut child_node_index,
-                            template,
-                            operations,
-                        ))
-                    } else {
-                        has_following_static_content(&element.children[index + 1..])
-                            .then(|| self.child_node_expression(element.span, element_id, 0))
-                    };
+                    let marker = self.dynamic_slot_marker(
+                        &element.children,
+                        index,
+                        index + 1,
+                        per_slot,
+                        element.span,
+                        element_id,
+                        &mut child_node_index,
+                        template,
+                        operations,
+                    );
                     operations.push(self.insert_statement(element.span, element_id, value, marker));
                 }
                 _ => {
@@ -231,7 +225,9 @@ impl<'a> AstDomTransform<'a, '_> {
             .filter(|child| match child {
                 JSXChild::ExpressionContainer(container) => {
                     !matches!(container.expression, JSXExpression::EmptyExpression(_))
-                        && self.static_jsx_expression_value(&container.expression).is_none()
+                        && self
+                            .static_jsx_expression_value(&container.expression)
+                            .is_none()
                 }
                 JSXChild::Element(child) => is_component_name(&child.opening_element.name),
                 JSXChild::Spread(_) => true,
@@ -245,6 +241,97 @@ impl<'a> AstDomTransform<'a, '_> {
     /// is boxed by text, where a placeholder comment is structurally required
     /// to keep the surrounding template text nodes from merging — otherwise a
     /// dedicated `<!>` placeholder appended at the slot's template position.
+    #[allow(clippy::too_many_arguments)]
+    fn dynamic_slot_marker(
+        &mut self,
+        children: &[JSXChild<'a>],
+        index: usize,
+        following_start: usize,
+        per_slot: bool,
+        span: oxc_span::Span,
+        element_id: &str,
+        child_node_index: &mut usize,
+        template: &mut String,
+        operations: &mut std::vec::Vec<Statement<'a>>,
+    ) -> Option<InsertMarker<'a>> {
+        if self.hydratable {
+            return self.hydration_slot_marker(
+                children,
+                following_start,
+                span,
+                element_id,
+                child_node_index,
+                template,
+                operations,
+            );
+        }
+        if per_slot {
+            return Some(InsertMarker {
+                marker: self.per_slot_marker(
+                    children,
+                    index,
+                    span,
+                    element_id,
+                    child_node_index,
+                    template,
+                    operations,
+                ),
+                initial: None,
+            });
+        }
+        if has_following_static_content(&children[following_start..]) {
+            return Some(InsertMarker {
+                marker: self.child_node_expression(span, element_id, *child_node_index),
+                initial: None,
+            });
+        }
+        if *child_node_index > 0 {
+            return Some(InsertMarker {
+                marker: self.ast().expression_null_literal(span),
+                initial: None,
+            });
+        }
+        None
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn hydration_slot_marker(
+        &mut self,
+        children: &[JSXChild<'a>],
+        following_start: usize,
+        span: oxc_span::Span,
+        element_id: &str,
+        child_node_index: &mut usize,
+        template: &mut String,
+        operations: &mut std::vec::Vec<Statement<'a>>,
+    ) -> Option<InsertMarker<'a>> {
+        if self.dynamic_slot_count(children) == 1
+            && *child_node_index == 0
+            && !has_following_static_content(&children[following_start..])
+        {
+            return None;
+        }
+
+        template.push_str("<!$><!/>");
+        let start_marker = self.child_node_expression(span, element_id, *child_node_index);
+        let marker_name = self.next_element_id();
+        let current_name = self.next_element_id();
+        self.template_state.uses_get_next_marker = true;
+        let marker_lookup =
+            self.static_member_expression_from_expression(span, start_marker, "nextSibling");
+        let init = self.call_identifier(span, "_$getNextMarker", vec![marker_lookup]);
+        operations.push(self.array_destructure_statement(
+            span,
+            &[&marker_name, &current_name],
+            init,
+        ));
+        *child_node_index += 2;
+        Some(InsertMarker {
+            marker: self.identifier_expression(span, &marker_name),
+            initial: Some(self.identifier_expression(span, &current_name)),
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn per_slot_marker(
         &mut self,
@@ -298,15 +385,17 @@ impl<'a> AstDomTransform<'a, '_> {
                     if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
                         continue;
                     }
-                    if self.static_jsx_expression_value(&container.expression).is_some() {
+                    if self
+                        .static_jsx_expression_value(&container.expression)
+                        .is_some()
+                    {
                         return true;
                     }
                 }
-                JSXChild::Element(child) => {
-                    if !is_component_name(&child.opening_element.name) {
-                        return false;
-                    }
+                JSXChild::Element(child) if !is_component_name(&child.opening_element.name) => {
+                    return false;
                 }
+                JSXChild::Element(_) => {}
                 _ => {}
             }
         }
@@ -329,7 +418,8 @@ impl<'a> AstDomTransform<'a, '_> {
                     if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
                         continue;
                     }
-                    self.static_jsx_expression_value(&container.expression).is_some()
+                    self.static_jsx_expression_value(&container.expression)
+                        .is_some()
                 }
                 JSXChild::Element(child) => !is_component_name(&child.opening_element.name),
                 _ => false,
@@ -401,9 +491,9 @@ impl<'a> AstDomTransform<'a, '_> {
         let value = if already_function {
             value
         } else {
-            let call = self
-                .ast()
-                .expression_call(span, value, oxc_ast::NONE, self.ast().vec(), false);
+            let call =
+                self.ast()
+                    .expression_call(span, value, oxc_ast::NONE, self.ast().vec(), false);
             self.arrow_return_expression(span, call)
         };
         self.call_identifier(span, "_$scope", vec![value])

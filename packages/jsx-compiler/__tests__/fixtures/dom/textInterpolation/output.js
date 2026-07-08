@@ -24,7 +24,7 @@ const leading = _tmpl$2();
 /* prettier-ignore */
 const extraSpaces = _tmpl$3();
 var _el$4 = _tmpl$();
-_$insert(_el$4, name);
+_$insert(_el$4, name, null);
 const trailingExpr = _el$4;
 var _el$5 = _tmpl$2();
 _$insert(_el$5, greeting, _el$5.firstChild);
@@ -75,7 +75,7 @@ const trailingSpace = _el$22;
 const trailingSpaceComp = _$createComponent(Comp, { children: expr });
 const trailingSpaceFrag = expr;
 var _el$23 = _tmpl$14();
-_$insert(_el$23, expr);
+_$insert(_el$23, expr, null);
 const leadingSpaceElement = _el$23;
 const leadingSpaceComponent = _$createComponent(Div, { get children() {
 	return [" ", expr];
@@ -94,6 +94,6 @@ const escapeCompAttribute = _$createComponent(Div, {
 	title: "Search&hellip;"
 });
 var _el$26 = _tmpl$16();
-_$insert(_el$26, expr);
+_$insert(_el$26, expr, null);
 const lastElementExpression = _el$26;
 const messwithTemplates = _tmpl$17();

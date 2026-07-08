@@ -81,7 +81,7 @@ const template16 = _$createComponent(Module, { get children() {
 	return dynamic.children;
 } });
 var _el$12 = _tmpl$4();
-_$insert(_el$12, children);
+_$insert(_el$12, children, null);
 const template18 = _el$12;
 const template19 = _$createComponent(Module, { get children() {
 	return ["Hi ", children];
@@ -104,7 +104,7 @@ var _el$15 = _tmpl$5();
 _$spread(_el$15, dynamic, true);
 _$insert(_el$15, () => {
 	return dynamic.children;
-});
+}, null);
 const template24 = _el$15;
 const tiles = [];
 tiles.push(_tmpl$6());

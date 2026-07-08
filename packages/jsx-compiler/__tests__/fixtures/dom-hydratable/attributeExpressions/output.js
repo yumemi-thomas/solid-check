@@ -1,5 +1,6 @@
 import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
+import { getNextMarker as _$getNextMarker } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { scope as _$scope } from "r-dom";
 import { spread as _$spread } from "r-dom";
@@ -11,6 +12,7 @@ import { className as _$className } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
 import { addEvent as _$addEvent } from "r-dom";
+import { delegateEvents as _$delegateEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div><h1><a href=/>Welcome`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div><div></div><div></div><div innerHTML="&lt;div/>">`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<div foo>`);
@@ -26,9 +28,9 @@ var _tmpl$12 = /* @__PURE__ */ _$template(`<div class="bg-red-500 flex flex-col"
 var _tmpl$13 = /* @__PURE__ */ _$template(`<div><input readonly=""><input>`);
 var _tmpl$14 = /* @__PURE__ */ _$template(`<div data="\\"hi\\"" data2="\\"">`);
 var _tmpl$15 = /* @__PURE__ */ _$template(`<a>`);
-var _tmpl$16 = /* @__PURE__ */ _$template(`<div><a>`);
+var _tmpl$16 = /* @__PURE__ */ _$template(`<div><!$><!/><a>`);
 var _tmpl$17 = /* @__PURE__ */ _$template(`<div>Hi`);
-var _tmpl$18 = /* @__PURE__ */ _$template(`<label><span>Input is </span><input><div>`);
+var _tmpl$18 = /* @__PURE__ */ _$template(`<label><span>Input is <!$><!/></span><input><div>`);
 var _tmpl$19 = /* @__PURE__ */ _$template(`<div class="class1 class2 class3 class4 class5 class6" style="color:red;background-color:blue !important;border:1px solid black;font-size:12px;" random="random1 random2\\n    random3 random4">`);
 var _tmpl$20 = /* @__PURE__ */ _$template(`<button>`);
 var _tmpl$21 = /* @__PURE__ */ _$template(`<input value=10>`);
@@ -312,163 +314,165 @@ _$spread(_el$29, _$mergeProps(props, { something: true }), false);
 const template24 = _el$29;
 const template25 = (() => {
 	var _el$30 = _$getNextElement(_tmpl$16);
+	var [_el$31, _el$32] = _$getNextMarker(_el$30.firstChild.nextSibling);
 	_$insert(_el$30, _$scope(() => {
 		return props.children;
-	}), _el$30.firstChild);
-	var _el$31 = _el$30.firstChild;
-	_$spread(_el$31, _$mergeProps(props, { something: true }), false);
+	}), _el$31, _el$32);
+	var _el$33 = _el$30.firstChild.nextSibling.nextSibling;
+	_$spread(_el$33, _$mergeProps(props, { something: true }), false);
 	return _el$30;
 })();
 const template26 = (() => {
-	var _el$32 = _$getNextElement(_tmpl$17);
-	_$spread(_el$32, _$mergeProps({
+	var _el$34 = _$getNextElement(_tmpl$17);
+	_$spread(_el$34, _$mergeProps({
 		start: "Hi",
 		middle
 	}, spread), true);
-	return _el$32;
-})();
-const template27 = (() => {
-	var _el$33 = _$getNextElement(_tmpl$17);
-	_$spread(_el$33, _$mergeProps({ start: "Hi" }, first, { middle }, second), true);
-	return _el$33;
-})();
-const template28 = (() => {
-	var _el$34 = _$getNextElement(_tmpl$18);
-	_$spread(_el$34, () => {
-		return api();
-	}, true);
-	var _el$35 = _el$34.firstChild;
-	_$spread(_el$35, () => {
-		return api();
-	}, true);
-	_$insert(_el$35, () => {
-		return api() ? "checked" : "unchecked";
-	});
-	var _el$36 = _el$34.firstChild.nextSibling;
-	_$spread(_el$36, () => {
-		return api();
-	}, false);
-	var _el$37 = _el$34.firstChild.nextSibling.nextSibling;
-	_$spread(_el$37, () => {
-		return api();
-	}, false);
 	return _el$34;
 })();
-var _el$38 = _$getNextElement(_tmpl$4);
+const template27 = (() => {
+	var _el$35 = _$getNextElement(_tmpl$17);
+	_$spread(_el$35, _$mergeProps({ start: "Hi" }, first, { middle }, second), true);
+	return _el$35;
+})();
+const template28 = (() => {
+	var _el$36 = _$getNextElement(_tmpl$18);
+	_$spread(_el$36, () => {
+		return api();
+	}, true);
+	var _el$37 = _el$36.firstChild;
+	_$spread(_el$37, () => {
+		return api();
+	}, true);
+	var [_el$38, _el$39] = _$getNextMarker(_el$37.firstChild.nextSibling.nextSibling);
+	_$insert(_el$37, () => {
+		return api() ? "checked" : "unchecked";
+	}, _el$38, _el$39);
+	var _el$40 = _el$36.firstChild.nextSibling;
+	_$spread(_el$40, () => {
+		return api();
+	}, false);
+	var _el$41 = _el$36.firstChild.nextSibling.nextSibling;
+	_$spread(_el$41, () => {
+		return api();
+	}, false);
+	return _el$36;
+})();
+var _el$42 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return !!someValue;
 }, (_v$) => {
-	_$setAttribute(_el$38, "attribute", _v$);
+	_$setAttribute(_el$42, "attribute", _v$);
 });
-_$insert(_el$38, !!someValue);
-const template29 = _el$38;
+_$insert(_el$42, !!someValue);
+const template29 = _el$42;
 const template30 = _$getNextElement(_tmpl$19);
-var _el$40 = _$getNextElement(_tmpl$4);
+var _el$44 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return getStore.itemProperties.color;
 }, (_v$) => {
-	_$setStyleProperty(_el$40, "background-color", _v$);
+	_$setStyleProperty(_el$44, "background-color", _v$);
 });
-const template31 = _el$40;
+const template31 = _el$44;
 const template32 = _$getNextElement(_tmpl$4);
 const template33 = [
 	(() => {
-		var _el$42 = _$getNextElement(_tmpl$20);
+		var _el$46 = _$getNextElement(_tmpl$20);
 		_$effect(() => {
 			return styles.button;
 		}, (_v$, _$p) => {
-			_$className(_el$42, _v$, _$p);
+			_$className(_el$46, _v$, _$p);
 		});
-		return _el$42;
+		return _el$46;
 	})(),
 	(() => {
-		var _el$43 = _$getNextElement(_tmpl$20);
+		var _el$47 = _$getNextElement(_tmpl$20);
 		_$effect(() => {
 			return styles["foo--bar"];
 		}, (_v$, _$p) => {
-			_$className(_el$43, _v$, _$p);
+			_$className(_el$47, _v$, _$p);
 		});
-		return _el$43;
+		return _el$47;
 	})(),
 	(() => {
-		var _el$44 = _$getNextElement(_tmpl$20);
+		var _el$48 = _$getNextElement(_tmpl$20);
 		_$effect(() => {
 			return styles.foo.bar;
 		}, (_v$, _$p) => {
-			_$className(_el$44, _v$, _$p);
+			_$className(_el$48, _v$, _$p);
 		});
-		return _el$44;
+		return _el$48;
 	})(),
 	(() => {
-		var _el$45 = _$getNextElement(_tmpl$20);
+		var _el$49 = _$getNextElement(_tmpl$20);
 		_$effect(() => {
 			return styles[foo()];
 		}, (_v$, _$p) => {
-			_$className(_el$45, _v$, _$p);
+			_$className(_el$49, _v$, _$p);
 		});
-		return _el$45;
+		return _el$49;
 	})()
 ];
-var _el$46 = _$getNextElement(_tmpl$4);
+var _el$50 = _$getNextElement(_tmpl$4);
 {
 	var _ref$4 = a().b.c;
 	typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$ref(() => {
 		return _ref$4;
-	}, _el$46) : a().b.c = _el$46;
+	}, _el$50) : a().b.c = _el$50;
 }
-const template35 = _el$46;
-var _el$47 = _$getNextElement(_tmpl$4);
+const template35 = _el$50;
+var _el$51 = _$getNextElement(_tmpl$4);
 {
 	var _ref$5 = a().b?.c;
 	(typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$ref(() => {
 		return _ref$5;
-	}, _el$47);
+	}, _el$51);
 }
-const template36 = _el$47;
-var _el$48 = _$getNextElement(_tmpl$4);
+const template36 = _el$51;
+var _el$52 = _$getNextElement(_tmpl$4);
 {
 	var _ref$6 = a() ? b : c;
 	(typeof _ref$6 === "function" || Array.isArray(_ref$6)) && _$ref(() => {
 		return _ref$6;
-	}, _el$48);
+	}, _el$52);
 }
-const template37 = _el$48;
-var _el$49 = _$getNextElement(_tmpl$4);
+const template37 = _el$52;
+var _el$53 = _$getNextElement(_tmpl$4);
 {
 	var _ref$7 = a() ?? b;
 	(typeof _ref$7 === "function" || Array.isArray(_ref$7)) && _$ref(() => {
 		return _ref$7;
-	}, _el$49);
+	}, _el$53);
 }
-const template38 = _el$49;
+const template38 = _el$53;
 const template39 = _$getNextElement(_tmpl$21);
-var _el$51 = _$getNextElement(_tmpl$4);
+var _el$55 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return a();
 }, (_v$) => {
-	_$setStyleProperty(_el$51, "color", _v$);
+	_$setStyleProperty(_el$55, "color", _v$);
 });
-const template40 = _el$51;
+const template40 = _el$55;
 const template41 = (() => {
-	var _el$52 = _$getNextElement(_tmpl$22);
+	var _el$56 = _$getNextElement(_tmpl$22);
 	_$effect(() => {
 		return state.color;
 	}, (_v$) => {
-		_el$52.value = _v$;
+		_el$56.value = _v$;
 	});
-	var _el$53 = _el$52.firstChild;
+	var _el$57 = _el$56.firstChild;
 	_$effect(() => {
 		return Color.Red;
 	}, (_v$) => {
-		_el$53.value = _v$;
+		_el$57.value = _v$;
 	});
-	var _el$54 = _el$52.firstChild.nextSibling;
+	var _el$58 = _el$56.firstChild.nextSibling;
 	_$effect(() => {
 		return Color.Blue;
 	}, (_v$) => {
-		_el$54.value = _v$;
+		_el$58.value = _v$;
 	});
-	return _el$52;
+	return _el$56;
 })();
 const template42 = _$getNextElement(_tmpl$23);
 const template43 = _$getNextElement(_tmpl$24);
@@ -479,156 +483,156 @@ const template47 = _$getNextElement(_tmpl$28);
 const template48 = _$getNextElement(_tmpl$29);
 const template49 = _$getNextElement(_tmpl$30);
 const template50 = _$getNextElement(_tmpl$31);
-var _el$64 = _$getNextElement(_tmpl$4);
+var _el$68 = _$getNextElement(_tmpl$4);
 {
 	var _ref$8 = binding;
 	typeof _ref$8 === "function" || Array.isArray(_ref$8) ? _$ref(() => {
 		return _ref$8;
-	}, _el$64) : binding = _el$64;
+	}, _el$68) : binding = _el$68;
 }
-const template51 = _el$64;
-var _el$65 = _$getNextElement(_tmpl$4);
+const template51 = _el$68;
+var _el$69 = _$getNextElement(_tmpl$4);
 {
 	var _ref$9 = binding.prop;
 	typeof _ref$9 === "function" || Array.isArray(_ref$9) ? _$ref(() => {
 		return _ref$9;
-	}, _el$65) : binding.prop = _el$65;
+	}, _el$69) : binding.prop = _el$69;
 }
-const template52 = _el$65;
-var _el$66 = _$getNextElement(_tmpl$4);
+const template52 = _el$69;
+var _el$70 = _$getNextElement(_tmpl$4);
 {
 	var _ref$10 = refFn;
 	typeof _ref$10 === "function" || Array.isArray(_ref$10) ? _$ref(() => {
 		return _ref$10;
-	}, _el$66) : refFn = _el$66;
+	}, _el$70) : refFn = _el$70;
 }
-const template53 = _el$66;
-var _el$67 = _$getNextElement(_tmpl$4);
+const template53 = _el$70;
+var _el$71 = _$getNextElement(_tmpl$4);
 {
 	var _ref$11 = refConst;
 	typeof _ref$11 === "function" || Array.isArray(_ref$11) ? _$ref(() => {
 		return _ref$11;
-	}, _el$67) : refConst = _el$67;
+	}, _el$71) : refConst = _el$71;
 }
-const template54 = _el$67;
-var _el$68 = _$getNextElement(_tmpl$4);
+const template54 = _el$71;
+var _el$72 = _$getNextElement(_tmpl$4);
 {
 	var _ref$12 = refUnknown;
 	typeof _ref$12 === "function" || Array.isArray(_ref$12) ? _$ref(() => {
 		return _ref$12;
-	}, _el$68) : refUnknown = _el$68;
+	}, _el$72) : refUnknown = _el$72;
 }
-const template55 = _el$68;
+const template55 = _el$72;
 const template56 = _$getNextElement(_tmpl$32);
 const template57 = _$getNextElement(_tmpl$33);
-var _el$71 = _$getNextElement(_tmpl$4);
-_el$71.true = true;
-_el$71.false = false;
-const template58 = _el$71;
+var _el$75 = _$getNextElement(_tmpl$4);
+_el$75.true = true;
+_el$75.false = false;
+const template58 = _el$75;
 const template59 = _$getNextElement(_tmpl$34);
-var _el$73 = _$getNextElement(_tmpl$35);
+var _el$77 = _$getNextElement(_tmpl$35);
 _$effect(() => {
 	return undefined;
 }, (_v$) => {
-	_$setAttribute(_el$73, "i", _v$);
+	_$setAttribute(_el$77, "i", _v$);
 });
 _$effect(() => {
 	return void 0;
 }, (_v$) => {
-	_$setAttribute(_el$73, "k", _v$);
+	_$setAttribute(_el$77, "k", _v$);
 });
-const template60 = _el$73;
+const template60 = _el$77;
 const template61 = _$getNextElement(_tmpl$36);
 const template62 = _$getNextElement(_tmpl$37);
 const template63 = _$getNextElement(_tmpl$38);
 const template64 = _$getNextElement(_tmpl$39);
 const template65 = _$getNextElement(_tmpl$40);
-var _el$79 = _$getNextElement(_tmpl$40);
+var _el$83 = _$getNextElement(_tmpl$40);
 _$effect(() => {
 	return signal();
 }, (_v$) => {
-	_$setStyleProperty(_el$79, "border", _v$);
+	_$setStyleProperty(_el$83, "border", _v$);
 });
-const template66 = _el$79;
-var _el$80 = _$getNextElement(_tmpl$40);
-_$setStyleProperty(_el$80, "border", somevalue);
-const template67 = _el$80;
-var _el$81 = _$getNextElement(_tmpl$40);
+const template66 = _el$83;
+var _el$84 = _$getNextElement(_tmpl$40);
+_$setStyleProperty(_el$84, "border", somevalue);
+const template67 = _el$84;
+var _el$85 = _$getNextElement(_tmpl$40);
 _$effect(() => {
 	return some.access;
 }, (_v$) => {
-	_$setStyleProperty(_el$81, "border", _v$);
+	_$setStyleProperty(_el$85, "border", _v$);
 });
-const template68 = _el$81;
+const template68 = _el$85;
 const template69 = _$getNextElement(_tmpl$40);
-var _el$83 = _$getNextElement(_tmpl$41);
+var _el$87 = _$getNextElement(_tmpl$41);
 _$effect(() => {
 	return value;
 }, (_v$) => {
-	_$setAttribute(_el$83, "playsinline", _v$);
+	_$setAttribute(_el$87, "playsinline", _v$);
 });
-const template70 = _el$83;
+const template70 = _el$87;
 const template71 = _$getNextElement(_tmpl$42);
 const template72 = _$getNextElement(_tmpl$43);
 const template73 = _$getNextElement(_tmpl$44);
 const template74 = _$getNextElement(_tmpl$45);
-var _el$88 = _$getNextElement(_tmpl$41);
-_el$88.poster = "1.jpg";
-const template75 = _el$88;
-var _el$89 = _$getNextElement(_tmpl$46);
-var _el$90 = _el$89.firstChild;
-_el$90.poster = "1.jpg";
-const template76 = _el$89;
-var _el$91 = _$getNextElement(_tmpl$4);
+var _el$92 = _$getNextElement(_tmpl$41);
+_el$92.poster = "1.jpg";
+const template75 = _el$92;
+var _el$93 = _$getNextElement(_tmpl$46);
+var _el$94 = _el$93.firstChild;
+_el$94.poster = "1.jpg";
+const template76 = _el$93;
+var _el$95 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return props.width;
 }, (_v$) => {
-	_$setStyleProperty(_el$91, "width", _v$);
+	_$setStyleProperty(_el$95, "width", _v$);
 });
 _$effect(() => {
 	return props.height;
 }, (_v$) => {
-	_$setStyleProperty(_el$91, "height", _v$);
+	_$setStyleProperty(_el$95, "height", _v$);
 });
 // STATIC TESTS
-const template77 = _el$91;
+const template77 = _el$95;
 const template78 = (() => {
-	var _el$92 = _$getNextElement(_tmpl$4);
+	var _el$96 = _$getNextElement(_tmpl$4);
 	_$effect(() => {
 		return props.width;
 	}, (_v$) => {
-		_$setStyleProperty(_el$92, "width", _v$);
+		_$setStyleProperty(_el$96, "width", _v$);
 	});
 	_$effect(() => {
 		return props.height;
 	}, (_v$) => {
-		_$setStyleProperty(_el$92, "height", _v$);
+		_$setStyleProperty(_el$96, "height", _v$);
 	});
 	_$effect(() => {
 		return color();
 	}, (_v$) => {
-		_$setAttribute(_el$92, "something", _v$);
+		_$setAttribute(_el$96, "something", _v$);
 	});
-	return _el$92;
+	return _el$96;
 })();
 const template79 = (() => {
-	var _el$93 = _$getNextElement(_tmpl$4);
+	var _el$97 = _$getNextElement(_tmpl$4);
 	_$effect(() => {
 		return props.width;
 	}, (_v$) => {
-		_$setStyleProperty(_el$93, "width", _v$);
+		_$setStyleProperty(_el$97, "width", _v$);
 	});
 	_$effect(() => {
 		return props.height;
 	}, (_v$) => {
-		_$setStyleProperty(_el$93, "height", _v$);
+		_$setStyleProperty(_el$97, "height", _v$);
 	});
 	_$effect(() => {
 		return color();
 	}, (_v$) => {
-		_$setAttribute(_el$93, "something", _v$);
+		_$setAttribute(_el$97, "something", _v$);
 	});
-	return _el$93;
+	return _el$97;
 })();
 // STATIC TESTS SPREADS
 const propsSpread = {
@@ -639,41 +643,41 @@ const propsSpread = {
 		"margin-right": props.right
 	}
 };
-var _el$94 = _$getNextElement(_tmpl$4);
-_$spread(_el$94, propsSpread, false);
-const template80 = _el$94;
-var _el$95 = _$getNextElement(_tmpl$4);
-_$spread(_el$95, propsSpread, false);
-const template81 = _el$95;
+var _el$98 = _$getNextElement(_tmpl$4);
+_$spread(_el$98, propsSpread, false);
+const template80 = _el$98;
+var _el$99 = _$getNextElement(_tmpl$4);
+_$spread(_el$99, propsSpread, false);
+const template81 = _el$99;
 const template82 = (() => {
-	var _el$96 = _$getNextElement(_tmpl$4);
-	_$spread(_el$96, _$mergeProps(propsSpread, {
+	var _el$100 = _$getNextElement(_tmpl$4);
+	_$spread(_el$100, _$mergeProps(propsSpread, {
 		get "data-dynamic"() {
 			return color();
 		},
 		"data-static": color()
 	}), false);
-	return _el$96;
+	return _el$100;
 })();
 const template83 = (() => {
-	var _el$97 = _$getNextElement(_tmpl$4);
-	_$spread(_el$97, _$mergeProps(propsSpread, {
+	var _el$101 = _$getNextElement(_tmpl$4);
+	_$spread(_el$101, _$mergeProps(propsSpread, {
 		get "data-dynamic"() {
 			return color();
 		},
 		"data-static": color()
 	}), false);
-	return _el$97;
+	return _el$101;
 })();
 const template84 = (() => {
-	var _el$98 = _$getNextElement(_tmpl$4);
-	_$spread(_el$98, _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
+	var _el$102 = _$getNextElement(_tmpl$4);
+	_$spread(_el$102, _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
 		get "data-dynamic"() {
 			return color();
 		},
 		"data-static": color()
 	}), false);
-	return _el$98;
+	return _el$102;
 })();
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
@@ -681,101 +685,101 @@ const styleProp = { style: {
 	width: props.width,
 	height: props.height
 } };
-var _el$99 = _$getNextElement(_tmpl$4);
+var _el$103 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return styleProp.style;
 }, (_v$, _$p) => {
-	_$style(_el$99, _v$, _$p);
+	_$style(_el$103, _v$, _$p);
 });
-const template85 = _el$99;
-var _el$100 = _$getNextElement(_tmpl$4);
+const template85 = _el$103;
+var _el$104 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return styleProp.style;
 }, (_v$, _$p) => {
-	_$style(_el$100, _v$, _$p);
+	_$style(_el$104, _v$, _$p);
 });
-const template86 = _el$100;
+const template86 = _el$104;
 const style = {
 	background: "red",
 	border: "solid black " + count() + "px"
 };
 const template87 = (() => {
-	var _el$101 = _$getNextElement(_tmpl$47);
+	var _el$105 = _$getNextElement(_tmpl$47);
 	_$effect(() => {
 		return count();
 	}, (_v$) => {
-		_$setAttribute(_el$101, "aria-label", _v$);
+		_$setAttribute(_el$105, "aria-label", _v$);
 	});
 	_$effect(() => {
 		return style;
 	}, (_v$, _$p) => {
-		_$style(_el$101, _v$, _$p);
+		_$style(_el$105, _v$, _$p);
 	});
 	_$effect(() => {
 		return style;
 	}, (_v$, _$p) => {
-		_$className(_el$101, _v$, _$p);
+		_$className(_el$105, _v$, _$p);
 	});
-	_$insert(_el$101, _$scope(() => {
+	_$insert(_el$105, _$scope(() => {
 		return count();
 	}));
-	return _el$101;
+	return _el$105;
 })();
 const template88 = (() => {
-	var _el$102 = _$getNextElement(_tmpl$47);
+	var _el$106 = _$getNextElement(_tmpl$47);
 	_$effect(() => {
 		return count();
 	}, (_v$) => {
-		_$setAttribute(_el$102, "aria-label", _v$);
+		_$setAttribute(_el$106, "aria-label", _v$);
 	});
 	_$effect(() => {
 		return style;
 	}, (_v$, _$p) => {
-		_$style(_el$102, _v$, _$p);
+		_$style(_el$106, _v$, _$p);
 	});
 	_$effect(() => {
 		return style;
 	}, (_v$, _$p) => {
-		_$className(_el$102, _v$, _$p);
+		_$className(_el$106, _v$, _$p);
 	});
-	_$insert(_el$102, _$scope(() => {
+	_$insert(_el$106, _$scope(() => {
 		return count();
 	}));
-	return _el$102;
+	return _el$106;
 })();
 const template89 = _$getNextElement(_tmpl$48);
-var _el$104 = _$getNextElement(_tmpl$49);
+var _el$108 = _$getNextElement(_tmpl$49);
 _$effect(() => {
 	return !!isActive();
 }, (_v$) => {
-	_el$104.classList.toggle("active", _v$);
+	_el$108.classList.toggle("active", _v$);
 });
-const template90 = _el$104;
-var _el$105 = _$getNextElement(_tmpl$4);
+const template90 = _el$108;
+var _el$109 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return ["todo", props.active];
 }, (_v$, _$p) => {
-	_$className(_el$105, _v$, _$p);
+	_$className(_el$109, _v$, _$p);
 });
-const template91 = _el$105;
-var _el$106 = _$getNextElement(_tmpl$50);
+const template91 = _el$109;
+var _el$110 = _$getNextElement(_tmpl$50);
 _$effect(() => {
 	return !!isActive();
 }, (_v$) => {
-	_el$106.classList.toggle("active", _v$);
+	_el$110.classList.toggle("active", _v$);
 });
-const template92 = _el$106;
-var _el$107 = _$getNextElement(_tmpl$4);
+const template92 = _el$110;
+var _el$111 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return ["todo", {
 		active: isActive(),
 		[props.name]: props.enabled
 	}];
 }, (_v$, _$p) => {
-	_$className(_el$107, _v$, _$p);
+	_$className(_el$111, _v$, _$p);
 });
-const template93 = _el$107;
-var _el$108 = _$getNextElement(_tmpl$4);
+const template93 = _el$111;
+var _el$112 = _$getNextElement(_tmpl$4);
 _$effect(() => {
 	return [
 		"todo",
@@ -783,13 +787,14 @@ _$effect(() => {
 		props.extra
 	];
 }, (_v$, _$p) => {
-	_$className(_el$108, _v$, _$p);
+	_$className(_el$112, _v$, _$p);
 });
-const template94 = _el$108;
-var _el$109 = _$getNextElement(_tmpl$50);
+const template94 = _el$112;
+var _el$113 = _$getNextElement(_tmpl$50);
 _$effect(() => {
 	return !!isActive();
 }, (_v$) => {
-	_el$109.classList.toggle("active", _v$);
+	_el$113.classList.toggle("active", _v$);
 });
-const template95 = _el$109;
+const template95 = _el$113;
+_$delegateEvents(["click", "input"]);

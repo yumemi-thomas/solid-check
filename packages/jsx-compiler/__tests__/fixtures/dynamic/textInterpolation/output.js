@@ -22,7 +22,7 @@ const leading = _tmpl$2();
 const extraSpaces = _tmpl$3();
 const trailingExpr = (() => {
 	var _el$4 = _tmpl$();
-	_$insert(_el$4, name);
+	_$insert(_el$4, name, null);
 	return _el$4;
 })();
 const leadingExpr = (() => {
@@ -72,13 +72,13 @@ const injection = _tmpl$9();
 let value = "World";
 const evaluated = (() => {
 	var _el$19 = _tmpl$();
-	_$insert(_el$19, value + "!");
+	_$insert(_el$19, value + "!", null);
 	return _el$19;
 })();
 let number = 4 + 5;
 const evaluatedNonString = (() => {
 	var _el$20 = _tmpl$10();
-	_$insert(_el$20, number);
+	_$insert(_el$20, number, null);
 	return _el$20;
 })();
 const newLineLiteral = (() => {
@@ -97,7 +97,7 @@ const trailingSpaceComp = _$createComponent2(Comp, { get children() {
 const trailingSpaceFrag = expr;
 const leadingSpaceElement = (() => {
 	var _el$23 = _tmpl$13();
-	_$insert(_el$23, expr);
+	_$insert(_el$23, expr, null);
 	return _el$23;
 })();
 const leadingSpaceComponent = _$createComponent2(Div, { get children() {

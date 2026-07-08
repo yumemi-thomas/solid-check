@@ -23,6 +23,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) templates: std::vec::Vec<DomTemplate>,
     pub(crate) uses_template: bool,
     pub(crate) uses_get_next_element: bool,
+    pub(crate) uses_get_next_marker: bool,
     pub(crate) uses_get_first_child: bool,
     pub(crate) uses_get_next_sibling: bool,
     pub(crate) uses_get_owner: bool,
@@ -52,12 +53,18 @@ pub(crate) struct DomTemplate {
     pub(crate) custom_element: bool,
 }
 
+pub(crate) struct InsertMarker<'a> {
+    pub(crate) marker: Expression<'a>,
+    pub(crate) initial: Option<Expression<'a>>,
+}
+
 impl DomTemplateState {
     pub(crate) fn new() -> Self {
         Self {
             templates: std::vec::Vec::new(),
             uses_template: false,
             uses_get_next_element: false,
+            uses_get_next_marker: false,
             uses_get_first_child: false,
             uses_get_next_sibling: false,
             uses_get_owner: false,
@@ -92,6 +99,9 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         if self.template_state.uses_get_next_element {
             statements.push(self.import_named("getNextElement", "_$getNextElement"));
+        }
+        if self.template_state.uses_get_next_marker {
+            statements.push(self.import_named("getNextMarker", "_$getNextMarker"));
         }
         if self.template_state.uses_get_first_child {
             statements.push(self.import_named("getFirstChild", "_$getFirstChild"));
@@ -198,11 +208,14 @@ impl<'a> AstDomTransform<'a, '_> {
         span: Span,
         parent: &str,
         value: Expression<'a>,
-        marker: Option<Expression<'a>>,
+        marker: Option<InsertMarker<'a>>,
     ) -> Statement<'a> {
         let mut args = vec![self.identifier_expression(span, parent), value];
         if let Some(marker) = marker {
-            args.push(marker);
+            args.push(marker.marker);
+            if let Some(initial) = marker.initial {
+                args.push(initial);
+            }
         }
         self.ast()
             .statement_expression(span, self.call_identifier(span, "_$insert", args))
@@ -400,6 +413,35 @@ impl<'a> AstDomTransform<'a, '_> {
         init: Expression<'a>,
     ) -> Statement<'a> {
         variable_statement(self.allocator, span, kind, name, init)
+    }
+
+    pub(crate) fn array_destructure_statement(
+        &self,
+        span: Span,
+        names: &[&str],
+        init: Expression<'a>,
+    ) -> Statement<'a> {
+        let elements = self.ast().vec_from_iter(names.iter().map(|name| {
+            Some(
+                self.ast()
+                    .binding_pattern_binding_identifier(span, self.ast().ident(name)),
+            )
+        }));
+        let declarator = self.ast().variable_declarator(
+            span,
+            VariableDeclarationKind::Var,
+            self.ast()
+                .binding_pattern_array_pattern(span, elements, oxc_ast::NONE),
+            oxc_ast::NONE,
+            Some(init),
+            false,
+        );
+        Statement::VariableDeclaration(self.ast().alloc_variable_declaration(
+            span,
+            VariableDeclarationKind::Var,
+            self.ast().vec1(declarator),
+            false,
+        ))
     }
 
     pub(crate) fn arrow_iife(

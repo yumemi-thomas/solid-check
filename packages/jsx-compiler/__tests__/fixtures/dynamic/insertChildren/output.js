@@ -102,7 +102,7 @@ const template16 = _$createComponent2(Module, { get children() {
 } });
 const template18 = (() => {
 	var _el$12 = _tmpl$4();
-	_$insert(_el$12, children);
+	_$insert(_el$12, children, null);
 	return _el$12;
 })();
 const template19 = _$createComponent2(Module, { get children() {

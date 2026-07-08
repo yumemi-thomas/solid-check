@@ -35,7 +35,7 @@ const Child = (props) => {
 		});
 		_$insert(_el$, () => {
 			return props.name;
-		});
+		}, null);
 		return _el$;
 	})(), (() => {
 		var _el$2 = _tmpl$5();
@@ -92,11 +92,11 @@ const Child = (props) => {
 					});
 					_$insert(_el$6, () => {
 						return props.name;
-					});
+					}, null);
 					return [_el$6, _tmpl$4()];
 				} })
 			];
-		} }));
+		} }), null);
 		return _el$2;
 	})()];
 };
