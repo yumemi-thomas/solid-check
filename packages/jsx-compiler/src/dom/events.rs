@@ -159,6 +159,7 @@ impl<'a> AstDomTransform<'a, '_> {
             self.ast()
                 .expression_string_literal(span, self.ast().atom(event_name), None);
         if delegated {
+            self.register_delegated_event(event_name);
             self.template_state.uses_add_event_listener = true;
             let mut args = vec![
                 self.identifier_expression(span, element_id),

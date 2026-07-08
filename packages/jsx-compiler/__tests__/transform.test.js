@@ -550,6 +550,18 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain('_$delegateEvents(["click"]);');
   });
 
+  it("registers delegated events for member expression handlers", () => {
+    const result = transform("<button onClick={counter.increment} />", {
+      filename: "input.jsx",
+      moduleName: "r-dom"
+    });
+
+    expect(result.code).toContain('import { addEvent as _$addEvent } from "r-dom";');
+    expect(result.code).toContain('import { delegateEvents as _$delegateEvents } from "r-dom";');
+    expect(result.code).toContain('_$addEvent(_el$, "click", counter.increment, true);');
+    expect(result.code).toContain('_$delegateEvents(["click"]);');
+  });
+
   it("replays queued hydration events for hydratable delegated handlers", () => {
     const result = transform("<button onClick={() => click()} />", {
       filename: "input.jsx",
