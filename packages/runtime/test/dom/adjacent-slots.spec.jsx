@@ -249,4 +249,44 @@ describe("adjacent expression slots (#2830)", () => {
     expect(left.textContent).toBe("X");
     expect(rightDiv.textContent).toBe("");
   });
+
+  test("slots after a static element land beside it, not inside it", () => {
+    // Regression: per-slot `<!>` placeholders are appended after the element's
+    // markup, so omitLastClosingTag may not drop its closing tag — the open
+    // element would swallow the placeholders as children and the template
+    // walk would crash ("Cannot read properties of null").
+    const [a, setA] = createSignal("A");
+    const [b] = createSignal("B");
+    const div = createRoot(() => (
+      <div>
+        <span>static</span>
+        {a()}
+        {b()}
+      </div>
+    ));
+    expect(div.textContent).toBe("staticAB");
+    expect(div.querySelector("span").textContent).toBe("static");
+
+    setA("A2");
+    flush();
+    expect(div.textContent).toBe("staticA2B");
+    expect(div.querySelector("span").textContent).toBe("static");
+  });
+
+  test("slots after a static element inside a nested parent", () => {
+    const [a] = createSignal("A");
+    const [b] = createSignal("B");
+    const div = createRoot(() => (
+      <div>
+        <section>
+          <span>static</span>
+          {a()}
+          {b()}
+        </section>
+      </div>
+    ));
+    const section = div.firstChild;
+    expect(section.textContent).toBe("staticAB");
+    expect(section.firstChild.textContent).toBe("static");
+  });
 });

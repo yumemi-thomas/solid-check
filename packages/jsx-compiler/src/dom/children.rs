@@ -270,8 +270,12 @@ impl<'a> AstDomTransform<'a, '_> {
     /// child that ends the parent's template content. In hydratable mode any
     /// retained child counts (dynamic slots append `<!$><!/>` markers, so an
     /// element followed by one is not last); otherwise only template-inlined
-    /// children (text, static expressions, native elements) count.
+    /// children (text, static expressions, native elements) count — except in
+    /// per-slot mode (two or more dynamic slots, CSR), where a trailing
+    /// dynamic slot appends a dedicated `<!>` placeholder after any preceding
+    /// element's markup, so nothing before it may omit its closing tag.
     pub(crate) fn find_last_element(&self, children: &[JSXChild<'a>]) -> Option<usize> {
+        let per_slot_markers = !self.hydratable && self.dynamic_slot_count(children) > 1;
         for (index, child) in children.iter().enumerate().rev() {
             let retained = match child {
                 JSXChild::Text(text) => !trim_jsx_text(&text.value).is_empty(),
@@ -294,6 +298,9 @@ impl<'a> AstDomTransform<'a, '_> {
                 };
             if qualifies {
                 return Some(index);
+            }
+            if per_slot_markers {
+                return None;
             }
         }
         None

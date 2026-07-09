@@ -13,6 +13,7 @@ const parityLevel = {
 const fixtureParity = {
   SVG: parityLevel.subset,
   SVGComponentPartial: parityLevel.subset,
+  adjacentSlots: parityLevel.subset,
   attributeExpressions: parityLevel.subset,
   components: parityLevel.subset,
   conditionalExpressions: parityLevel.subset,
@@ -114,6 +115,8 @@ describe("AST-native Babel DOM fixture reuse", () => {
 function supportedSubset(fixture) {
   const source = readFixture(fixture);
   switch (fixture) {
+    case "adjacentSlots":
+      return source;
     case "simpleElements":
       return source;
     case "textInterpolation":
