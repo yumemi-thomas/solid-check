@@ -944,7 +944,19 @@ function createElement(
     if (runningObject.length || !props.length) props.push(t.objectExpression(runningObject));
 
     if (props.length > 1 || dynamicSpread) {
-      props = [t.callExpression(registerImportMethod(path, "mergeProps"), props)];
+      let merged: babelTypes.Expression = t.callExpression(
+        registerImportMethod(path, "mergeProps"),
+        props
+      );
+      // Defer the merge behind a thunk when hydratable: `mergeProps` with a
+      // function source creates a memo, which consumes a hydration child id.
+      // Evaluated in argument position it would run before `ssrElement`
+      // allocates the element's own id, while the client claims the element
+      // (getNextElement) before applying the spread — shifting the element's
+      // id by one and leaving it unclaimed. `ssrElement` resolves function
+      // props after allocating the hydration key, matching the client order.
+      if (hydratable) merged = t.arrowFunctionExpression([], merged);
+      props = [merged];
     }
   }
 

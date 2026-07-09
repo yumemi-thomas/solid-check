@@ -78,51 +78,53 @@ let id = "my-h1";
 let link;
 const template = _$ssrElement(
   "div",
-  _$mergeProps(
-    {
-      id: "main"
-    },
-    results,
-    {
-      class: {
-        selected: unknown
+  () =>
+    _$mergeProps(
+      {
+        id: "main"
       },
-      style: {
-        color
+      results,
+      {
+        class: {
+          selected: unknown
+        },
+        style: {
+          color
+        }
       }
-    }
-  ),
+    ),
   () =>
     _$ssrElement(
       "h1",
-      _$mergeProps(
-        {
-          id: "my-h1"
-        },
-        results,
-        {
-          foo: true,
-          disabled: true,
-          get title() {
-            return welcoming();
+      () =>
+        _$mergeProps(
+          {
+            id: "my-h1"
           },
-          get style() {
-            return {
-              "background-color": color(),
-              "margin-right": "40px"
-            };
-          },
-          get ["class"]() {
-            return [
-              "base",
-              {
-                dynamic: dynamic(),
-                selected
-              }
-            ];
+          results,
+          {
+            foo: true,
+            disabled: true,
+            get title() {
+              return welcoming();
+            },
+            get style() {
+              return {
+                "background-color": color(),
+                "margin-right": "40px"
+              };
+            },
+            get ["class"]() {
+              return [
+                "base",
+                {
+                  dynamic: dynamic(),
+                  selected
+                }
+              ];
+            }
           }
-        }
-      ),
+        ),
       () => ((_ref$ = link), _$ssr(_tmpl$, "ccc ddd")),
       false
     ),
@@ -267,9 +269,10 @@ var _v$32 = _$ssrHydrationKey(),
 const template23 = _$ssr(_tmpl$18, _v$32, _v$33, _v$34);
 const template24 = _$ssrElement(
   "a",
-  _$mergeProps(props, {
-    something: true
-  }),
+  () =>
+    _$mergeProps(props, {
+      something: true
+    }),
   undefined,
   true
 );
@@ -277,37 +280,40 @@ var _v$35 = _$ssrHydrationKey(),
   _v$36 = _$scope(() => _$escape(props.children)),
   _v$37 = _$ssrElement(
     "a",
-    _$mergeProps(props, {
-      something: true
-    }),
+    () =>
+      _$mergeProps(props, {
+        something: true
+      }),
     undefined,
     false
   );
 const template25 = _$ssr(_tmpl$19, _v$35, _v$36, _v$37);
 const template26 = _$ssrElement(
   "div",
-  _$mergeProps(
-    {
-      start: "Hi",
-      middle: middle
-    },
-    spread
-  ),
+  () =>
+    _$mergeProps(
+      {
+        start: "Hi",
+        middle: middle
+      },
+      spread
+    ),
   () => "Hi",
   true
 );
 const template27 = _$ssrElement(
   "div",
-  _$mergeProps(
-    {
-      start: "Hi"
-    },
-    first,
-    {
-      middle: middle
-    },
-    second
-  ),
+  () =>
+    _$mergeProps(
+      {
+        start: "Hi"
+      },
+      first,
+      {
+        middle: middle
+      },
+      second
+    ),
   () => "Hi",
   true
 );
@@ -530,34 +536,37 @@ const template80 = _$ssrElement("div", propsSpread, undefined, true);
 const template81 = _$ssrElement("div", propsSpread, undefined, true);
 const template82 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  () =>
+    _$mergeProps(propsSpread, {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }),
   undefined,
   true
 );
 const template83 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  () =>
+    _$mergeProps(propsSpread, {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }),
   undefined,
   true
 );
 const template84 = _$ssrElement(
   "div",
-  _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
-    get ["data-dynamic"]() {
-      return color();
-    },
-    "data-static": color()
-  }),
+  () =>
+    _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
+      get ["data-dynamic"]() {
+        return color();
+      },
+      "data-static": color()
+    }),
   undefined,
   true
 );
