@@ -1,4 +1,4 @@
-@@ -1,174 +1,104 @@
+@@ -1,174 +1,108 @@
  import { escape as _$escape__r_server } from "r-server";
 -import { memo as _$memo__r_server } from "r-server";
  import { mergeProps as _$mergeProps__r_server } from "r-server";
@@ -54,13 +54,15 @@
 -  return "Hello";
 -}, true);
 -const template9 = _$ssrElement__r_server("module", dynamic, () => {
--  return () => {
+-  return _$scope__r_server(() => {
 -    return _$escape__r_server(dynamic.children);
--  };
+-  });
 -}, true);
 +const template7 = _$ssrElement__r_server("module", dynamic, undefined, false);
 +const template8 = _$ssrElement__r_server("module", dynamic, "Hello", false);
-+const template9 = _$ssrElement__r_server("module", dynamic, dynamic.children, false);
++const template9 = _$ssrElement__r_server("module", dynamic, _$scope__r_server(() => {
++  return dynamic.children;
++}), false);
  const template10 = Module(_$mergeProps__r_server(dynamic, {
    children: "Hello"
  }));
@@ -127,11 +129,13 @@
    }
  });
 -const template24 = _$ssrElement__r_server("module", dynamic, () => {
--  return ["Hi", "<!--$-->", () => {
+-  return ["Hi", "<!--$-->", _$scope__r_server(() => {
 -    return _$escape__r_server(dynamic.children);
--  }, "<!--/-->"];
+-  }), "<!--/-->"];
 -}, true);
-+const template24 = _$ssrElement__r_server("module", dynamic, ["Hi", dynamic.children], false);
++const template24 = _$ssrElement__r_server("module", dynamic, ["Hi", _$scope__r_server(() => {
++  return dynamic.children;
++})], false);
  const tiles = [];
 -tiles.push((_g1$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g1$)));
 -var _g33$ = _$ssrHydrationKey__r_server();

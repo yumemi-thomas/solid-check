@@ -223,7 +223,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         &mut self,
         children: &[JSXChild<'a>],
     ) -> Result<Option<(Expression<'a>, bool)>> {
-        let value = self.ssr_children_expression(children)?;
+        let value = self.ssr_children_expression(children, false)?;
         if matches!(&value, Expression::Identifier(identifier) if identifier.name == "undefined") {
             return Ok(None);
         }
@@ -295,7 +295,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         self.uses_ssr_element = true;
         let tag_name = element_name(&element.opening_element.name)?;
         let props = self.spread_props(&element.opening_element.attributes)?;
-        let children = self.ssr_children_expression(&element.children)?;
+        let children = self.ssr_children_expression(&element.children, true)?;
         let args = self.ast().vec_from_array([
             Argument::StringLiteral(self.ast().alloc_string_literal(
                 element.span,
@@ -342,12 +342,25 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                 .expect("single SSR spread prop object exists"),
             _ => {
                 self.uses_merge_props = true;
-                self.call_expression(
+                let merged = self.call_expression(
                     Span::new(0, 0),
                     self.ast()
                         .expression_identifier(Span::new(0, 0), self.ast().ident("_$mergeProps")),
                     prop_objects,
-                )
+                );
+                // Defer the merge behind a thunk when hydratable: `mergeProps`
+                // with a function source creates a memo, which consumes a
+                // hydration child id. Evaluated in argument position it would
+                // run before `ssrElement` allocates the element's own id,
+                // while the client claims the element (getNextElement) before
+                // applying the spread — shifting the element's id by one and
+                // leaving it unclaimed. `ssrElement` resolves function props
+                // after allocating the hydration key, matching the client.
+                if self.hydratable {
+                    self.arrow_return_expression(Span::new(0, 0), merged)
+                } else {
+                    merged
+                }
             }
         })
     }
@@ -387,7 +400,14 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         Ok(Some(self.object_property(attr.span, &name, value)))
     }
 
-    fn ssr_children_expression(&mut self, children: &[JSXChild<'a>]) -> Result<Expression<'a>> {
+    /// `scope_holes` is set for the `ssrElement` spread path, where dynamic
+    /// children holes need their own owner scope; component children getters
+    /// already evaluate under the component's owner and must not be wrapped.
+    fn ssr_children_expression(
+        &mut self,
+        children: &[JSXChild<'a>],
+        scope_holes: bool,
+    ) -> Result<Expression<'a>> {
         let mut values = std::vec::Vec::new();
         for child in children {
             match child {
@@ -407,10 +427,22 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     if matches!(container.expression, JSXExpression::EmptyExpression(_)) {
                         continue;
                     }
-                    values.push(self.transform_component_expression(&container.expression));
+                    let value = self.transform_component_expression(&container.expression);
+                    values.push(if scope_holes {
+                        self.scope_wrap_spread_child(child, container.span, value)
+                    } else {
+                        value
+                    });
                 }
                 JSXChild::Fragment(fragment) => values.push(self.lower_fragment(fragment)?),
-                JSXChild::Spread(spread) => values.push(spread.expression.clone_in(self.allocator)),
+                JSXChild::Spread(spread) => {
+                    let value = spread.expression.clone_in(self.allocator);
+                    values.push(if scope_holes {
+                        self.scope_wrap_spread_child(child, spread.span, value)
+                    } else {
+                        value
+                    });
+                }
             }
         }
         Ok(match values.len() {
@@ -709,6 +741,25 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
             self.ast().vec(),
             false,
         )
+    }
+
+    /// Spread elements render through `ssrElement` instead of a template, but
+    /// their dynamic children holes still evaluate under their own owner scope
+    /// (same predicates as `append_static_child`) — the dom generate scope()s
+    /// the matching insert accessor regardless of spread, so skipping the wrap
+    /// here desyncs every hydration id that follows the hole.
+    fn scope_wrap_spread_child(
+        &mut self,
+        child: &JSXChild<'a>,
+        span: Span,
+        value: Expression<'a>,
+    ) -> Expression<'a> {
+        if self.hydratable && child_slot_allocates_ids(child) && is_dynamic_child_slot(child) {
+            let value = self.arrow_return_expression(span, value);
+            self.scope_expression(span, value)
+        } else {
+            value
+        }
     }
 
     fn scope_expression(&mut self, span: Span, value: Expression<'a>) -> Expression<'a> {

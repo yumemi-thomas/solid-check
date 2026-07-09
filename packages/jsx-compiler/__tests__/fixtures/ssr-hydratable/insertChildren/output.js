@@ -33,7 +33,9 @@ const template6 = Module({ get children() {
 } });
 const template7 = _$ssrElement("module", dynamic, undefined, false);
 const template8 = _$ssrElement("module", dynamic, "Hello", false);
-const template9 = _$ssrElement("module", dynamic, dynamic.children, false);
+const template9 = _$ssrElement("module", dynamic, _$scope(() => {
+	return dynamic.children;
+}), false);
 const template10 = Module(_$mergeProps(dynamic, { children: "Hello" }));
 const template11 = _$ssr([
 	"<module",
@@ -91,7 +93,9 @@ const template22 = _$ssr([
 const template23 = Module({ get children() {
 	return state.children();
 } });
-const template24 = _$ssrElement("module", dynamic, ["Hi", dynamic.children], false);
+const template24 = _$ssrElement("module", dynamic, ["Hi", _$scope(() => {
+	return dynamic.children;
+})], false);
 const tiles = [];
 tiles.push(_$ssr(["<div", ">Test 1</div>"], _$ssrHydrationKey()));
 const template25 = _$ssr([
