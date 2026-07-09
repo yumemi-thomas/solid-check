@@ -1,0 +1,360 @@
+@@ -1,9 +1,7 @@
+ import { createElement as _$createElement__r_custom } from "r-custom";
+ import { createTextNode as _$createTextNode__r_custom } from "r-custom";
+-import { effect as _$effect__r_custom } from "r-custom";
+ import { insertNode as _$insertNode__r_custom } from "r-custom";
+ import { mergeProps as _$mergeProps__r_custom } from "r-custom";
+-import { ref as _$ref__r_custom } from "r-custom";
+ import { setProp as _$setProp__r_custom } from "r-custom";
+ import { spread as _$spread__r_custom } from "r-custom";
+ import { binding as _$binding__somewhere } from "somewhere";
+@@ -12,163 +10,125 @@
+ const selected = true;
+ let link;
+ var _g1$ = _$createElement__r_custom("div");
+-var _g2$ = _$createElement__r_custom("h1");
+-var _g3$ = _$createElement__r_custom("a", {
+-  href: "/",
+-  readonly: value
+-});
+-_$insertNode__r_custom(_g1$, _g2$);
+-_$setProp__r_custom(_g1$, "id", "main");
+-_$spread__r_custom(_g1$, _$mergeProps__r_custom(results, {
++_$spread__r_custom(_g1$, _$mergeProps__r_custom({
++  id: "main"
++}, results, {
+   style: {
+     color: color
+   }
+ }), true);
+-_$insertNode__r_custom(_g2$, _g3$);
+-_$setProp__r_custom(_g2$, "class", "base");
+-_$spread__r_custom(_g2$, _$mergeProps__r_custom(results, {
++var _g2$ = _$createElement__r_custom("h1");
++_$spread__r_custom(_g2$, _$mergeProps__r_custom({
++  class: "base"
++}, results(), {
+   disabled: true,
+   readonly: "",
+-  get title() {
+-    return welcoming();
+-  },
+-  get style() {
+-    return {
+-      "background-color": color(),
+-      "margin-right": "40px"
+-    };
++  title: welcoming(),
++  style: {
++    "background-color": color(),
++    "margin-right": "40px"
+   },
+-  get ["class"]() {
+-    return ["base", {
+-      dynamic: dynamic(),
+-      selected: selected
+-    }];
+-  }
++  class: ["base", {
++    dynamic: dynamic(),
++    selected: selected
++  }]
+ }), true);
++var _g3$ = _$createElement__r_custom("a", {
++  href: "/",
++  readonly: value
++});
++_$setProp__r_custom(_g3$, "ref", link);
+ _$insertNode__r_custom(_g3$, _$createTextNode__r_custom("Welcome"));
+-var _g4$ = link;
+-typeof _g4$ === "function" || Array.isArray(_g4$) ? _$ref__r_custom(() => {
+-  return _g4$;
+-}, _g3$) : link = _g3$;
++_$insertNode__r_custom(_g2$, _g3$);
++_$insertNode__r_custom(_g1$, _g2$);
+ const template = _g1$;
+-var _g5$ = _$createElement__r_custom("div");
+-var _g6$ = _$createElement__r_custom("div", {
++var _g4$ = _$createElement__r_custom("div");
++_$spread__r_custom(_g4$, getProps("test"), true);
++var _g5$ = _$createElement__r_custom("div", {
+   textContent: rowId
+ });
+-var _g7$ = _$createElement__r_custom("div");
+-var _g8$ = _$createElement__r_custom("div", {
++_$insertNode__r_custom(_g4$, _g5$);
++var _g6$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g6$, "textContent", row.label);
++_$insertNode__r_custom(_g4$, _g6$);
++var _g7$ = _$createElement__r_custom("div", {
+   innerHTML: "<div/>"
+ });
+-_$insertNode__r_custom(_g5$, _g6$);
+-_$insertNode__r_custom(_g5$, _g7$);
+-_$insertNode__r_custom(_g5$, _g8$);
+-_$spread__r_custom(_g5$, _$mergeProps__r_custom(() => {
+-  return getProps("test");
+-}), true);
+-_$effect__r_custom(() => {
+-  return row.label;
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g7$, "textContent", _g9$, _$p);
+-});
+-const template2 = _g5$;
+-var _g10$ = _$createElement__r_custom("div", {
++_$insertNode__r_custom(_g4$, _g7$);
++const template2 = _g4$;
++var _g8$ = _$createElement__r_custom("div", {
+   id: state.id,
+   style: {
+     "background-color": state.color
+   },
+   textContent: state.content
+ });
+-_$effect__r_custom(() => {
+-  return state.name;
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g10$, "name", _g9$, _$p);
+-});
+-const template3 = _g10$;
+-var _g11$ = _$createElement__r_custom("div", {
++_$setProp__r_custom(_g8$, "name", state.name);
++const template3 = _g8$;
++var _g9$ = _$createElement__r_custom("div", {
+   class: {
+     "ccc:ddd": true
+   }
+ });
+-_$effect__r_custom(() => {
+-  return state.class;
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g11$, "className", _g9$, _$p);
+-});
+-const template4 = _g11$;
+-const template5 = _$createElement__r_custom("div", {
++_$setProp__r_custom(_g9$, "className", state.class);
++const template4 = _g9$;
++var _g10$ = _$createElement__r_custom("div", {
+   class: "a",
+   className: "b"
+ });
+-var _g12$ = _$createElement__r_custom("div", {
++const template5 = _g10$;
++var _g11$ = _$createElement__r_custom("div", {
+   textContent: "Hi"
+ });
+-_$effect__r_custom(() => {
+-  return someStyle();
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g12$, "style", _g9$, _$p);
+-});
+-const template6 = _g12$;
+-var _g13$ = _$createElement__r_custom("div");
+-_$effect__r_custom(() => {
+-  return {
+-    "background-color": color(),
+-    "margin-right": "40px",
+-    ...props.style
+-  };
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g13$, "style", _g9$, _$p);
++_$setProp__r_custom(_g11$, "style", someStyle());
++const template6 = _g11$;
++var _g12$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g12$, "style", {
++  "background-color": color(),
++  "margin-right": "40px",
++  ...props.style
+ });
+-const template7 = _g13$;
++const template7 = _g12$;
+ let refTarget;
++var _g13$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g13$, "ref", refTarget);
++const template8 = _g13$;
+ var _g14$ = _$createElement__r_custom("div");
+-var _g15$ = refTarget;
+-typeof _g15$ === "function" || Array.isArray(_g15$) ? _$ref__r_custom(() => {
+-  return _g15$;
+-}, _g14$) : refTarget = _g14$;
+-const template8 = _g14$;
+-var _g16$ = _$createElement__r_custom("div");
+-_$ref__r_custom(() => {
+-  return e => {
+-    return console.log(e);
+-  };
+-}, _g16$);
+-const template9 = _g16$;
+-var _g17$ = _$createElement__r_custom("div");
+-var _g18$ = refFactory();
+-(typeof _g18$ === "function" || Array.isArray(_g18$)) && _$ref__r_custom(() => {
+-  return _g18$;
+-}, _g17$);
+-const template10 = _g17$;
+-const template12 = _$createElement__r_custom("div", {
++_$setProp__r_custom(_g14$, "ref", e => {
++  return console.log(e);
++});
++const template9 = _g14$;
++var _g15$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g15$, "ref", refFactory());
++const template10 = _g15$;
++var _g16$ = _$createElement__r_custom("div", {
+   "prop:htmlFor": thing
+ });
+-const template13 = _$createElement__r_custom("input", {
++const template12 = _g16$;
++var _g17$ = _$createElement__r_custom("input", {
+   type: "checkbox",
+   checked: true
+ });
+-var _g19$ = _$createElement__r_custom("input", {
++const template13 = _g17$;
++var _g18$ = _$createElement__r_custom("input", {
+   type: "checkbox"
+ });
+-_$effect__r_custom(() => {
+-  return state.visible;
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g19$, "checked", _g9$, _$p);
+-});
+-const template14 = _g19$;
+-var _g20$ = _$createElement__r_custom("div", {
++_$setProp__r_custom(_g18$, "checked", state.visible);
++const template14 = _g18$;
++var _g19$ = _$createElement__r_custom("div", {
+   class: "`a"
+ });
+-_$insertNode__r_custom(_g20$, _$createTextNode__r_custom("`$`"));
+-const template15 = _g20$;
+-var _g21$ = _$createElement__r_custom("button", {
++_$insertNode__r_custom(_g19$, _$createTextNode__r_custom("`$`"));
++const template15 = _g19$;
++var _g20$ = _$createElement__r_custom("button", {
+   class: ["static", {
+     hi: "k"
+   }],
+   type: "button"
+ });
+-_$insertNode__r_custom(_g21$, _$createTextNode__r_custom("Write"));
+-const template16 = _g21$;
+-var _g22$ = _$createElement__r_custom("button", {
++_$insertNode__r_custom(_g20$, _$createTextNode__r_custom("Write"));
++const template16 = _g20$;
++var _g21$ = _$createElement__r_custom("button", {
+   class: {
+     a: true,
+     b: true,
+@@ -176,76 +136,45 @@
+   },
+   onClick: increment
+ });
+-_$insertNode__r_custom(_g22$, _$createTextNode__r_custom("Hi"));
+-const template17 = _g22$;
++_$insertNode__r_custom(_g21$, _$createTextNode__r_custom("Hi"));
++const template17 = _g21$;
++var _g22$ = _$createElement__r_custom("div");
++_$spread__r_custom(_g22$, {
++  get [key()]() {
++    return props.value;
++  }
++}, false);
++const template18 = _g22$;
+ var _g23$ = _$createElement__r_custom("div");
+-_$spread__r_custom(_g23$, _$mergeProps__r_custom(() => {
+-  return {
+-    get [key()]() {
+-      return props.value;
+-    }
+-  };
+-}), false);
+-const template18 = _g23$;
+-var _g24$ = _$createElement__r_custom("div");
+-_$effect__r_custom(() => {
+-  return {
+-    a: "static",
+-    ...rest
+-  };
+-}, (_g9$, _$p) => {
+-  _$setProp__r_custom(_g24$, "style", _g9$, _$p);
++_$setProp__r_custom(_g23$, "style", {
++  a: "static",
++  ...rest
+ });
+-const template19 = _g24$;
++const template19 = _g23$;
++var _g24$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g24$, "ref", a().b.c);
++const template21 = _g24$;
+ var _g25$ = _$createElement__r_custom("div");
+-var _g26$ = a().b.c;
+-typeof _g26$ === "function" || Array.isArray(_g26$) ? _$ref__r_custom(() => {
+-  return _g26$;
+-}, _g25$) : a().b.c = _g25$;
+-const template21 = _g25$;
++_$setProp__r_custom(_g25$, "ref", a().b?.c);
++const template22 = _g25$;
++var _g26$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g26$, "ref", a() ? b : c);
++const template23 = _g26$;
+ var _g27$ = _$createElement__r_custom("div");
+-var _g28$ = a().b?.c;
+-(typeof _g28$ === "function" || Array.isArray(_g28$)) && _$ref__r_custom(() => {
+-  return _g28$;
+-}, _g27$);
+-const template22 = _g27$;
++_$setProp__r_custom(_g27$, "ref", a() ?? b);
++const template24 = _g27$;
++var _g28$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g28$, "ref", _$binding__somewhere);
++const template25 = _g28$;
+ var _g29$ = _$createElement__r_custom("div");
+-var _g30$ = a() ? b : c;
+-(typeof _g30$ === "function" || Array.isArray(_g30$)) && _$ref__r_custom(() => {
+-  return _g30$;
+-}, _g29$);
+-const template23 = _g29$;
++_$setProp__r_custom(_g29$, "ref", _$binding__somewhere.prop);
++const template26 = _g29$;
++var _g30$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g30$, "ref", refFn);
++const template27 = _g30$;
+ var _g31$ = _$createElement__r_custom("div");
+-var _g32$ = a() ?? b;
+-(typeof _g32$ === "function" || Array.isArray(_g32$)) && _$ref__r_custom(() => {
+-  return _g32$;
+-}, _g31$);
+-const template24 = _g31$;
+-var _g33$ = _$createElement__r_custom("div");
+-_$ref__r_custom(() => {
+-  return _$binding__somewhere;
+-}, _g33$);
+-const template25 = _g33$;
+-var _g34$ = _$createElement__r_custom("div");
+-var _g35$ = _$binding__somewhere.prop;
+-typeof _g35$ === "function" || Array.isArray(_g35$) ? _$ref__r_custom(() => {
+-  return _g35$;
+-}, _g34$) : _$binding__somewhere.prop = _g34$;
+-const template26 = _g34$;
+-var _g36$ = _$createElement__r_custom("div");
+-var _g37$ = refFn;
+-typeof _g37$ === "function" || Array.isArray(_g37$) ? _$ref__r_custom(() => {
+-  return _g37$;
+-}, _g36$) : refFn = _g36$;
+-const template27 = _g36$;
+-var _g38$ = _$createElement__r_custom("div");
+-_$ref__r_custom(() => {
+-  return refConst;
+-}, _g38$);
+-const template28 = _g38$;
+-var _g39$ = _$createElement__r_custom("div");
+-var _g40$ = refUnknown;
+-typeof _g40$ === "function" || Array.isArray(_g40$) ? _$ref__r_custom(() => {
+-  return _g40$;
+-}, _g39$) : refUnknown = _g39$;
+-const template29 = _g39$;
++_$setProp__r_custom(_g31$, "ref", refConst);
++const template28 = _g31$;
++var _g32$ = _$createElement__r_custom("div");
++_$setProp__r_custom(_g32$, "ref", refUnknown);
++const template29 = _g32$;

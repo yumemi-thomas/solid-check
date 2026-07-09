@@ -1,0 +1,38 @@
+@@ -1,33 +1,15 @@
+ import { escape as _$escape__r_server } from "r-server";
+-import { memo as _$memo__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-import { ssrAttribute as _$ssrAttribute__r_server } from "r-server";
+-var _g1$;
+-var _g2$;
+-var _g3$ = ["<div", ">First</div>"];
+-var _g4$ = ["<div", ">Last</div>"];
+ const multiStatic = [_$ssr__r_server("<div>First</div>"), _$ssr__r_server("<div>Last</div>")];
+ const multiExpression = [_$ssr__r_server("<div>First</div>"), inserted, _$ssr__r_server("<div>Last</div>"), "After"];
+-const multiDynamic = [(_g1$ = () => {
+-  return _$ssrAttribute__r_server("id", _$escape__r_server(state.first, true));
+-}, _$ssr__r_server(_g3$, _g1$)), _$memo__r_server(() => {
+-  return _$escape__r_server(state.inserted);
+-}), (_g2$ = () => {
+-  return _$ssrAttribute__r_server("id", _$escape__r_server(state.last, true));
+-}, _$ssr__r_server(_g4$, _g2$)), "After"];
++const multiDynamic = [_$ssr__r_server(["<div id=\"", "\">First</div>"], _$escape__r_server(state.first, true)), state.inserted, _$ssr__r_server(["<div id=\"", "\">Last</div>"], _$escape__r_server(state.last, true)), "After"];
+ const singleExpression = inserted;
+-const singleDynamic = _$memo__r_server(() => {
+-  return _$escape__r_server(inserted());
+-});
++const singleDynamic = inserted();
+ const firstStatic = [inserted, _$ssr__r_server("<div></div>")];
+-const firstDynamic = [_$memo__r_server(() => {
+-  return _$escape__r_server(inserted());
+-}), _$ssr__r_server("<div></div>")];
++const firstDynamic = [inserted(), _$ssr__r_server("<div></div>")];
+ const firstComponent = [Component({}), _$ssr__r_server("<div></div>")];
+ const lastStatic = [_$ssr__r_server("<div></div>"), inserted];
+-const lastDynamic = [_$ssr__r_server("<div></div>"), _$memo__r_server(() => {
+-  return _$escape__r_server(inserted());
+-})];
++const lastDynamic = [_$ssr__r_server("<div></div>"), inserted()];
+ const lastComponent = [_$ssr__r_server("<div></div>"), Component({})];
+ const spaces = [_$ssr__r_server("<span>1</span>"), " ", _$ssr__r_server("<span>2</span>"), " ", _$ssr__r_server("<span>3</span>")];
+ const multiLineTrailing = [_$ssr__r_server("<span>1</span>"), _$ssr__r_server("<span>2</span>"), _$ssr__r_server("<span>3</span>")];

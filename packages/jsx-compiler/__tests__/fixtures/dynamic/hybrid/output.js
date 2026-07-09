@@ -13,7 +13,7 @@ var _tmpl$ = /* @__PURE__ */ _$template(`<div>Hello`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<mesh scale=2>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<pointLight>`);
 var _tmpl$4 = /* @__PURE__ */ _$template(`<button>`);
-var _tmpl$5 = /* @__PURE__ */ _$template(`<div><div></div>`);
+var _tmpl$5 = /* @__PURE__ */ _$template(`<div><div>`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<mesh scale=2><pointLight>`);
 var _tmpl$7 = /* @__PURE__ */ _$template(`<div><button>`);
 var _tmpl$8 = /* @__PURE__ */ _$template(`<div>`);
@@ -51,24 +51,16 @@ const Child = (props) => {
 		});
 		_$insert(_el$2, _$createComponent(Canvas, { get children() {
 			var _el$4 = _tmpl$2();
-			_$effect(() => {
-				return [
-					0,
-					0,
-					0
-				];
-			}, (_v$) => {
-				_$setAttribute(_el$4, "position", _v$);
-			});
-			_$effect(() => {
-				return <boxBufferGeometry args={[
-					0,
-					1,
-					2
-				]} />;
-			}, (_v$) => {
-				_$setAttribute(_el$4, "geometry", _v$);
-			});
+			_$setAttribute(_el$4, "position", [
+				0,
+				0,
+				0
+			]);
+			_$setAttribute(_el$4, "geometry", <boxBufferGeometry args={[
+				0,
+				1,
+				2
+			]} />);
 			_$effect(() => {
 				return <basicMaterial alpha={0} color={s() ? "red" : "green"} />;
 			}, (_v$) => {
@@ -106,24 +98,16 @@ const Component = (props) => {
 		_$insert(_el$8, () => {
 			return props.three ? (() => {
 				var _el$9 = _tmpl$6();
-				_$effect(() => {
-					return [
-						0,
-						0,
-						0
-					];
-				}, (_v$) => {
-					_$setAttribute(_el$9, "position", _v$);
-				});
-				_$effect(() => {
-					return <boxBufferGeometry args={[
-						0,
-						1,
-						2
-					]} />;
-				}, (_v$) => {
-					_$setAttribute(_el$9, "geometry", _v$);
-				});
+				_$setAttribute(_el$9, "position", [
+					0,
+					0,
+					0
+				]);
+				_$setAttribute(_el$9, "geometry", <boxBufferGeometry args={[
+					0,
+					1,
+					2
+				]} />);
 				_$effect(() => {
 					return <basicMaterial alpha={0} color={s() ? "red" : "green"} />;
 				}, (_v$) => {

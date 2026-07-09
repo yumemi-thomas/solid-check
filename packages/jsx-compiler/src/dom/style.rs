@@ -6,7 +6,7 @@ use oxc_ast::ast::{
 use oxc_span::Span;
 
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
-use crate::shared::utils::format_number;
+use crate::shared::utils::{format_number, is_dynamic_attribute_expression};
 
 impl<'a> AstDomTransform<'a, '_> {
     pub(crate) fn no_inline_style_attribute_statement(
@@ -45,9 +45,11 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         };
 
-        Ok(Some(
-            self.dynamic_style_statement(attr.span, element_id, value),
-        ))
+        // The Babel plugin always effect-wraps style in no-inline-styles mode,
+        // even for fully static values.
+        Ok(Some(self.dynamic_style_statement_with_wrap(
+            attr.span, element_id, value, true,
+        )))
     }
 
     pub(crate) fn style_object_attribute_operations(
@@ -122,8 +124,19 @@ impl<'a> AstDomTransform<'a, '_> {
         element_id: &str,
         value: Expression<'a>,
     ) -> Statement<'a> {
+        let wrap = is_dynamic_attribute_expression(&value);
+        self.dynamic_style_statement_with_wrap(span, element_id, value, wrap)
+    }
+
+    fn dynamic_style_statement_with_wrap(
+        &mut self,
+        span: Span,
+        element_id: &str,
+        value: Expression<'a>,
+        wrap: bool,
+    ) -> Statement<'a> {
         self.template_state.uses_style = true;
-        if !self.effect_wrapper {
+        if !self.effect_wrapper || !wrap {
             return self.ast().statement_expression(
                 span,
                 self.call_identifier(
@@ -169,7 +182,7 @@ impl<'a> AstDomTransform<'a, '_> {
         value: Expression<'a>,
     ) -> Statement<'a> {
         self.template_state.uses_set_style_property = true;
-        if self.effect_wrapper && is_reactive_style_property_value(&value) {
+        if self.effect_wrapper && is_dynamic_attribute_expression(&value) {
             self.template_state.uses_effect = true;
             let getter = self.arrow_with_return(span, std::vec::Vec::new(), value);
             let value_id = "_v$";
@@ -261,13 +274,3 @@ pub(crate) fn static_style_value(value: &Expression<'_>) -> Option<Option<String
     }
 }
 
-fn is_reactive_style_property_value(value: &Expression<'_>) -> bool {
-    matches!(
-        value,
-        Expression::CallExpression(_)
-            | Expression::StaticMemberExpression(_)
-            | Expression::PrivateFieldExpression(_)
-            | Expression::ComputedMemberExpression(_)
-            | Expression::ChainExpression(_)
-    )
-}

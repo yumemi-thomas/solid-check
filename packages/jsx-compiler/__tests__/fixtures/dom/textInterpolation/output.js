@@ -30,22 +30,22 @@ var _el$5 = _tmpl$2();
 _$insert(_el$5, greeting, _el$5.firstChild);
 const leadingExpr = _el$5;
 var _el$6 = _tmpl$4();
-_$insert(_el$6, greeting, _el$6.firstChild);
 var _el$7 = _el$6.firstChild.nextSibling;
+_$insert(_el$6, greeting, _el$6.firstChild);
 _$insert(_el$6, name, _el$7);
 /* prettier-ignore */
 const multiExpr = _el$6;
 var _el$8 = _tmpl$5();
 var _el$9 = _el$8.firstChild.nextSibling;
-_$insert(_el$8, greeting, _el$9);
 var _el$10 = _el$8.firstChild.nextSibling.nextSibling.nextSibling;
+_$insert(_el$8, greeting, _el$9);
 _$insert(_el$8, name, _el$10);
 /* prettier-ignore */
 const multiExprSpaced = _el$8;
 var _el$11 = _tmpl$6();
 var _el$12 = _el$11.firstChild.nextSibling;
-_$insert(_el$11, greeting, _el$12);
 var _el$13 = _el$11.firstChild.nextSibling.nextSibling;
+_$insert(_el$11, greeting, _el$12);
 _$insert(_el$11, name, _el$13);
 /* prettier-ignore */
 const multiExprTogether = _el$11;

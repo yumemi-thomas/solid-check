@@ -9,21 +9,9 @@ var _tmpl$3 = /* @__PURE__ */ _$template(`<slot name=head>`);
 var _tmpl$4 = /* @__PURE__ */ _$template(`<a is=my-element>`, 1);
 const template = (() => {
 	var _el$ = _$getNextElement(_tmpl$);
-	_$effect(() => {
-		return name;
-	}, (_v$) => {
-		_$setAttribute(_el$, "some-attr", _v$);
-	});
-	_$effect(() => {
-		return data;
-	}, (_v$) => {
-		_$setAttribute(_el$, "notProp", _v$);
-	});
-	_$effect(() => {
-		return data;
-	}, (_v$) => {
-		_$setAttribute(_el$, "my-attr", _v$);
-	});
+	_$setAttribute(_el$, "some-attr", name);
+	_$setAttribute(_el$, "notProp", data);
+	_$setAttribute(_el$, "my-attr", data);
 	_el$.someProp = data;
 	_el$._$owner = _$getOwner();
 	return _el$;
@@ -45,7 +33,11 @@ const template2 = (() => {
 	}, (_v$) => {
 		_$setAttribute(_el$2, "my-attr", _v$);
 	});
-	_el$2.someProp = state.data;
+	_$effect(() => {
+		return state.data;
+	}, (_v$) => {
+		_el$2.someProp = _v$;
+	});
 	_el$2._$owner = _$getOwner();
 	return _el$2;
 })();

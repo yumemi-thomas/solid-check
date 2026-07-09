@@ -43,7 +43,7 @@ const template2 = _$ssrElement("div", getProps("test"), [
 		" textContent=\"",
 		"\"></div>"
 	], _$ssrHydrationKey(), _$escape(row.label, true)),
-	_$ssr(["<div", " innerHTML=\"&lt;div/>\"></div>"], _$ssrHydrationKey())
+	_$ssr(["<div", " innerHTML=\"<div/>\"></div>"], _$ssrHydrationKey())
 ], false);
 const template3 = _$ssr([
 	"<div",
@@ -105,7 +105,7 @@ const template10 = _$ssr([
 	"\"></div>"
 ], _$ssrHydrationKey(), _$escape(refFactory(), true));
 const template12 = _$ssr(["<div", " onclick=\"console.log('hi')\"></div>"], _$ssrHydrationKey());
-const template13 = _$ssr(["<input", " type=\"checkbox\" checked=\"true\">"], _$ssrHydrationKey());
+const template13 = _$ssr(["<input", " type=\"checkbox\" checked>"], _$ssrHydrationKey());
 const template14 = _$ssr([
 	"<input",
 	" type=\"checkbox\" checked=\"",
@@ -141,7 +141,7 @@ const template20 = _$ssr([
 	"\" min=\"",
 	"\" max=\"",
 	"\" onInput=\"",
-	"\" readonly=\"\"><input checked=\"",
+	"\" readonly><input checked=\"",
 	"\" min=\"",
 	"\" max=\"",
 	"\" onInput=\"",
@@ -254,15 +254,15 @@ const template41 = _$ssr([
 	"\">Red</option><option value=\"",
 	"\">Blue</option></select>"
 ], _$ssrHydrationKey(), _$escape(state.color, true), _$escape(Color.Red, true), _$escape(Color.Blue, true));
-const template42 = _$ssr(["<img", " src=\"\">"], _$ssrHydrationKey());
-const template43 = _$ssr(["<div", "><img src=\"\"></div>"], _$ssrHydrationKey());
-const template44 = _$ssr(["<img", " src=\"\" loading=\"lazy\">"], _$ssrHydrationKey());
-const template45 = _$ssr(["<div", "><img src=\"\" loading=\"lazy\"></div>"], _$ssrHydrationKey());
-const template46 = _$ssr(["<iframe", " src=\"\"></iframe>"], _$ssrHydrationKey());
-const template47 = _$ssr(["<div", "><iframe src=\"\"></iframe></div>"], _$ssrHydrationKey());
-const template48 = _$ssr(["<iframe", " src=\"\" loading=\"lazy\"></iframe>"], _$ssrHydrationKey());
-const template49 = _$ssr(["<div", "><iframe src=\"\" loading=\"lazy\"></iframe></div>"], _$ssrHydrationKey());
-const template50 = _$ssr(["<div", " title=\"&lt;u>data&lt;/u>\"></div>"], _$ssrHydrationKey());
+const template42 = _$ssr(["<img", " src>"], _$ssrHydrationKey());
+const template43 = _$ssr(["<div", "><img src></div>"], _$ssrHydrationKey());
+const template44 = _$ssr(["<img", " src loading=\"lazy\">"], _$ssrHydrationKey());
+const template45 = _$ssr(["<div", "><img src loading=\"lazy\"></div>"], _$ssrHydrationKey());
+const template46 = _$ssr(["<iframe", " src></iframe>"], _$ssrHydrationKey());
+const template47 = _$ssr(["<div", "><iframe src></iframe></div>"], _$ssrHydrationKey());
+const template48 = _$ssr(["<iframe", " src loading=\"lazy\"></iframe>"], _$ssrHydrationKey());
+const template49 = _$ssr(["<div", "><iframe src loading=\"lazy\"></iframe></div>"], _$ssrHydrationKey());
+const template50 = _$ssr(["<div", " title=\"<u>data</u>\"></div>"], _$ssrHydrationKey());
 const template51 = _$ssr([
 	"<div",
 	" ref=\"",
@@ -288,16 +288,17 @@ const template55 = _$ssr([
 	" ref=\"",
 	"\"></div>"
 ], _$ssrHydrationKey(), _$escape(refUnknown, true));
-const template56 = _$ssr(["<div", " true=\"true\" truestr=\"true\" truestrjs=\"true\"></div>"], _$ssrHydrationKey());
-const template57 = _$ssr(["<div", " false=\"false\" falsestr=\"false\" falsestrjs=\"false\"></div>"], _$ssrHydrationKey());
+const template56 = _$ssr(["<div", " true truestr=\"true\" truestrjs=\"true\"></div>"], _$ssrHydrationKey());
+const template57 = _$ssr(["<div", " falsestr=\"false\" falsestrjs=\"false\"></div>"], _$ssrHydrationKey());
 const template58 = _$ssr(["<div", "></div>"], _$ssrHydrationKey());
-const template59 = _$ssr(["<div", " true=\"true\" false=\"false\"></div>"], _$ssrHydrationKey());
+const template59 = _$ssr(["<div", " true></div>"], _$ssrHydrationKey());
 const template60 = _$ssr([
 	"<div",
-	" a b=\"\" c=\"\" d=\"true\" e=\"false\" f=\"0\" g=\"\" h=\"\" i=\"",
-	"\" j=\"null\" k=\"",
+	" a b c d f=\"0\" g h i=\"",
+	"\" j=\"",
+	"\" k=\"",
 	"\" l></div>"
-], _$ssrHydrationKey(), _$escape(undefined, true), _$escape(void 0, true));
+], _$ssrHydrationKey(), _$escape(undefined, true), _$escape(null, true), _$escape(void 0, true));
 const template61 = _$ssr(["<math", " display=\"block\"><mrow></mrow></math>"], _$ssrHydrationKey());
 const template62 = _$ssr(["<mrow", "><mi>x</mi><mo>=</mo></mrow>"], _$ssrHydrationKey());
 const template63 = _$ssr([
@@ -365,8 +366,8 @@ const template70 = _$ssr([
 	" playsinline=\"",
 	"\"></video>"
 ], _$ssrHydrationKey(), _$escape(value, true));
-const template71 = _$ssr(["<video", " playsinline=\"true\"></video>"], _$ssrHydrationKey());
-const template72 = _$ssr(["<video", " playsinline=\"false\"></video>"], _$ssrHydrationKey());
+const template71 = _$ssr(["<video", " playsinline></video>"], _$ssrHydrationKey());
+const template72 = _$ssr(["<video", "></video>"], _$ssrHydrationKey());
 const template73 = _$ssr(["<video", " poster=\"1.jpg\"></video>"], _$ssrHydrationKey());
 const template74 = _$ssr(["<div", "><video poster=\"1.jpg\"></video></div>"], _$ssrHydrationKey());
 const template75 = _$ssr(["<video", "></video>"], _$ssrHydrationKey());
@@ -497,8 +498,8 @@ const template90 = _$ssr([
 ], _$ssrHydrationKey(), _$escape(state.flag || undefined, true));
 const template91 = _$ssr([
 	"<div",
-	"><video muted=\"true\"></video><video muted=\"false\"></video><video defaultMuted=\"false\" muted=\"",
-	"\"></video><video defaultMuted=\"true\" muted=\"",
+	"><video muted></video><video></video><video muted=\"",
+	"\"></video><video defaultMuted muted=\"",
 	"\"></video><video defaultMuted=\"",
 	"\" muted=\"",
 	"\"></video><video src=\"test.mp4\" muted></video></div>"

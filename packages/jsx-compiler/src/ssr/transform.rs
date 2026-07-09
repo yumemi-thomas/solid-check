@@ -23,9 +23,9 @@ use crate::shared::component_props::{
 };
 use crate::shared::constants::namespaces;
 use crate::shared::utils::{
-    child_slot_allocates_ids, decode_html_entities, element_name, escape_html_text,
-    escape_html_text_expression, is_component_name, is_dynamic_child_slot, is_void_element,
-    static_jsx_expression_value, trim_jsx_text,
+    child_slot_allocates_ids, decode_html_entities, dedupe_attributes, element_name,
+    escape_html_attribute, escape_html_text, escape_html_text_expression, is_component_name,
+    is_dynamic_child_slot, is_void_element, static_jsx_expression_value, trim_jsx_text,
 };
 
 use super::template::SsrTemplate;
@@ -487,7 +487,7 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         if hydratable_root {
             template.push_expr(self.ssr_hydration_key_call(element.span));
         }
-        for attr in &element.opening_element.attributes {
+        for attr in dedupe_attributes(&element.opening_element.attributes) {
             self.append_static_attribute(attr, &mut template)?;
         }
         template.current_mut().push('>');
@@ -531,19 +531,25 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         match &attr.value {
             None => template.current_mut().push_str(&format!(" {}", name)),
             Some(JSXAttributeValue::StringLiteral(value)) => {
-                template.current_mut().push_str(&format!(
-                    " {}=\"{}\"",
-                    name,
-                    escape_html_attribute(&value.value)
-                ));
+                let value = decode_html_entities(&value.value);
+                append_ssr_static_attribute(template.current_mut(), &name, &value);
             }
             Some(JSXAttributeValue::ExpressionContainer(container)) => {
-                if let Some(value) = static_jsx_expression_value(&container.expression) {
-                    template.current_mut().push_str(&format!(
-                        " {}=\"{}\"",
-                        name,
-                        escape_html_attribute(&value)
-                    ));
+                // Boolean literals control attribute presence: `attr={true}`
+                // serializes bare, `attr={false}` is omitted. Null/undefined
+                // route to the runtime expression slot, mirroring Babel.
+                if let JSXExpression::BooleanLiteral(literal) = &container.expression {
+                    if literal.value {
+                        template.current_mut().push_str(&format!(" {}", name));
+                    }
+                    return Ok(());
+                }
+                let static_value = match &container.expression {
+                    JSXExpression::NullLiteral(_) => None,
+                    expression => static_jsx_expression_value(expression),
+                };
+                if let Some(value) = static_value {
+                    append_ssr_static_attribute(template.current_mut(), &name, &value);
                 } else {
                     template.current_mut().push_str(&format!(" {}=\"", name));
                     let value = jsx_expression_to_expression(&container.expression, self.allocator);
@@ -956,9 +962,14 @@ impl<'a> AstSsrTransform<'a, '_> {
     }
 }
 
-fn escape_html_attribute(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
+/// Serializes a static SSR attribute value: empty values become bare
+/// attributes; everything else is quoted with attribute-position escaping,
+/// mirroring the Babel plugin's SSR serializer.
+fn append_ssr_static_attribute(template: &mut String, name: &str, value: &str) {
+    if value.is_empty() {
+        template.push_str(&format!(" {name}"));
+    } else {
+        template.push_str(&format!(" {}=\"{}\"", name, escape_html_attribute(value)));
+    }
 }
+

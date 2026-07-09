@@ -15,8 +15,8 @@ use crate::shared::constants::{
 };
 use crate::shared::refs::{ref_assignment_fallback, ref_callable_test};
 use crate::shared::utils::{
-    decode_html_entities, escape_html_text_expression, format_attribute_value_with_quotes,
-    is_void_element, static_jsx_expression_value,
+    decode_html_entities, dedupe_attributes, format_attribute_value_with_quotes,
+    is_dynamic_attribute_expression, is_void_element, static_jsx_expression_value,
 };
 
 pub(crate) enum StaticAttributeResult {
@@ -62,26 +62,90 @@ impl<'a> AstDomTransform<'a, '_> {
             return Ok(());
         }
 
-        for attr in attributes {
-            if let Some(statement) = self.attribute_operation_statement(attr, element_id)? {
-                operations.push(statement);
-                continue;
+        for attr in dedupe_attributes(attributes) {
+            // The static marker comment (`/*@static*/` by default) opts an
+            // attribute value out of effect wrapping entirely, mirroring the
+            // Babel plugin's isDynamic short-circuit.
+            let marker_static = matches!(
+                attr,
+                JSXAttributeItem::Attribute(attribute)
+                    if matches!(
+                        &attribute.value,
+                        Some(JSXAttributeValue::ExpressionContainer(container))
+                            if self.has_static_marker(container.span)
+                    )
+            );
+            let saved_effect_wrapper = self.effect_wrapper;
+            if marker_static {
+                self.effect_wrapper = false;
             }
-            if self.class_array_attribute_operations(attr, element_id, template, operations)?
-                || self.style_object_attribute_operations(attr, element_id, template, operations)?
-            {
-                continue;
+            let result = self.lower_single_attribute(attr, tag_name, element_id, template, operations);
+            self.effect_wrapper = saved_effect_wrapper;
+            result?;
+        }
+        Ok(())
+    }
+
+    fn lower_single_attribute(
+        &mut self,
+        attr: &JSXAttributeItem<'a>,
+        tag_name: &str,
+        element_id: &str,
+        template: &mut String,
+        operations: &mut std::vec::Vec<Statement<'a>>,
+    ) -> Result<()> {
+        // Non-literal `children` attributes are consumed by child insertion
+        // (see `lower_element_with_setup`), never emitted as attributes.
+        if crate::dom::element::children_attribute_container_from_item(attr).is_some() {
+            return Ok(());
+        }
+        // `$ServerOnly` is a directive (handled at the element level in
+        // hydratable mode), not a real attribute.
+        if self.hydratable
+            && matches!(
+                attr,
+                JSXAttributeItem::Attribute(attribute)
+                    if matches!(
+                        &attribute.name,
+                        oxc_ast::ast::JSXAttributeName::Identifier(name)
+                            if name.name == "$ServerOnly"
+                    )
+            )
+        {
+            return Ok(());
+        }
+        // The `xmlns` attribute on template-root XML elements only signals
+        // the namespace; it is dropped from the serialized template.
+        if self.skip_xmlns_attribute
+            && matches!(
+                attr,
+                JSXAttributeItem::Attribute(attribute)
+                    if matches!(
+                        &attribute.name,
+                        oxc_ast::ast::JSXAttributeName::Identifier(name) if name.name == "xmlns"
+                    )
+            )
+        {
+            return Ok(());
+        }
+        if let Some(statement) = self.attribute_operation_statement(attr, element_id)? {
+            operations.push(statement);
+            return Ok(());
+        }
+        if self.class_array_attribute_operations(attr, element_id, template, operations)?
+            || self.style_object_attribute_operations(attr, element_id, template, operations)?
+        {
+            return Ok(());
+        }
+        match append_static_template_attribute(Some(self), attr, template)? {
+            StaticAttributeResult::Appended => {}
+            StaticAttributeResult::Spread => {
+                return Err(Error::from_reason(
+                    "Spread attributes are not implemented in the AST-native milestone yet",
+                ));
             }
-            match append_static_template_attribute(Some(self), attr, template)? {
-                StaticAttributeResult::Appended => {}
-                StaticAttributeResult::Spread => {
-                    return Err(Error::from_reason(
-                        "Spread attributes are not implemented in the AST-native milestone yet",
-                    ));
-                }
-                StaticAttributeResult::Dynamic => {
-                    operations.push(self.dynamic_attribute_statement(attr, tag_name, element_id)?);
-                }
+            StaticAttributeResult::Dynamic => {
+                operations.push(self.dynamic_attribute_statement(attr, tag_name, element_id)?);
             }
         }
         Ok(())
@@ -167,7 +231,7 @@ impl<'a> AstDomTransform<'a, '_> {
         self.template_state.uses_set_attribute = true;
 
         let value = jsx_expression_to_expression(&container.expression, self.allocator);
-        if !self.effect_wrapper {
+        if !self.effect_wrapper || !is_dynamic_attribute_expression(&value) {
             return Ok(self.ast().statement_expression(
                 attr.span,
                 self.call_identifier(
@@ -425,6 +489,21 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 }
 
+fn attribute_prefix(template: &str, omit_attribute_spacing: bool) -> &'static str {
+    // The Babel plugin skips the separating space after a quoted value when
+    // `omitAttributeSpacing` is on; a template ending in `"` is exactly that.
+    if omit_attribute_spacing && template.ends_with('"') {
+        ""
+    } else {
+        " "
+    }
+}
+
+fn append_bare_attribute(template: &mut String, name: &str, omit_attribute_spacing: bool) {
+    let prefix = attribute_prefix(template, omit_attribute_spacing);
+    template.push_str(&format!("{prefix}{name}"));
+}
+
 fn append_static_attribute_value(
     template: &mut String,
     name: &str,
@@ -433,11 +512,13 @@ fn append_static_attribute_value(
     omit_attribute_spacing: bool,
 ) {
     let value = normalize_static_attribute_value(name, value);
-    let prefix = if !omit_quotes && omit_attribute_spacing && template.ends_with('"') {
-        ""
-    } else {
-        " "
-    };
+    // An empty value (after class/style normalization) serializes as a bare
+    // attribute, matching the Babel plugin.
+    if value.is_empty() {
+        append_bare_attribute(template, name, omit_attribute_spacing);
+        return;
+    }
+    let prefix = attribute_prefix(template, omit_attribute_spacing);
     template.push_str(&format!(
         "{prefix}{name}={}",
         format_attribute_value_with_quotes(&value, omit_quotes)
@@ -475,7 +556,7 @@ pub(crate) fn try_append_static_template_attributes(
     attributes: &[JSXAttributeItem<'_>],
     template: &mut String,
 ) -> Result<bool> {
-    for attr in attributes {
+    for attr in dedupe_attributes(attributes) {
         match append_static_template_attribute(ctx, attr, template)? {
             StaticAttributeResult::Appended => {}
             StaticAttributeResult::Dynamic | StaticAttributeResult::Spread => return Ok(false),
@@ -509,8 +590,21 @@ fn append_static_template_attribute(
         }
     };
 
+    // Child properties (innerHTML/textContent/...) are runtime property
+    // assignments, never template markup.
+    if child_properties(&name.name) {
+        return Ok(StaticAttributeResult::Dynamic);
+    }
+
+    // `_hk` is the internal hydration-key attribute; the Babel plugin warns
+    // and strips it (usually pasted-in SSR output). Match by dropping it.
+    if name.name == "_hk" {
+        return Ok(StaticAttributeResult::Appended);
+    }
+
+    let omit_attribute_spacing = ctx.is_none_or(|ctx| ctx.omit_attribute_spacing);
     match &attr.value {
-        None => template.push_str(&format!(" {}", name.name)),
+        None => append_bare_attribute(template, &name.name, omit_attribute_spacing),
         Some(JSXAttributeValue::StringLiteral(value)) => {
             let value = decode_html_entities(&value.value);
             if let Some(ctx) = ctx {
@@ -520,6 +614,21 @@ fn append_static_template_attribute(
             }
         }
         Some(JSXAttributeValue::ExpressionContainer(container)) => {
+            // Boolean literals control attribute presence rather than being
+            // serialized: `attr={true}` -> bare attr, `attr={false}` -> omitted.
+            // Null routes to the runtime setter, all mirroring the Babel plugin.
+            match &container.expression {
+                oxc_ast::ast::JSXExpression::BooleanLiteral(literal) => {
+                    if literal.value {
+                        append_bare_attribute(template, &name.name, omit_attribute_spacing);
+                    }
+                    return Ok(StaticAttributeResult::Appended);
+                }
+                oxc_ast::ast::JSXExpression::NullLiteral(_) => {
+                    return Ok(StaticAttributeResult::Dynamic);
+                }
+                _ => {}
+            }
             if name.name == "style" {
                 if let Some(value) = static_style_object_value(&container.expression) {
                     if !value.is_empty() {
@@ -538,7 +647,6 @@ fn append_static_template_attribute(
             let Some(value) = value else {
                 return Ok(StaticAttributeResult::Dynamic);
             };
-            let value = escape_html_text_expression(&value);
             if let Some(ctx) = ctx {
                 ctx.append_static_attribute_value(template, &name.name, &value);
             } else {

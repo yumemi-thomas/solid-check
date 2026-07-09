@@ -425,6 +425,9 @@ fn is_dynamic_expression(value: &Expression<'_>) -> bool {
         Expression::LogicalExpression(logical) => {
             is_dynamic_expression(&logical.left) || is_dynamic_expression(&logical.right)
         }
+        Expression::SequenceExpression(sequence) => {
+            sequence.expressions.iter().any(is_dynamic_expression)
+        }
         _ => false,
     }
 }

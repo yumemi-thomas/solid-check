@@ -870,11 +870,17 @@ export function ssrStyleProperty(name, value) {
 
 // review with new ssr
 export function ssrElement(tag, props, children, needsId) {
+  // The hydration key must be allocated before the props thunk runs: dynamic
+  // props (`mergeProps(() => ...)`) create a memo, which consumes a child id.
+  // The client claims the element (getNextElement) before applying the spread,
+  // so the server must allocate in the same order or the element's own id
+  // shifts by one and it is left unclaimed on hydration.
+  const hk = needsId ? ssrHydrationKey() : "";
   if (props == null) props = {};
   else if (typeof props === "function") props = props();
   const skipChildren = VOID_ELEMENTS.test(tag);
   const keys = Object.keys(props);
-  let result = `<${tag}${needsId ? ssrHydrationKey() : ""} `;
+  let result = `<${tag}${hk} `;
   for (let i = 0; i < keys.length; i++) {
     const prop = keys[i];
     if (ChildProperties.has(prop)) {

@@ -38,7 +38,7 @@ pub(crate) fn lower_static_native_template(
     }
 
     let child_to_be_closed = ctx.child_close_context(&tag_name, close_context.clone());
-    let last_static_child = last_static_element_child(&element.children);
+    let last_element = ctx.find_last_element(&element.children);
     for (index, child) in element.children.iter().enumerate() {
         match child {
             JSXChild::Text(text) => {
@@ -64,7 +64,7 @@ pub(crate) fn lower_static_native_template(
                     ctx,
                     child,
                     CloseTagContext {
-                        last_element: Some(index) == last_static_child,
+                        last_element: Some(index) == last_element,
                         to_be_closed: child_to_be_closed.clone(),
                     },
                 )?
@@ -82,12 +82,4 @@ pub(crate) fn lower_static_native_template(
     }
 
     Ok(Some(template))
-}
-
-pub(crate) fn last_static_element_child(children: &[JSXChild<'_>]) -> Option<usize> {
-    children
-        .iter()
-        .enumerate()
-        .rev()
-        .find_map(|(index, child)| matches!(child, JSXChild::Element(_)).then_some(index))
 }

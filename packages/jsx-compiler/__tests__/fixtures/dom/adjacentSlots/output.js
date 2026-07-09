@@ -11,16 +11,16 @@ var _tmpl$4 = /* @__PURE__ */ _$template(`<div><span>static`);
 const trailingSlotsAfterElement = (() => {
 	var _el$ = _tmpl$();
 	var _el$2 = _el$.firstChild.nextSibling;
-	_$insert(_el$, a, _el$2);
 	var _el$3 = _el$.firstChild.nextSibling.nextSibling;
+	_$insert(_el$, a, _el$2);
 	_$insert(_el$, b, _el$3);
 	return _el$;
 })();
 const trailingComponentAndSlot = (() => {
 	var _el$4 = _tmpl$();
 	var _el$5 = _el$4.firstChild.nextSibling;
-	_$insert(_el$4, _$createComponent(Comp, {}), _el$5);
 	var _el$6 = _el$4.firstChild.nextSibling.nextSibling;
+	_$insert(_el$4, _$createComponent(Comp, {}), _el$5);
 	_$insert(_el$4, b, _el$6);
 	return _el$4;
 })();
@@ -28,8 +28,8 @@ const nestedParent = (() => {
 	var _el$7 = _tmpl$2();
 	var _el$8 = _el$7.firstChild;
 	var _el$9 = _el$8.firstChild.nextSibling;
-	_$insert(_el$8, a, _el$9);
 	var _el$10 = _el$8.firstChild.nextSibling.nextSibling;
+	_$insert(_el$8, a, _el$9);
 	_$insert(_el$8, b, _el$10);
 	return _el$7;
 })();

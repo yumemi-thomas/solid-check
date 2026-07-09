@@ -1,0 +1,43 @@
+@@ -7,7 +7,7 @@
+ var _g1$ = _$template__r_dom("<div><span>");
+ var _g2$ = _$template__r_dom("<div><header>Title</header><main></main><footer>End");
+ var _g3$ = _$template__r_dom("<span>Hello <b></b> world");
+-var _g4$ = _$template__r_dom("<div><ul><li></li></ul><p>Static");
++var _g4$ = _$template__r_dom("<div><ul><li></ul><p>Static");
+ const name = () => {
+   return "dynamic";
+ };
+@@ -18,22 +18,21 @@
+ }));
+ const singleChild = _g5$;
+ var _g7$ = _$getNextElement__r_dom(_g2$);
+-var _g8$ = _$getFirstChild__r_dom(_g7$, "header");
+-var _g9$ = _$getNextSibling__r_dom(_g8$, "main");
+-_$insert__r_dom(_g9$, _$scope__r_dom(() => {
++var _g8$ = _$getNextSibling__r_dom(_g7$.firstChild, "main");
++_$insert__r_dom(_g8$, _$scope__r_dom(() => {
+   return name();
+ }));
+ const siblingElements = _g7$;
+-var _g10$ = _$getNextElement__r_dom(_g3$);
+-var _g11$ = _$getNextSibling__r_dom(_g10$.firstChild, "b");
+-_$insert__r_dom(_g11$, _$scope__r_dom(() => {
++var _g9$ = _$getNextElement__r_dom(_g3$);
++var _g10$ = _$getNextSibling__r_dom(_g9$.firstChild, "b");
++_$insert__r_dom(_g10$, _$scope__r_dom(() => {
+   return name();
+ }));
+-const mixedTextAndElements = _g10$;
+-var _g12$ = _$getNextElement__r_dom(_g4$);
+-var _g13$ = _$getFirstChild__r_dom(_g12$, "ul");
+-var _g14$ = _$getFirstChild__r_dom(_g13$, "li");
+-_$insert__r_dom(_g14$, _$scope__r_dom(() => {
++const mixedTextAndElements = _g9$;
++var _g11$ = _$getNextElement__r_dom(_g4$);
++var _g12$ = _$getFirstChild__r_dom(_g11$, "ul");
++var _g13$ = _$getFirstChild__r_dom(_g12$, "li");
++_$insert__r_dom(_g13$, _$scope__r_dom(() => {
+   return name();
+ }));
+-const nestedWalk = _g12$;
++const nestedWalk = _g11$;

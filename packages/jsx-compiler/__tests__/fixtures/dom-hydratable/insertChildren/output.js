@@ -6,7 +6,7 @@ import { scope as _$scope } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
 import { mergeProps as _$mergeProps } from "r-dom";
-import { effect as _$effect } from "r-dom";
+import { runHydrationEvents as _$runHydrationEvents } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<module>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<module>Hello`);
@@ -17,58 +17,44 @@ const children = _$getNextElement(_tmpl$);
 const dynamic = { children };
 const template = _$createComponent(Module, { children });
 var _el$2 = _$getNextElement(_tmpl$2);
-_$effect(() => {
-	return children;
-}, (_v$) => {
-	_el$2.children = _v$;
-});
+_$insert(_el$2, children);
 const template2 = _el$2;
-var _el$3 = _$getNextElement(_tmpl$3);
-_$effect(() => {
-	return children;
-}, (_v$) => {
-	_el$3.children = _v$;
-});
-const template3 = _el$3;
+const template3 = _$getNextElement(_tmpl$3);
 const template4 = (() => {
 	var _el$4 = _$getNextElement(_tmpl$2);
-	_$effect(() => {
-		return children;
-	}, (_v$) => {
-		_el$4.children = _v$;
-	});
 	_$insert(_el$4, _$createComponent(Hello, {}));
 	return _el$4;
 })();
 var _el$5 = _$getNextElement(_tmpl$2);
-_$effect(() => {
+_$insert(_el$5, _$scope(() => {
 	return dynamic.children;
-}, (_v$) => {
-	_el$5.children = _v$;
-});
+}));
 const template5 = _el$5;
 const template6 = _$createComponent(Module, { get children() {
 	return dynamic.children;
 } });
 var _el$6 = _$getNextElement(_tmpl$2);
 _$spread(_el$6, dynamic, false);
+_$runHydrationEvents();
 const template7 = _el$6;
 var _el$7 = _$getNextElement(_tmpl$3);
 _$spread(_el$7, dynamic, true);
+_$runHydrationEvents();
 const template8 = _el$7;
 var _el$8 = _$getNextElement(_tmpl$2);
 _$spread(_el$8, dynamic, true);
 _$insert(_el$8, _$scope(() => {
 	return dynamic.children;
 }));
+_$runHydrationEvents();
 const template9 = _el$8;
 const template10 = _$createComponent(Module, _$mergeProps(dynamic, { children: "Hello" }));
 var _el$9 = _$getNextElement(_tmpl$2);
-_$effect(() => {
-	return state.children;
-}, (_v$) => {
-	_el$9.children = _v$;
-});
+_$insert(
+	_el$9,
+	/*@static*/
+	state.children
+);
 const template11 = _el$9;
 const template12 = _$createComponent(Module, { children: state.children });
 var _el$10 = _$getNextElement(_tmpl$2);
@@ -107,11 +93,12 @@ const template23 = _$createComponent(Module, { get children() {
 	return state.children();
 } });
 var _el$17 = _$getNextElement(_tmpl$5);
-_$spread(_el$17, dynamic, true);
 var [_el$18, _el$19] = _$getNextMarker(_el$17.firstChild.nextSibling.nextSibling);
+_$spread(_el$17, dynamic, true);
 _$insert(_el$17, _$scope(() => {
 	return dynamic.children;
 }), _el$18, _el$19);
+_$runHydrationEvents();
 const template24 = _el$17;
 const tiles = [];
 tiles.push(_$getNextElement(_tmpl$6));
@@ -119,7 +106,9 @@ var _el$21 = _$getNextElement(_tmpl$);
 _$insert(_el$21, tiles);
 const template25 = _el$21;
 var _el$22 = _$getNextElement(_tmpl$);
-_$insert(_el$22, (expression(), "static"));
+_$insert(_el$22, () => {
+	return expression(), "static";
+});
 const comma = _el$22;
 var _el$23 = _$getNextElement(_tmpl$);
 _$insert(_el$23, _$scope(() => {

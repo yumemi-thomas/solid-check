@@ -358,5 +358,5 @@ const template25 = Component({
 function MyComponent(props) {
   let el;
   const others = omit(props, "children");
-  return _$ssrElement("div", others, () => () => _$escape(props.children), true);
+  return _$ssrElement("div", others, () => _$scope(() => _$escape(props.children)), true);
 }

@@ -1,0 +1,28 @@
+@@ -1,22 +1,8 @@
+ import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-import { ssrAttribute as _$ssrAttribute__r_server } from "r-server";
+-import { ssrGroup as _$ssrGroup__r_server } from "r-server";
+ import { ssrHydrationKey as _$ssrHydrationKey__r_server } from "r-server";
+-var _g1$;
+-var _g2$ = ["<my-element", "", "", "", "></my-element>"];
+-var _g3$ = ["<my-element", "><header slot=\"head\">Title</header></my-element>"];
+-var _g4$ = ["<slot", " name=\"head\"></slot>"];
+-var _g5$ = ["<a", " is=\"my-element\"></a>"];
+-var _g6$ = _$ssrHydrationKey__r_server();
+-const template = _$ssr__r_server(_g2$, _g6$, _$ssrAttribute__r_server("some-attr", _$escape__r_server(name, true)), _$ssrAttribute__r_server("notProp", _$escape__r_server(data, true)), _$ssrAttribute__r_server("my-attr", _$escape__r_server(data, true)));
+-var _g7$ = _$ssrHydrationKey__r_server();
+-var _g8$ = _$ssrGroup__r_server(() => {
+-  return [_$ssrAttribute__r_server("some-attr", _$escape__r_server(state.name, true)), _$ssrAttribute__r_server("notProp", _$escape__r_server(state.data, true)), _$ssrAttribute__r_server("my-attr", _$escape__r_server(state.data, true))];
+-}, 3);
+-const template2 = _$ssr__r_server(_g2$, _g7$, _g8$, _g8$, _g8$);
+-var _g9$ = _$ssrHydrationKey__r_server();
+-const template3 = _$ssr__r_server(_g3$, _g9$);
+-const template4 = (_g1$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g4$, _g1$));
+-var _g10$ = _$ssrHydrationKey__r_server();
+-const template5 = _$ssr__r_server(_g5$, _g10$);
++const template = _$ssr__r_server(["<my-element", " some-attr=\"", "\" notProp=\"", "\" my-attr=\"", "\"></my-element>"], _$ssrHydrationKey__r_server(), _$escape__r_server(name, true), _$escape__r_server(data, true), _$escape__r_server(data, true));
++const template2 = _$ssr__r_server(["<my-element", " some-attr=\"", "\" notProp=\"", "\" my-attr=\"", "\"></my-element>"], _$ssrHydrationKey__r_server(), _$escape__r_server(state.name, true), _$escape__r_server(state.data, true), _$escape__r_server(state.data, true));
++const template3 = _$ssr__r_server(["<my-element", "><header slot=\"head\">Title</header></my-element>"], _$ssrHydrationKey__r_server());
++const template4 = _$ssr__r_server(["<slot", " name=\"head\"></slot>"], _$ssrHydrationKey__r_server());
++const template5 = _$ssr__r_server(["<a", " is=\"my-element\"></a>"], _$ssrHydrationKey__r_server());

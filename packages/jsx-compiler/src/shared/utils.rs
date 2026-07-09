@@ -1,6 +1,8 @@
 use napi::bindgen_prelude::*;
 use oxc_ast::ast::BinaryOperator;
-use oxc_ast::ast::{Expression, JSXChild, JSXElementName, JSXExpression};
+use oxc_ast::ast::{
+    Expression, JSXAttributeItem, JSXAttributeName, JSXChild, JSXElementName, JSXExpression,
+};
 use oxc_span::Span;
 
 use crate::shared::constants::void_elements;
@@ -31,6 +33,121 @@ pub(crate) fn element_name(name: &JSXElementName<'_>) -> Result<String> {
             "Only simple JSX element names are implemented in the AST-native milestone",
         )),
     }
+}
+
+/// Mirrors the Babel plugin's `isDynamic(expr, { checkMember: true })` for
+/// attribute values: any (optional) call, tagged template, member access,
+/// spread, or `in` binary expression anywhere in the value makes it dynamic,
+/// but function bodies are not descended into and functions themselves are
+/// never dynamic.
+pub(crate) fn is_dynamic_attribute_expression(value: &Expression<'_>) -> bool {
+    use oxc_ast_visit::Visit;
+
+    if matches!(
+        value,
+        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+    ) {
+        return false;
+    }
+
+    struct DynamicDetector {
+        dynamic: bool,
+    }
+
+    impl<'b> Visit<'b> for DynamicDetector {
+        fn visit_call_expression(&mut self, _it: &oxc_ast::ast::CallExpression<'b>) {
+            self.dynamic = true;
+        }
+        fn visit_tagged_template_expression(
+            &mut self,
+            _it: &oxc_ast::ast::TaggedTemplateExpression<'b>,
+        ) {
+            self.dynamic = true;
+        }
+        fn visit_static_member_expression(
+            &mut self,
+            _it: &oxc_ast::ast::StaticMemberExpression<'b>,
+        ) {
+            self.dynamic = true;
+        }
+        fn visit_computed_member_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ComputedMemberExpression<'b>,
+        ) {
+            self.dynamic = true;
+        }
+        fn visit_private_field_expression(
+            &mut self,
+            _it: &oxc_ast::ast::PrivateFieldExpression<'b>,
+        ) {
+            self.dynamic = true;
+        }
+        fn visit_spread_element(&mut self, _it: &oxc_ast::ast::SpreadElement<'b>) {
+            self.dynamic = true;
+        }
+        fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'b>) {
+            if it.operator == BinaryOperator::In {
+                self.dynamic = true;
+                return;
+            }
+            oxc_ast_visit::walk::walk_binary_expression(self, it);
+        }
+        fn visit_function(
+            &mut self,
+            _it: &oxc_ast::ast::Function<'b>,
+            _flags: oxc_syntax::scope::ScopeFlags,
+        ) {
+        }
+        fn visit_arrow_function_expression(
+            &mut self,
+            _it: &oxc_ast::ast::ArrowFunctionExpression<'b>,
+        ) {
+        }
+    }
+
+    let mut detector = DynamicDetector { dynamic: false };
+    detector.visit_expression(value);
+    detector.dynamic
+}
+
+/// Resolves duplicate attributes the way the Babel plugin does when no spread
+/// is present: the last occurrence of a name wins (earlier ones are dropped),
+/// except `ref` which may appear multiple times. Spreads disable deduping.
+pub(crate) fn dedupe_attributes<'a, 'b>(
+    attributes: &'b [JSXAttributeItem<'a>],
+) -> std::vec::Vec<&'b JSXAttributeItem<'a>> {
+    if attributes
+        .iter()
+        .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)))
+    {
+        return attributes.iter().collect();
+    }
+    let names: std::vec::Vec<Option<String>> = attributes
+        .iter()
+        .map(|attr| match attr {
+            JSXAttributeItem::Attribute(attr) => match &attr.name {
+                JSXAttributeName::Identifier(name) => Some(name.name.to_string()),
+                JSXAttributeName::NamespacedName(name) => {
+                    Some(format!("{}:{}", name.namespace.name, name.name.name))
+                }
+            },
+            JSXAttributeItem::SpreadAttribute(_) => None,
+        })
+        .collect();
+    attributes
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            let Some(name) = &names[*index] else {
+                return true;
+            };
+            name == "ref"
+                || !names[index + 1..]
+                    .iter()
+                    .any(|later| later.as_deref() == Some(name))
+        })
+        .map(|(_, attr)| attr)
+        .collect()
 }
 
 pub(crate) fn is_component_name(name: &JSXElementName<'_>) -> bool {
@@ -147,6 +264,12 @@ pub(crate) fn escape_html_text_expression(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;")
 }
 
+/// Attribute-position HTML escaping, mirroring the Babel plugin's
+/// `escapeHTML(s, true)`: only `&` and `"` are escaped (`<` stays literal).
+pub(crate) fn escape_html_attribute(value: &str) -> String {
+    value.replace('&', "&amp;").replace('"', "&quot;")
+}
+
 pub(crate) fn decode_html_entities(value: &str) -> String {
     value
         .replace("&nbsp;", "\u{a0}")
@@ -157,10 +280,13 @@ pub(crate) fn decode_html_entities(value: &str) -> String {
 }
 
 pub(crate) fn format_attribute_value_with_quotes(value: &str, omit_quotes: bool) -> String {
+    // Quoting need is decided on the unescaped text (as the Babel plugin
+    // does); HTML escaping applies either way.
+    let escaped = escape_html_attribute(value);
     if omit_quotes && can_omit_attribute_quotes(value) {
-        value.to_string()
+        escaped
     } else {
-        format!("{value:?}")
+        format!("\"{escaped}\"")
     }
 }
 

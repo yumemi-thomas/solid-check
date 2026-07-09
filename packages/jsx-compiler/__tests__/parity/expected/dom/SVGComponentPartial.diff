@@ -1,0 +1,24 @@
+@@ -4,15 +4,13 @@
+ var _g1$ = _$template__r_dom("<svg><g><circle r=5 fill=red></svg>", 2);
+ var _g2$ = _g1$();
+ _$effect__r_dom(() => {
+-  return {
+-    e: props.cx,
+-    t: props.cy
+-  };
+-}, ({
+-  e: e,
+-  t: t
+-}, _g3$) => {
+-  e !== _g3$?.e && _$setAttribute__r_dom(_g2$.firstChild, "cx", e);
+-  t !== _g3$?.t && _$setAttribute__r_dom(_g2$.firstChild, "cy", t);
++  return props.cx;
++}, _g3$ => {
++  _$setAttribute__r_dom(_g2$.firstChild, "cx", _g3$);
++});
++_$effect__r_dom(() => {
++  return props.cy;
++}, _g3$ => {
++  _$setAttribute__r_dom(_g2$.firstChild, "cy", _g3$);
+ });
+ const template = _g2$;

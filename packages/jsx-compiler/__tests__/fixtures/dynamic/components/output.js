@@ -53,6 +53,8 @@ const template = (props) => {
 	return (() => {
 		var _el$3 = _tmpl$4();
 		var _el$5 = _el$3.firstChild;
+		var _el$7 = _el$3.firstChild.nextSibling;
+		var _el$8 = _el$3.firstChild.nextSibling.nextSibling;
 		_$insert(_el$3, _$createComponent(Child, _$mergeProps({ name: "John" }, props, {
 			ref(r$) {
 				var _ref$3 = childRef;
@@ -63,7 +65,6 @@ const template = (props) => {
 				return _tmpl$3();
 			}
 		})), _el$5);
-		var _el$7 = _el$3.firstChild.nextSibling;
 		_$insert(_el$3, _$createComponent(Child, _$mergeProps({ name: "Jason" }, () => {
 			return dynamicSpread();
 		}, {
@@ -77,7 +78,6 @@ const template = (props) => {
 				return _el$6;
 			}
 		})), _el$7);
-		var _el$8 = _el$3.firstChild.nextSibling.nextSibling;
 		_$insert(_el$3, (() => {
 			var _ref$5 = props.consumerRef();
 			return _$createComponent(Context.Consumer, {
@@ -153,39 +153,39 @@ const template8 = _$createComponent2(Child, { get children() {
 const template9 = _$createComponent2(_garbage, { children: "Hi" });
 const template10 = (() => {
 	var _el$14 = _tmpl$5();
-	_$insert(_el$14, _$createComponent(Link, { children: "new" }), _el$14.firstChild);
 	var _el$15 = _el$14.firstChild.nextSibling;
-	_$insert(_el$14, _$createComponent(Link, { children: "comments" }), _el$15);
 	var _el$16 = _el$14.firstChild.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$14, _$createComponent(Link, { children: "show" }), _el$16);
 	var _el$17 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$14, _$createComponent(Link, { children: "ask" }), _el$17);
 	var _el$18 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$14, _$createComponent(Link, { children: "jobs" }), _el$18);
 	var _el$19 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
+	_$insert(_el$14, _$createComponent(Link, { children: "new" }), _el$14.firstChild);
+	_$insert(_el$14, _$createComponent(Link, { children: "comments" }), _el$15);
+	_$insert(_el$14, _$createComponent(Link, { children: "show" }), _el$16);
+	_$insert(_el$14, _$createComponent(Link, { children: "ask" }), _el$17);
+	_$insert(_el$14, _$createComponent(Link, { children: "jobs" }), _el$18);
 	_$insert(_el$14, _$createComponent(Link, { children: "submit" }), _el$19);
 	return _el$14;
 })();
 const template11 = (() => {
 	var _el$20 = _tmpl$6();
-	_$insert(_el$20, _$createComponent(Link, { children: "new" }), _el$20.firstChild);
 	var _el$21 = _el$20.firstChild.nextSibling;
-	_$insert(_el$20, _$createComponent(Link, { children: "comments" }), _el$21);
 	var _el$22 = _el$20.firstChild.nextSibling.nextSibling;
-	_$insert(_el$20, _$createComponent(Link, { children: "show" }), _el$22);
 	var _el$23 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$20, _$createComponent(Link, { children: "ask" }), _el$23);
 	var _el$24 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$20, _$createComponent(Link, { children: "jobs" }), _el$24);
 	var _el$25 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
+	_$insert(_el$20, _$createComponent(Link, { children: "new" }), _el$20.firstChild);
+	_$insert(_el$20, _$createComponent(Link, { children: "comments" }), _el$21);
+	_$insert(_el$20, _$createComponent(Link, { children: "show" }), _el$22);
+	_$insert(_el$20, _$createComponent(Link, { children: "ask" }), _el$23);
+	_$insert(_el$20, _$createComponent(Link, { children: "jobs" }), _el$24);
 	_$insert(_el$20, _$createComponent(Link, { children: "submit" }), _el$25);
 	return _el$20;
 })();
 const template12 = (() => {
 	var _el$26 = _tmpl$7();
 	var _el$27 = _el$26.firstChild.nextSibling;
-	_$insert(_el$26, _$createComponent(Link, { children: "comments" }), _el$27);
 	var _el$28 = _el$26.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
+	_$insert(_el$26, _$createComponent(Link, { children: "comments" }), _el$27);
 	_$insert(_el$26, _$createComponent(Link, { children: "show" }), _el$28);
 	return _el$26;
 })();

@@ -10,8 +10,8 @@ var _tmpl$3 = /* @__PURE__ */ _$template(`<span>Hello John`);
 var _tmpl$4 = /* @__PURE__ */ _$template(`<span>Hello <!$><!/>`);
 var _tmpl$5 = /* @__PURE__ */ _$template(`<span><!$><!/> John`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<span><!$><!/> <!$><!/>`);
-var _tmpl$7 = /* @__PURE__ */ _$template(`<span> <!> <!> `);
-var _tmpl$8 = /* @__PURE__ */ _$template(`<span> <!> `);
+var _tmpl$7 = /* @__PURE__ */ _$template(`<span> <!$><!/> <!$><!/> `);
+var _tmpl$8 = /* @__PURE__ */ _$template(`<span> <!$><!/><!$><!/> `);
 var _tmpl$9 = /* @__PURE__ */ _$template(`<span>Hello`);
 var _tmpl$10 = /* @__PURE__ */ _$template(`<span>&nbsp;&lt;Hi&gt;&nbsp;`);
 var _tmpl$11 = /* @__PURE__ */ _$template(`<span>Hi&lt;script>alert();&lt;/script>`);
@@ -23,7 +23,7 @@ var _tmpl$15 = /* @__PURE__ */ _$template(`<div>`);
 var _tmpl$16 = /* @__PURE__ */ _$template(`<span> <!$><!/>`);
 var _tmpl$17 = /* @__PURE__ */ _$template(`<span><!$><!/> `);
 var _tmpl$18 = /* @__PURE__ */ _$template(`<div normal=Search… title=Search&amp;hellip;>`);
-var _tmpl$19 = /* @__PURE__ */ _$template(`<div><div><!$><!/>`);
+var _tmpl$19 = /* @__PURE__ */ _$template(`<div><div></div><!$><!/>`);
 const trailing = _$getNextElement(_tmpl$);
 const leading = _$getNextElement(_tmpl$2);
 /* prettier-ignore */
@@ -38,24 +38,25 @@ _$insert(_el$7, greeting, _el$8, _el$9);
 const leadingExpr = _el$7;
 var _el$10 = _$getNextElement(_tmpl$6);
 var [_el$11, _el$12] = _$getNextMarker(_el$10.firstChild.nextSibling);
+var [_el$13, _el$14] = _$getNextMarker(_el$11.nextSibling.nextSibling.nextSibling);
 _$insert(_el$10, greeting, _el$11, _el$12);
-var [_el$13, _el$14] = _$getNextMarker(_el$10.firstChild.nextSibling.nextSibling.nextSibling.nextSibling);
 _$insert(_el$10, name, _el$13, _el$14);
 /* prettier-ignore */
 const multiExpr = _el$10;
 var _el$15 = _$getNextElement(_tmpl$7);
-var _el$16 = _el$15.firstChild.nextSibling;
-_$insert(_el$15, greeting, _el$16);
-var _el$17 = _el$15.firstChild.nextSibling.nextSibling.nextSibling;
-_$insert(_el$15, name, _el$17);
+var [_el$16, _el$17] = _$getNextMarker(_el$15.firstChild.nextSibling.nextSibling);
+var [_el$18, _el$19] = _$getNextMarker(_el$16.nextSibling.nextSibling.nextSibling);
+_$insert(_el$15, greeting, _el$16, _el$17);
+_$insert(_el$15, name, _el$18, _el$19);
 /* prettier-ignore */
 const multiExprSpaced = _el$15;
-var _el$18 = _$getNextElement(_tmpl$8);
-var _el$19 = _el$18.firstChild.nextSibling;
-_$insert(_el$18, greeting, _el$19);
-_$insert(_el$18, name, _el$19);
+var _el$20 = _$getNextElement(_tmpl$8);
+var [_el$21, _el$22] = _$getNextMarker(_el$20.firstChild.nextSibling.nextSibling);
+var [_el$23, _el$24] = _$getNextMarker(_el$21.nextSibling.nextSibling);
+_$insert(_el$20, greeting, _el$21, _el$22);
+_$insert(_el$20, name, _el$23, _el$24);
 /* prettier-ignore */
-const multiExprTogether = _el$18;
+const multiExprTogether = _el$20;
 /* prettier-ignore */
 const multiLine = _$getNextElement(_tmpl$9);
 /* prettier-ignore */
@@ -73,27 +74,27 @@ let value = "World";
 const evaluated = _$getNextElement(_tmpl$12);
 let number = 4 + 5;
 const evaluatedNonString = _$getNextElement(_tmpl$13);
-var _el$27 = _$getNextElement(_tmpl$14);
-var [_el$28, _el$29] = _$getNextMarker(_el$27.firstChild.nextSibling);
-_$insert(_el$27, s, _el$28, _el$29);
-const newLineLiteral = _el$27;
-var _el$30 = _$getNextElement(_tmpl$15);
-_$insert(_el$30, expr);
-const trailingSpace = _el$30;
+var _el$32 = _$getNextElement(_tmpl$14);
+var [_el$33, _el$34] = _$getNextMarker(_el$32.firstChild.nextSibling);
+_$insert(_el$32, s, _el$33, _el$34);
+const newLineLiteral = _el$32;
+var _el$35 = _$getNextElement(_tmpl$15);
+_$insert(_el$35, expr);
+const trailingSpace = _el$35;
 const trailingSpaceComp = _$createComponent(Comp, { children: expr });
 const trailingSpaceFrag = expr;
-var _el$31 = _$getNextElement(_tmpl$16);
-var [_el$32, _el$33] = _$getNextMarker(_el$31.firstChild.nextSibling.nextSibling);
-_$insert(_el$31, expr, _el$32, _el$33);
-const leadingSpaceElement = _el$31;
+var _el$36 = _$getNextElement(_tmpl$16);
+var [_el$37, _el$38] = _$getNextMarker(_el$36.firstChild.nextSibling.nextSibling);
+_$insert(_el$36, expr, _el$37, _el$38);
+const leadingSpaceElement = _el$36;
 const leadingSpaceComponent = _$createComponent(Div, { get children() {
 	return [" ", expr];
 } });
 const leadingSpaceFragment = [" ", expr];
-var _el$34 = _$getNextElement(_tmpl$17);
-var [_el$35, _el$36] = _$getNextMarker(_el$34.firstChild.nextSibling);
-_$insert(_el$34, expr, _el$35, _el$36);
-const trailingSpaceElement = _el$34;
+var _el$39 = _$getNextElement(_tmpl$17);
+var [_el$40, _el$41] = _$getNextMarker(_el$39.firstChild.nextSibling);
+_$insert(_el$39, expr, _el$40, _el$41);
+const trailingSpaceElement = _el$39;
 const trailingSpaceComponent = _$createComponent(Div, { get children() {
 	return [expr, " "];
 } });
@@ -103,9 +104,9 @@ const escapeCompAttribute = _$createComponent(Div, {
 	normal: "Search…",
 	title: "Search&hellip;"
 });
-var _el$38 = _$getNextElement(_tmpl$19);
-var [_el$39, _el$40] = _$getNextMarker(_el$38.firstChild.nextSibling.nextSibling);
-_$insert(_el$38, _$scope(() => {
+var _el$43 = _$getNextElement(_tmpl$19);
+var [_el$44, _el$45] = _$getNextMarker(_el$43.firstChild.nextSibling.nextSibling);
+_$insert(_el$43, _$scope(() => {
 	return expr();
-}), _el$39, _el$40);
-const lastElementExpression = _el$38;
+}), _el$44, _el$45);
+const lastElementExpression = _el$43;

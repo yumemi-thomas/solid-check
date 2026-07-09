@@ -9,9 +9,9 @@ import { setAttributeNS as _$setAttributeNS } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<svg width=400 height=180><rect stroke-width=2 x=50 y=20 rx=20 ry=20 width=150 height=150 style=fill:red;stroke:black;stroke-width:5;opacity:0.5></rect><linearGradient gradientTransform=rotate(25)><stop offset=0%>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<svg width=400 height=180><rect rx=20 ry=20 width=150 height=150 style=fill:red;stroke:black;opacity:0.5>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<svg width=400 height=180><rect>`);
-var _tmpl$4 = /* @__PURE__ */ _$template(`<rect x=50 y=20 width=150 height=150>`);
-var _tmpl$5 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40" xmlns=http://www.w3.org/2000/svg><a><text x=10 y=25>MDN Web Docs`);
-var _tmpl$6 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40" xmlns=http://www.w3.org/2000/svg><text x=10 y=25>`);
+var _tmpl$4 = /* @__PURE__ */ _$template(`<svg><rect x=50 y=20 width=150 height=150></svg>`, 2);
+var _tmpl$5 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40"><a><text x=10 y=25>MDN Web Docs`);
+var _tmpl$6 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40"><text x=10 y=25>`);
 const template = _tmpl$();
 const template2 = (() => {
 	var _el$2 = _tmpl$2();
@@ -63,10 +63,6 @@ const template7 = (() => {
 const template8 = (() => {
 	var _el$11 = _tmpl$6();
 	var _el$12 = _el$11.firstChild;
-	_$effect(() => {
-		return text;
-	}, (_v$) => {
-		_el$12.textContent = _v$;
-	});
+	_el$12.textContent = text;
 	return _el$11;
 })();

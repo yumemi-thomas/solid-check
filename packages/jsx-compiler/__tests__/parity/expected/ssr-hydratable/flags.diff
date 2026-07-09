@@ -1,0 +1,32 @@
+@@ -1,27 +1,15 @@
+ import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+ import { ssrHydrationKey as _$ssrHydrationKey__r_server } from "r-server";
+-var _g1$;
+-var _g2$;
+-var _g3$;
+-var _g4$;
+-var _g5$ = ["<div", "><h1>Hello</h1><!--$-->", "<!--/--><!--$-->", "<!--/--><span>More Text</span></div>"];
+-var _g6$ = ["<div", "></div>"];
+-var _g7$ = ["<span", "></span>"];
+-var _g8$ = _$ssrHydrationKey__r_server();
+-var _g9$ = _$escape__r_server(Component({}));
+-var _g10$ = () => {
+-  return _$escape__r_server(state.interpolation);
+-};
+-const template = _$ssr__r_server(_g5$, _g8$, _g9$, _g10$);
++const template = _$ssr__r_server(["<div", " $ServerOnly><h1>Hello</h1>", "", "<span>More Text</span></div>"], _$ssrHydrationKey__r_server(), Component({}), _$escape__r_server(state.interpolation));
+ const template2 = Component({
+   get children() {
+-    return _g1$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g1$);
++    return _$ssr__r_server(["<div", " $ServerOnly></div>"], _$ssrHydrationKey__r_server());
+   }
+ });
+ const template3 = Component({
+   get children() {
+-    return [(_g2$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g2$)), (_g3$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g7$, _g3$))];
++    return [_$ssr__r_server(["<div", " $ServerOnly></div>"], _$ssrHydrationKey__r_server()), _$ssr__r_server(["<span", " $ServerOnly></span>"], _$ssrHydrationKey__r_server())];
+   }
+ });
+-const template4 = (_g4$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g4$));
++const template4 = _$ssr__r_server(["<div", " $ServerOnly></div>"], _$ssrHydrationKey__r_server());

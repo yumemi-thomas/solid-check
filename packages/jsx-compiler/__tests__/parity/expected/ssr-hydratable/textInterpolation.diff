@@ -1,0 +1,130 @@
+@@ -2,103 +2,52 @@
+ import { scope as _$scope__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+ import { ssrHydrationKey as _$ssrHydrationKey__r_server } from "r-server";
+-var _g1$ = ["<span", ">Hello </span>"];
+-var _g2$ = ["<span", "> John</span>"];
+-var _g3$ = ["<span", ">Hello John</span>"];
+-var _g4$ = ["<span", ">Hello <!--$-->", "<!--/--></span>"];
+-var _g5$ = ["<span", "><!--$-->", "<!--/--> John</span>"];
+-var _g6$ = ["<span", "><!--$-->", "<!--/--> <!--$-->", "<!--/--></span>"];
+-var _g7$ = ["<span", "> <!--$-->", "<!--/--> <!--$-->", "<!--/--> </span>"];
+-var _g8$ = ["<span", "> <!--$-->", "<!--/--><!--$-->", "<!--/--> </span>"];
+-var _g9$ = ["<span", ">Hello</span>"];
+-var _g10$ = ["<span", ">&nbsp;&lt;Hi&gt;&nbsp;</span>"];
+-var _g11$ = ["<span", ">Hi&lt;script>alert();&lt;/script></span>"];
+-var _g12$ = ["<span", ">Hello World!</span>"];
+-var _g13$ = ["<span", ">4 + 5 = 9</span>"];
+-var _g14$ = ["<div", "><!--$-->", "<!--/-->\nd</div>"];
+-var _g15$ = ["<div", ">", "</div>"];
+-var _g16$ = ["<span", "> <!--$-->", "<!--/--></span>"];
+-var _g17$ = ["<span", "><!--$-->", "<!--/--> </span>"];
+-var _g18$ = ["<div", " normal=\"Search\u2026\" title=\"Search&amp;hellip;\"></div>"];
+-var _g19$ = ["<div", "><div></div><!--$-->", "<!--/--></div>"];
+-var _g20$ = _$ssrHydrationKey__r_server();
+-const trailing = _$ssr__r_server(_g1$, _g20$);
+-var _g21$ = _$ssrHydrationKey__r_server();
+-const leading = _$ssr__r_server(_g2$, _g21$);
+-var _g22$ = _$ssrHydrationKey__r_server();
+-const extraSpaces = _$ssr__r_server(_g3$, _g22$);
+-var _g23$ = _$ssrHydrationKey__r_server();
+-var _g24$ = _$escape__r_server(name);
+-const trailingExpr = _$ssr__r_server(_g4$, _g23$, _g24$);
+-var _g25$ = _$ssrHydrationKey__r_server();
+-var _g26$ = _$escape__r_server(greeting);
+-const leadingExpr = _$ssr__r_server(_g5$, _g25$, _g26$);
+-var _g27$ = _$ssrHydrationKey__r_server();
+-var _g28$ = _$escape__r_server(greeting);
+-var _g29$ = _$escape__r_server(name);
+-const multiExpr = _$ssr__r_server(_g6$, _g27$, _g28$, _g29$);
+-var _g30$ = _$ssrHydrationKey__r_server();
+-var _g31$ = _$escape__r_server(greeting);
+-var _g32$ = _$escape__r_server(name);
+-const multiExprSpaced = _$ssr__r_server(_g7$, _g30$, _g31$, _g32$);
+-var _g33$ = _$ssrHydrationKey__r_server();
+-var _g34$ = _$escape__r_server(greeting);
+-var _g35$ = _$escape__r_server(name);
+-const multiExprTogether = _$ssr__r_server(_g8$, _g33$, _g34$, _g35$);
+-var _g36$ = _$ssrHydrationKey__r_server();
+-const multiLine = _$ssr__r_server(_g9$, _g36$);
+-var _g37$ = _$ssrHydrationKey__r_server();
+-const multiLineTrailingSpace = _$ssr__r_server(_g3$, _g37$);
+-var _g38$ = _$ssrHydrationKey__r_server();
+-const multiLineNoTrailingSpace = _$ssr__r_server(_g3$, _g38$);
+-var _g39$ = _$ssrHydrationKey__r_server();
+-const escape = _$ssr__r_server(_g10$, _g39$);
++const trailing = _$ssr__r_server(["<span", ">Hello </span>"], _$ssrHydrationKey__r_server());
++const leading = _$ssr__r_server(["<span", "> John</span>"], _$ssrHydrationKey__r_server());
++const extraSpaces = _$ssr__r_server(["<span", ">Hello John</span>"], _$ssrHydrationKey__r_server());
++const trailingExpr = _$ssr__r_server(["<span", ">Hello ", "</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(name));
++const leadingExpr = _$ssr__r_server(["<span", ">", " John</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(greeting));
++const multiExpr = _$ssr__r_server(["<span", ">", " ", "</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(greeting), _$escape__r_server(name));
++const multiExprSpaced = _$ssr__r_server(["<span", "> ", " ", " </span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(greeting), _$escape__r_server(name));
++const multiExprTogether = _$ssr__r_server(["<span", "> ", "", " </span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(greeting), _$escape__r_server(name));
++const multiLine = _$ssr__r_server(["<span", ">Hello</span>"], _$ssrHydrationKey__r_server());
++const multiLineTrailingSpace = _$ssr__r_server(["<span", ">Hello John</span>"], _$ssrHydrationKey__r_server());
++const multiLineNoTrailingSpace = _$ssr__r_server(["<span", ">Hello John</span>"], _$ssrHydrationKey__r_server());
++const escape = _$ssr__r_server(["<span", ">&nbsp;&lt;Hi&gt;&nbsp;</span>"], _$ssrHydrationKey__r_server());
+ const escape2 = Comp({
+-  children: "\xA0<Hi>\xA0"
++  children: "&nbsp;&lt;Hi&gt;&nbsp;"
+ });
+-var _g40$ = _$ssrHydrationKey__r_server();
+-const injection = _$ssr__r_server(_g11$, _g40$);
+-var _g41$ = _$ssrHydrationKey__r_server();
+-const evaluated = _$ssr__r_server(_g12$, _g41$);
++const injection = _$ssr__r_server(["<span", ">Hi&lt;script>alert();&lt;/script></span>"], _$ssrHydrationKey__r_server());
++const evaluated = _$ssr__r_server(["<span", ">Hello ", "</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server("World" + "!"));
+ let number = 4 + 5;
+-var _g42$ = _$ssrHydrationKey__r_server();
+-const evaluatedNonString = _$ssr__r_server(_g13$, _g42$);
+-var _g43$ = _$ssrHydrationKey__r_server();
+-var _g44$ = _$escape__r_server(s);
+-const newLineLiteral = _$ssr__r_server(_g14$, _g43$, _g44$);
+-var _g45$ = _$ssrHydrationKey__r_server();
+-var _g46$ = _$escape__r_server(expr);
+-const trailingSpace = _$ssr__r_server(_g15$, _g45$, _g46$);
++const evaluatedNonString = _$ssr__r_server(["<span", ">4 + 5 = ", "</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(number));
++const newLineLiteral = _$ssr__r_server(["<div", ">", "\nd</div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(s));
++const trailingSpace = _$ssr__r_server(["<div", ">", "</div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(expr));
+ const trailingSpaceComp = Comp({
+-  children: expr
++  get children() {
++    return expr;
++  }
+ });
+ const trailingSpaceFrag = expr;
+-var _g47$ = _$ssrHydrationKey__r_server();
+-var _g48$ = _$escape__r_server(expr);
+-const leadingSpaceElement = _$ssr__r_server(_g16$, _g47$, _g48$);
++const leadingSpaceElement = _$ssr__r_server(["<span", "> ", "</span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(expr));
+ const leadingSpaceComponent = Div({
+   get children() {
+     return [" ", expr];
+   }
+ });
+ const leadingSpaceFragment = [" ", expr];
+-var _g49$ = _$ssrHydrationKey__r_server();
+-var _g50$ = _$escape__r_server(expr);
+-const trailingSpaceElement = _$ssr__r_server(_g17$, _g49$, _g50$);
++const trailingSpaceElement = _$ssr__r_server(["<span", ">", " </span>"], _$ssrHydrationKey__r_server(), _$escape__r_server(expr));
+ const trailingSpaceComponent = Div({
+   get children() {
+     return [expr, " "];
+   }
+ });
+ const trailingSpaceFragment = [expr, " "];
+-var _g51$ = _$ssrHydrationKey__r_server();
+-const escapeAttribute = _$ssr__r_server(_g18$, _g51$);
++const escapeAttribute = _$ssr__r_server(["<div", " normal=\"Search\u2026\" title=\"Search&amp;hellip;\"></div>"], _$ssrHydrationKey__r_server());
+ const escapeCompAttribute = Div({
+   normal: "Search\u2026",
+   title: "Search&hellip;"
+ });
+-var _g52$ = _$ssrHydrationKey__r_server();
+-var _g53$ = _$scope__r_server(() => {
++const lastElementExpression = _$ssr__r_server(["<div", "><div></div>", "</div>"], _$ssrHydrationKey__r_server(), _$scope__r_server(() => {
+   return _$escape__r_server(expr());
+-});
+-const lastElementExpression = _$ssr__r_server(_g19$, _g52$, _g53$);
++}));

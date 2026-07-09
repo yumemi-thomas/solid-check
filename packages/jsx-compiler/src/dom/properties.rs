@@ -7,11 +7,13 @@ use oxc_span::Span;
 
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
 use crate::shared::constants::child_properties;
-use crate::shared::utils::{decode_html_entities, static_jsx_expression_value};
+use crate::shared::utils::{
+    decode_html_entities, is_dynamic_attribute_expression, static_jsx_expression_value,
+};
 
 impl<'a> AstDomTransform<'a, '_> {
     pub(crate) fn prop_attribute_statement(
-        &self,
+        &mut self,
         attr: &JSXAttributeItem<'a>,
         element_id: &str,
     ) -> Result<Option<Statement<'a>>> {
@@ -25,7 +27,7 @@ impl<'a> AstDomTransform<'a, '_> {
             return Ok(None);
         }
 
-        let property_name = name.name.name.as_str();
+        let property_name = name.name.name.to_string();
         let value = match &attr.value {
             None => self.ast().expression_boolean_literal(attr.span, true),
             Some(JSXAttributeValue::StringLiteral(value)) => self.ast().expression_string_literal(
@@ -34,7 +36,16 @@ impl<'a> AstDomTransform<'a, '_> {
                 None,
             ),
             Some(JSXAttributeValue::ExpressionContainer(container)) => {
-                jsx_expression_to_expression(&container.expression, self.allocator)
+                let value = jsx_expression_to_expression(&container.expression, self.allocator);
+                if !self.has_static_marker(container.span) {
+                    return Ok(Some(self.dynamic_property_statement(
+                        attr.span,
+                        element_id,
+                        &property_name,
+                        value,
+                    )));
+                }
+                value
             }
             Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
                 return Err(Error::from_reason(
@@ -46,7 +57,7 @@ impl<'a> AstDomTransform<'a, '_> {
         Ok(Some(self.static_child_property_statement(
             attr.span,
             element_id,
-            property_name,
+            &property_name,
             value,
         )))
     }
@@ -92,7 +103,13 @@ impl<'a> AstDomTransform<'a, '_> {
                         None,
                     )
                 } else {
+                    let marker_static = self.has_static_marker(container.span);
                     let value = jsx_expression_to_expression(&container.expression, self.allocator);
+                    if marker_static {
+                        return Ok(Some(self.static_child_property_statement(
+                            attr.span, element_id, &name.name, value,
+                        )));
+                    }
                     return Ok(Some(self.dynamic_child_property_statement(
                         attr.span, element_id, &name.name, value,
                     )));
@@ -135,7 +152,7 @@ impl<'a> AstDomTransform<'a, '_> {
         name: &str,
         value: Expression<'a>,
     ) -> Statement<'a> {
-        if !self.effect_wrapper {
+        if !self.effect_wrapper || !is_dynamic_attribute_expression(&value) {
             return self.static_child_property_statement(span, element_id, name, value);
         }
 
@@ -165,7 +182,7 @@ impl<'a> AstDomTransform<'a, '_> {
         name: &str,
         value: Expression<'a>,
     ) -> Statement<'a> {
-        if !self.effect_wrapper {
+        if !self.effect_wrapper || !is_dynamic_attribute_expression(&value) {
             return self.static_child_property_statement(span, element_id, name, value);
         }
 

@@ -857,12 +857,25 @@ function createElement(
             `Fragments can only be used top level in JSX. Not used under a <${tagName}>.`
           );
         }
+        const allocatesIds = hydratable && canChildSlotAllocateIds(path);
         const child = transformNode(path);
         if (!child) return memo;
         if (markers && child.exprs.length && !child.spreadElement)
           memo.push(t.stringLiteral("<!--$-->"));
         if (child.exprs.length && !doNotEscape && !child.spreadElement)
           child.exprs[0] = escapeExpression(path, child.exprs[0] as babelTypes.Expression)!;
+        // Deferred holes that can allocate hydration ids evaluate under their
+        // own owner scope, exactly like `transformChildren` does for the
+        // template path. Spread elements render through `ssrElement` instead
+        // of a template, but their children holes still need the wrap — the
+        // dom generate scope()s the matching insert accessor regardless of
+        // spread, so skipping it here desyncs every hydration id that follows
+        // the hole.
+        if (child.exprs.length && allocatesIds && child.dynamic) {
+          child.exprs[0] = t.callExpression(registerImportMethod(path, "scope"), [
+            child.exprs[0] as babelTypes.Expression
+          ]);
+        }
         memo.push(
           getCreateTemplate(config, path, child)(path, child, false) as babelTypes.Expression
         );
@@ -931,7 +944,19 @@ function createElement(
     if (runningObject.length || !props.length) props.push(t.objectExpression(runningObject));
 
     if (props.length > 1 || dynamicSpread) {
-      props = [t.callExpression(registerImportMethod(path, "mergeProps"), props)];
+      let merged: babelTypes.Expression = t.callExpression(
+        registerImportMethod(path, "mergeProps"),
+        props
+      );
+      // Defer the merge behind a thunk when hydratable: `mergeProps` with a
+      // function source creates a memo, which consumes a hydration child id.
+      // Evaluated in argument position it would run before `ssrElement`
+      // allocates the element's own id, while the client claims the element
+      // (getNextElement) before applying the spread — shifting the element's
+      // id by one and leaving it unclaimed. `ssrElement` resolves function
+      // props after allocating the hydration key, matching the client order.
+      if (hydratable) merged = t.arrowFunctionExpression([], merged);
+      props = [merged];
     }
   }
 

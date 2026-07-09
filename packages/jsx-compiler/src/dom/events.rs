@@ -132,19 +132,13 @@ impl<'a> AstDomTransform<'a, '_> {
     ) -> Statement<'a> {
         let assignment =
             self.delegated_event_assignment(span, element_id, event_name, handler, data);
-        if !self.hydratable {
-            return assignment;
+        // Delegated events on SSR'd markup may have fired before hydration;
+        // the template root replays them once via `runHydrationEvents()`
+        // after all setup (Babel's `hasHydratableEvent` bubbling).
+        if self.hydratable {
+            self.has_hydratable_event = true;
         }
-
-        self.template_state.uses_run_hydration_events = true;
-        let replay = self.ast().statement_expression(
-            span,
-            self.call_identifier(span, "_$runHydrationEvents", std::vec::Vec::new()),
-        );
-        let mut statements = self.ast().vec();
-        statements.push(assignment);
-        statements.push(replay);
-        self.ast().statement_block(span, statements)
+        assignment
     }
 
     fn add_event_listener_statement(

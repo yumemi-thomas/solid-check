@@ -1,0 +1,467 @@
+@@ -1,35 +1,26 @@
+ import { For as _$For__r_custom } from "r-custom";
+-import { applyRef as _$applyRef__r_custom } from "r-custom";
++import { Show as _$Show__r_custom } from "r-custom";
+ import { createComponent as _$createComponent__r_custom } from "r-custom";
+ import { createElement as _$createElement__r_custom } from "r-custom";
+ import { createTextNode as _$createTextNode__r_custom } from "r-custom";
+ import { insert as _$insert__r_custom } from "r-custom";
+ import { insertNode as _$insertNode__r_custom } from "r-custom";
+-import { memo as _$memo__r_custom } from "r-custom";
+ import { mergeProps as _$mergeProps__r_custom } from "r-custom";
+-import { ref as _$ref__r_custom } from "r-custom";
++import { setProp as _$setProp__r_custom } from "r-custom";
+ import { Show as _$Show__somewhere, binding as _$binding__somewhere } from "somewhere";
+ function refFn() {}
+ const refConst = null;
+ const Child = props => {
+   return [(() => {
+     var _g1$ = _$createElement__r_custom("div");
+-    var _g2$ = _$createTextNode__r_custom("Hello ");
+-    _$insertNode__r_custom(_g1$, _g2$);
+-    var _g3$ = props.ref;
+-    typeof _g3$ === "function" || Array.isArray(_g3$) ? _$ref__r_custom(() => {
+-      return _g3$;
+-    }, _g1$) : props.ref = _g1$;
+-    _$insert__r_custom(_g1$, () => {
+-      return props.name;
+-    }, null);
++    _$setProp__r_custom(_g1$, "ref", props.ref);
++    _$insertNode__r_custom(_g1$, _$createTextNode__r_custom("Hello "));
++    _$insert__r_custom(_g1$, props.name);
+     return _g1$;
+   })(), (() => {
+-    var _g4$ = _$createElement__r_custom("div");
+-    _$insert__r_custom(_g4$, () => {
+-      return props.children;
+-    });
+-    return _g4$;
++    var _g2$ = _$createElement__r_custom("div");
++    _$insert__r_custom(_g2$, props.children);
++    return _g2$;
+   })()];
+ };
+ const template = props => {
+@@ -37,46 +28,45 @@
+   const {
+     content: content
+   } = props;
+-  var _g5$ = _$createElement__r_custom("div");
+-  _$insert__r_custom(_g5$, _$createComponent__r_custom(Child, _$mergeProps__r_custom({
+-    name: "John"
+-  }, props, {
+-    ref(r$) {
+-      var _g6$ = childRef;
+-      typeof _g6$ === "function" || Array.isArray(_g6$) ? _$applyRef__r_custom(_g6$, r$) : childRef = r$;
+-    },
+-    booleanProperty: true,
+-    get children() {
+-      var _g7$ = _$createElement__r_custom("div");
+-      _$insertNode__r_custom(_g7$, _$createTextNode__r_custom("From Parent"));
+-      return _g7$;
+-    }
+-  })), null);
+-  _$insert__r_custom(_g5$, _$createComponent__r_custom(Child, _$mergeProps__r_custom({
+-    name: "Jason"
+-  }, dynamicSpread, {
+-    ref(r$) {
+-      var _g8$ = props.ref;
+-      typeof _g8$ === "function" || Array.isArray(_g8$) ? _$applyRef__r_custom(_g8$, r$) : props.ref = r$;
+-    },
+-    get children() {
+-      var _g9$ = _$createElement__r_custom("div");
+-      _$insert__r_custom(_g9$, content);
+-      return _g9$;
+-    }
+-  })), null);
+-  _$insert__r_custom(_g5$, (() => {
+-    var _g10$ = props.consumerRef();
+-    return _$createComponent__r_custom(Context.Consumer, {
+-      ref(r$) {
+-        (typeof _g10$ === "function" || Array.isArray(_g10$)) && _$applyRef__r_custom(_g10$, r$);
+-      },
+-      children: context => {
+-        return context;
++  return (() => {
++    var _g3$ = _$createElement__r_custom("div");
++    _$insertNode__r_custom(_g3$, _$createComponent__r_custom(Child, _$mergeProps__r_custom({
++      name: "John"
++    }, props, {
++      ref: childRef,
++      booleanProperty: true,
++      get children() {
++        return (() => {
++          var _g4$ = _$createElement__r_custom("div");
++          _$insertNode__r_custom(_g4$, _$createTextNode__r_custom("From Parent"));
++          return _g4$;
++        })();
+       }
+-    });
+-  })(), null);
+-  return _g5$;
++    })));
++    _$insertNode__r_custom(_g3$, _$createComponent__r_custom(Child, _$mergeProps__r_custom({
++      name: "Jason"
++    }, () => {
++      return dynamicSpread();
++    }, {
++      ref: props.ref,
++      get children() {
++        return (() => {
++          var _g5$ = _$createElement__r_custom("div");
++          _$insert__r_custom(_g5$, content);
++          return _g5$;
++        })();
++      }
++    })));
++    _$insertNode__r_custom(_g3$, _$createComponent__r_custom(Context.Consumer, {
++      ref: props.consumerRef(),
++      get children() {
++        return context => {
++          return context;
++        };
++      }
++    }));
++    return _g3$;
++  })();
+ };
+ const template2 = _$createComponent__r_custom(Child, {
+   name: "Jake",
+@@ -85,7 +75,7 @@
+   },
+   stale: state.data,
+   handleClick: clickHandler,
+-  get ["hyphen-ated"]() {
++  get "hyphen-ated"() {
+     return state.data;
+   },
+   ref: el => {
+@@ -94,12 +84,24 @@
+ });
+ const template3 = _$createComponent__r_custom(Child, {
+   get children() {
+-    return [_$createElement__r_custom("div"), _$createElement__r_custom("div"), _$createElement__r_custom("div"), "After"];
++    return [(() => {
++      var _g6$ = _$createElement__r_custom("div");
++      return _g6$;
++    })(), (() => {
++      var _g7$ = _$createElement__r_custom("div");
++      return _g7$;
++    })(), (() => {
++      var _g8$ = _$createElement__r_custom("div");
++      return _g8$;
++    })(), "After"];
+   }
+ });
+ const template4 = _$createComponent__r_custom(Child, {
+   get children() {
+-    return _$createElement__r_custom("div");
++    return (() => {
++      var _g9$ = _$createElement__r_custom("div");
++      return _g9$;
++    })();
+   }
+ });
+ const template5 = _$createComponent__r_custom(Child, {
+@@ -117,20 +119,25 @@
+   get fallback() {
+     return _$createComponent__r_custom(Loading, {});
+   },
+-  children: item => {
+-    return _$createComponent__r_custom(_$Show__somewhere, {
+-      get when() {
+-        return state.condition;
+-      },
+-      children: item
+-    });
++  get children() {
++    return item => {
++      return _$createComponent__r_custom(_$Show__r_custom, {
++        get when() {
++          return state.condition;
++        },
++        get children() {
++          return item;
++        }
++      });
++    };
+   }
+ });
+ const template7 = _$createComponent__r_custom(Child, {
+   get children() {
+-    return [_$createElement__r_custom("div"), _$memo__r_custom(() => {
+-      return state.dynamic;
+-    })];
++    return [(() => {
++      var _g10$ = _$createElement__r_custom("div");
++      return _g10$;
++    })(), state.dynamic];
+   }
+ });
+ const template8 = _$createComponent__r_custom(Child, {
+@@ -146,92 +153,82 @@
+   children: "Hi"
+ });
+ var _g11$ = _$createElement__r_custom("div");
+-var _g12$ = _$createTextNode__r_custom(" | ");
+-var _g13$ = _$createTextNode__r_custom(" | ");
+-var _g14$ = _$createTextNode__r_custom(" | ");
+-var _g15$ = _$createTextNode__r_custom(" | ");
+-var _g16$ = _$createTextNode__r_custom(" | ");
+-_$insertNode__r_custom(_g11$, _g12$);
+-_$insertNode__r_custom(_g11$, _g13$);
+-_$insertNode__r_custom(_g11$, _g14$);
+-_$insertNode__r_custom(_g11$, _g15$);
+-_$insertNode__r_custom(_g11$, _g16$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "new"
+-}), _g12$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g11$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "comments"
+-}), _g13$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g11$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "show"
+-}), _g14$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g11$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "ask"
+-}), _g15$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g11$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "jobs"
+-}), _g16$);
+-_$insert__r_custom(_g11$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g11$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g11$, _$createComponent__r_custom(Link, {
+   children: "submit"
+-}), null);
++}));
+ const template10 = _g11$;
+-var _g17$ = _$createElement__r_custom("div");
+-var _g18$ = _$createTextNode__r_custom(" | ");
+-var _g19$ = _$createTextNode__r_custom(" | ");
+-var _g20$ = _$createTextNode__r_custom(" | ");
+-_$insertNode__r_custom(_g17$, _g18$);
+-_$insertNode__r_custom(_g17$, _g19$);
+-_$insertNode__r_custom(_g17$, _g20$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++var _g12$ = _$createElement__r_custom("div");
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "new"
+-}), _g18$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g12$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "comments"
+-}), _g19$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "show"
+-}), _g19$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g12$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "ask"
+-}), _g20$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "jobs"
+-}), _g20$);
+-_$insert__r_custom(_g17$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g12$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g12$, _$createComponent__r_custom(Link, {
+   children: "submit"
+-}), null);
+-const template11 = _g17$;
+-var _g21$ = _$createElement__r_custom("div");
+-var _g22$ = _$createTextNode__r_custom(" | ");
+-var _g23$ = _$createTextNode__r_custom(" |  |  | ");
+-var _g24$ = _$createTextNode__r_custom(" | ");
+-_$insertNode__r_custom(_g21$, _g22$);
+-_$insertNode__r_custom(_g21$, _g23$);
+-_$insertNode__r_custom(_g21$, _g24$);
+-_$insert__r_custom(_g21$, _$createComponent__r_custom(Link, {
++}));
++const template11 = _g12$;
++var _g13$ = _$createElement__r_custom("div");
++_$insertNode__r_custom(_g13$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g13$, _$createComponent__r_custom(Link, {
+   children: "comments"
+-}), _g23$);
+-_$insert__r_custom(_g21$, _$createComponent__r_custom(Link, {
++}));
++_$insertNode__r_custom(_g13$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g13$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g13$, _$createTextNode__r_custom(" | "));
++_$insertNode__r_custom(_g13$, _$createComponent__r_custom(Link, {
+   children: "show"
+-}), _g24$);
+-const template12 = _g21$;
++}));
++_$insertNode__r_custom(_g13$, _$createTextNode__r_custom(" | "));
++const template12 = _g13$;
+ class Template13 {
+   render() {
+-    const _g25$ = this;
+     _$createComponent__r_custom(Component, {
+       get prop() {
+-        return _g25$.something;
++        return this.something;
+       },
+       onClick: () => {
+-        return _g25$.shouldStay;
++        return this.shouldStay;
+       },
+       get children() {
+         return _$createComponent__r_custom(Nested, {
+           get prop() {
+-            return _g25$.data;
++            return this.data;
+           },
+           get children() {
+-            return _g25$.content;
++            return this.content;
+           }
+         });
+       }
+@@ -250,34 +247,34 @@
+ const Template17 = _$createComponent__r_custom(Pre, {
+   get children() {
+     return [(() => {
+-      var _g26$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g26$, _$createTextNode__r_custom("1"));
+-      return _g26$;
++      var _g14$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g14$, _$createTextNode__r_custom("1"));
++      return _g14$;
+     })(), " ", (() => {
+-      var _g27$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g27$, _$createTextNode__r_custom("2"));
+-      return _g27$;
++      var _g15$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g15$, _$createTextNode__r_custom("2"));
++      return _g15$;
+     })(), " ", (() => {
+-      var _g28$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g28$, _$createTextNode__r_custom("3"));
+-      return _g28$;
++      var _g16$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g16$, _$createTextNode__r_custom("3"));
++      return _g16$;
+     })()];
+   }
+ });
+ const Template18 = _$createComponent__r_custom(Pre, {
+   get children() {
+     return [(() => {
+-      var _g29$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g29$, _$createTextNode__r_custom("1"));
+-      return _g29$;
++      var _g17$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g17$, _$createTextNode__r_custom("1"));
++      return _g17$;
+     })(), (() => {
+-      var _g30$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g30$, _$createTextNode__r_custom("2"));
+-      return _g30$;
++      var _g18$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g18$, _$createTextNode__r_custom("2"));
++      return _g18$;
+     })(), (() => {
+-      var _g31$ = _$createElement__r_custom("span");
+-      _$insertNode__r_custom(_g31$, _$createTextNode__r_custom("3"));
+-      return _g31$;
++      var _g19$ = _$createElement__r_custom("span");
++      _$insertNode__r_custom(_g19$, _$createTextNode__r_custom("3"));
++      return _g19$;
+     })()];
+   }
+ });
+@@ -285,53 +282,39 @@
+   return s.dynamic();
+ }));
+ const Template20 = _$createComponent__r_custom(Component, {
+-  get ["class"]() {
+-    return prop.red ? "red" : "green";
++  class: prop.red ? "red" : "green"
++});
++const template21 = _$createComponent__r_custom(Component, {
++  get [key()]() {
++    return props.value;
+   }
+ });
+-const template21 = _$createComponent__r_custom(Component, _$mergeProps__r_custom(() => {
+-  return {
+-    get [key()]() {
+-      return props.value;
+-    }
+-  };
+-}));
+ const template22 = _$createComponent__r_custom(Component, {
+-  get passObject() {
+-    return {
+-      ...a
+-    };
++  passObject: {
++    ...a
+   }
+ });
+ const template23 = _$createComponent__r_custom(Component, {
+   ref: _$binding__somewhere
+ });
+ const template24 = _$createComponent__r_custom(Component, {
+-  ref(r$) {
+-    var _g32$ = _$binding__somewhere.prop;
+-    typeof _g32$ === "function" || Array.isArray(_g32$) ? _$applyRef__r_custom(_g32$, r$) : _$binding__somewhere.prop = r$;
+-  }
++  ref: _$binding__somewhere.prop
+ });
+ const template25 = _$createComponent__r_custom(Component, {
+-  ref(r$) {
+-    var _g33$ = refFn;
+-    typeof _g33$ === "function" || Array.isArray(_g33$) ? _$applyRef__r_custom(_g33$, r$) : refFn = r$;
+-  }
++  ref: refFn
+ });
+ const template26 = _$createComponent__r_custom(Component, {
+   ref: refConst
+ });
+ const template27 = _$createComponent__r_custom(Component, {
+-  ref(r$) {
+-    var _g34$ = refUnknown;
+-    typeof _g34$ === "function" || Array.isArray(_g34$) ? _$applyRef__r_custom(_g34$, r$) : refUnknown = r$;
+-  }
++  ref: refUnknown
+ });
+ const template28 = _$createComponent__r_custom(Component, {
+-  ref(r$) {
+-    var _g35$ = _$binding__somewhere?.prop;
+-    typeof _g35$ === "function" || Array.isArray(_g35$) ? _$applyRef__r_custom(_g35$, r$) : !!_$binding__somewhere && (_$binding__somewhere.prop = r$);
+-  }
++  ref: _$binding__somewhere?.prop
+ });
+-const template29 = _$createComponent__r_custom(Component, {});
+-const template30 = _$createComponent__r_custom(Component, {});
++const template29 = _$createComponent__r_custom(Component, {
++  ref: _$binding__somewhere?.[prop]
++});
++const template30 = _$createComponent__r_custom(Component, {
++  ref: _$binding__somewhere.nested?.prop
++});

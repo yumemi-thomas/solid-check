@@ -6,15 +6,11 @@ import { ssr as _$ssr } from "r-server";
 // special compiler path.
 const dynamicClass = () => "dyn";
 const flag = true;
-const t1 = _$ssr("<div class=\"a\" class=\"b\">static static</div>");
-const t2 = _$ssr(["<div class=\"a\" class=\"", "\">static + dynamic</div>"], _$escape(dynamicClass(), true));
-const t3 = _$ssr([
-	"<div class=\"",
-	"\" class=\"",
-	"\">two dynamic</div>"
-], _$escape(dynamicClass(), true), _$escape(flag ? "on" : "off", true));
-const t4 = _$ssr(["<div class=\"base\" class=\"", "\">string + object</div>"], _$escape({
+const t1 = _$ssr("<div class=\"b\">static static</div>");
+const t2 = _$ssr(["<div class=\"", "\">static + dynamic</div>"], _$escape(dynamicClass(), true));
+const t3 = _$ssr(["<div class=\"", "\">two dynamic</div>"], _$escape(flag ? "on" : "off", true));
+const t4 = _$ssr(["<div class=\"", "\">string + object</div>"], _$escape({
 	active: flag,
 	dim: !flag
 }, true));
-const t5 = _$ssr("<div class=\"a\" class=\"b\" class=\"c\">three statics</div>");
+const t5 = _$ssr("<div class=\"c\">three statics</div>");

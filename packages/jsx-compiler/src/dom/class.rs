@@ -8,6 +8,7 @@ use oxc_span::Span;
 
 use crate::dom::element::AstDomTransform;
 use crate::dom::style::static_style_key;
+use crate::shared::utils::is_dynamic_attribute_expression;
 
 impl<'a> AstDomTransform<'a, '_> {
     pub(crate) fn class_array_attribute_operations(
@@ -86,7 +87,7 @@ impl<'a> AstDomTransform<'a, '_> {
         value: Expression<'a>,
     ) -> Statement<'a> {
         self.template_state.uses_class_name = true;
-        if !self.effect_wrapper {
+        if !self.effect_wrapper || !is_dynamic_attribute_expression(&value) {
             return self.ast().statement_expression(
                 span,
                 self.call_identifier(
@@ -160,7 +161,7 @@ impl<'a> AstDomTransform<'a, '_> {
         class_name: &str,
         value: Expression<'a>,
     ) -> Statement<'a> {
-        if self.effect_wrapper && is_reactive_class_value(&value) {
+        if self.effect_wrapper && is_dynamic_attribute_expression(&value) {
             self.template_state.uses_effect = true;
             let getter = self.arrow_with_return(
                 span,
@@ -234,15 +235,3 @@ fn static_truthy_expression(value: &Expression<'_>) -> Option<bool> {
     }
 }
 
-fn is_reactive_class_value(value: &Expression<'_>) -> bool {
-    matches!(
-        value,
-        Expression::CallExpression(_)
-            | Expression::StaticMemberExpression(_)
-            | Expression::PrivateFieldExpression(_)
-            | Expression::ComputedMemberExpression(_)
-            | Expression::ChainExpression(_)
-            | Expression::ConditionalExpression(_)
-            | Expression::LogicalExpression(_)
-    )
-}

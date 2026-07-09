@@ -1,0 +1,1037 @@
+@@ -1,13 +1,12 @@
+ import { createElement as _$createElement__r_custom } from "r-custom";
+ import { createTextNode as _$createTextNode__r_custom } from "r-custom";
+-import { effect as _$effect__r_custom } from "r-custom";
+ import { insertNode as _$insertNode__r_custom } from "r-custom";
+-import { memo as _$memo__r_custom } from "r-custom";
+-import { mergeProps as _$mergeProps__r_custom } from "r-custom";
+ import { addEvent as _$addEvent__r_dom } from "r-dom";
+ import { className as _$className__r_dom } from "r-dom";
+ import { delegateEvents as _$delegateEvents__r_dom } from "r-dom";
++import { effect as _$effect__r_dom } from "r-dom";
+ import { insert as _$insert__r_dom } from "r-dom";
++import { mergeProps as _$mergeProps__r_dom } from "r-dom";
+ import { ref as _$ref__r_dom } from "r-dom";
+ import { setAttribute as _$setAttribute__r_dom } from "r-dom";
+ import { setStyleProperty as _$setStyleProperty__r_dom } from "r-dom";
+@@ -15,70 +14,75 @@
+ import { style as _$style__r_dom } from "r-dom";
+ import { template as _$template__r_dom } from "r-dom";
+ var _g1$ = _$template__r_dom("<div><h1><a href=/>Welcome");
+-var _g2$ = _$template__r_dom("<div><div></div><div> </div><div>");
++var _g2$ = _$template__r_dom("<div><div></div><div></div><div>");
+ var _g3$ = _$template__r_dom("<div foo>");
+ var _g4$ = _$template__r_dom("<div>");
+ var _g5$ = _$template__r_dom("<div class=a className=b>");
+-var _g6$ = _$template__r_dom("<div style=margin-right:40px>");
+-var _g7$ = _$template__r_dom("<div onclick=\"console.log('hi')\">");
+-var _g8$ = _$template__r_dom("<input type=checkbox checked>");
+-var _g9$ = _$template__r_dom("<input type=checkbox>");
+-var _g10$ = _$template__r_dom("<div class=\"`a\">`$`");
+-var _g11$ = _$template__r_dom("<button class=\"static hi\"type=button>Write");
+-var _g12$ = _$template__r_dom("<button class=\"a b c\">Hi");
++var _g6$ = _$template__r_dom("<div onclick=\"console.log('hi')\">");
++var _g7$ = _$template__r_dom("<input type=checkbox checked>");
++var _g8$ = _$template__r_dom("<input type=checkbox>");
++var _g9$ = _$template__r_dom("<div class=\"`a\">`$`");
++var _g10$ = _$template__r_dom("<button class=\"static hi\"type=button>Write");
++var _g11$ = _$template__r_dom("<button>Hi");
++var _g12$ = _$template__r_dom("<div class=\"bg-red-500 flex flex-col\">");
+ var _g13$ = _$template__r_dom("<div><input readonly><input>");
+-var _g14$ = _$template__r_dom("<div style=a:static>");
+-var _g15$ = _$template__r_dom("<div data=\"&quot;hi&quot;\"data2=\"&quot;\">");
+-var _g16$ = _$template__r_dom("<a>");
+-var _g17$ = _$template__r_dom("<div><a>");
+-var _g18$ = _$template__r_dom("<div>Hi");
+-var _g19$ = _$template__r_dom("<label><span>Input is </span><input><div>");
+-var _g20$ = _$template__r_dom("<div class=\"class1 class2 class3 class4 class5 class6\"random=\"random1 random2\n    random3 random4\"style=\"color:red;background-color:blue !important;border:1px solid black;font-size:12px\">");
+-var _g21$ = _$template__r_dom("<button>");
+-var _g22$ = _$template__r_dom("<input value=10>");
+-var _g23$ = _$template__r_dom("<select><option>Red</option><option>Blue");
+-var _g24$ = _$template__r_dom("<img src>");
+-var _g25$ = _$template__r_dom("<div><img src>");
+-var _g26$ = _$template__r_dom("<img src loading=lazy>", 1);
+-var _g27$ = _$template__r_dom("<div><img src loading=lazy>", 1);
+-var _g28$ = _$template__r_dom("<iframe src>");
+-var _g29$ = _$template__r_dom("<div><iframe src>");
+-var _g30$ = _$template__r_dom("<iframe src loading=lazy>", 1);
+-var _g31$ = _$template__r_dom("<div><iframe src loading=lazy>", 1);
+-var _g32$ = _$template__r_dom("<div title=\"<u>data</u>\">");
+-var _g33$ = _$template__r_dom("<div true truestr=true truestrjs=true>");
+-var _g34$ = _$template__r_dom("<div falsestr=false falsestrjs=false>");
+-var _g35$ = _$template__r_dom("<div true>");
+-var _g36$ = _$template__r_dom("<div a b c d f=0 g h l>");
+-var _g37$ = _$template__r_dom("<div style=background:red>");
+-var _g38$ = _$template__r_dom("<div style=background:red;color:green;margin:3;padding:0.4>");
+-var _g39$ = _$template__r_dom("<div style=background:red;color:green>");
+-var _g40$ = _$template__r_dom("<video>");
+-var _g41$ = _$template__r_dom("<video playsinline>");
+-var _g42$ = _$template__r_dom("<video poster=1.jpg>");
+-var _g43$ = _$template__r_dom("<div><video poster=1.jpg>");
+-var _g44$ = _$template__r_dom("<div><video>");
+-var _g45$ = _$template__r_dom("<button type=button>");
++var _g14$ = _$template__r_dom("<div data=\"&quot;hi&quot;\"data2=\"&quot;\">");
++var _g15$ = _$template__r_dom("<a>");
++var _g16$ = _$template__r_dom("<div><a>");
++var _g17$ = _$template__r_dom("<div>Hi");
++var _g18$ = _$template__r_dom("<label><span>Input is </span><input><div>");
++var _g19$ = _$template__r_dom("<div class=\"class1 class2 class3 class4 class5 class6\"style=\"color:red;background-color:blue !important;border:1px solid black;font-size:12px;\"random=\"random1 random2\n    random3 random4\">");
++var _g20$ = _$template__r_dom("<button>");
++var _g21$ = _$template__r_dom("<input value=10>");
++var _g22$ = _$template__r_dom("<select><option>Red</option><option>Blue");
++var _g23$ = _$template__r_dom("<img src>");
++var _g24$ = _$template__r_dom("<div><img src>");
++var _g25$ = _$template__r_dom("<img src loading=lazy>", 1);
++var _g26$ = _$template__r_dom("<div><img src loading=lazy>", 1);
++var _g27$ = _$template__r_dom("<iframe src>");
++var _g28$ = _$template__r_dom("<div><iframe src>");
++var _g29$ = _$template__r_dom("<iframe src loading=lazy>", 1);
++var _g30$ = _$template__r_dom("<div><iframe src loading=lazy>", 1);
++var _g31$ = _$template__r_dom("<div title=\"<u>data</u>\">");
++var _g32$ = _$template__r_dom("<div true truestr=true truestrjs=true>");
++var _g33$ = _$template__r_dom("<div falsestr=false falsestrjs=false>");
++var _g34$ = _$template__r_dom("<div true>");
++var _g35$ = _$template__r_dom("<div a b c d f=0 g h l>");
++var _g36$ = _$template__r_dom("<div style=background:red>");
++var _g37$ = _$template__r_dom("<div style=background:red;color:green;margin:3;padding:0.4>");
++var _g38$ = _$template__r_dom("<div style=background:red;color:green>");
++var _g39$ = _$template__r_dom("<video>");
++var _g40$ = _$template__r_dom("<video playsinline>");
++var _g41$ = _$template__r_dom("<video poster=1.jpg>");
++var _g42$ = _$template__r_dom("<div><video poster=1.jpg>");
++var _g43$ = _$template__r_dom("<div><video>");
++var _g44$ = _$template__r_dom("<button type=button>");
+ import * as styles from "./styles.module.css";
+ import { binding } from "somewhere";
+ function refFn() {}
+ const refConst = null;
+ const selected = true;
+ let link;
+-var _g46$ = _g1$();
+-_$spread__r_dom(_g46$, _$mergeProps__r_custom({
++var _g45$ = _g1$();
++_$spread__r_dom(_g45$, _$mergeProps__r_dom({
+   id: "main"
+ }, results, {
+-  class: {
+-    selected: unknown
++  get class() {
++    return {
++      selected: unknown
++    };
+   },
+-  style: {
+-    color: color
++  get style() {
++    return {
++      color: color
++    };
+   }
+ }), true);
+-_$spread__r_dom(_g46$.firstChild, _$mergeProps__r_custom({
++_$spread__r_dom(_g45$.firstChild, _$mergeProps__r_dom({
+   id: "my-h1"
+-}, results, {
++}, () => {
++  return results();
++}, {
+   foo: true,
+   disabled: true,
+   get title() {
+@@ -90,425 +94,428 @@
+       "margin-right": "40px"
+     };
+   },
+-  get ["class"]() {
++  get class() {
+     return ["base", {
+       dynamic: dynamic(),
+       selected: selected
+     }];
+   }
+ }), true);
+-var _g47$ = link;
+-typeof _g47$ === "function" || Array.isArray(_g47$) ? _$ref__r_dom(() => {
+-  return _g47$;
+-}, _g46$.firstChild.firstChild) : link = _g46$.firstChild.firstChild;
+-_$className__r_dom(_g46$.firstChild.firstChild, {
+-  "ccc ddd": true
+-});
+-const template = _g46$;
+-var _g48$ = _g2$();
+-_$spread__r_dom(_g48$, _$mergeProps__r_custom(() => {
++var _g46$ = link;
++typeof _g46$ === "function" || Array.isArray(_g46$) ? _$ref__r_dom(() => {
++  return _g46$;
++}, _g45$.firstChild.firstChild) : link = _g45$.firstChild.firstChild;
++_g45$.firstChild.firstChild.classList.toggle("ccc ddd", !!true);
++const template = _g45$;
++var _g47$ = _g2$();
++_$spread__r_dom(_g47$, () => {
+   return getProps("test");
+-}), true);
+-_g48$.firstChild.textContent = rowId;
+-_g48$.firstChild.nextSibling.nextSibling.innerHTML = "<div/>";
+-_$effect__r_custom(() => {
++}, true);
++_g47$.firstChild.textContent = rowId;
++_$effect__r_dom(() => {
+   return row.label;
+-}, _g49$ => {
+-  _g48$.firstChild.nextSibling.firstChild.data = _g49$;
++}, _g48$ => {
++  _g47$.firstChild.nextSibling.textContent = _g48$;
+ });
+-const template2 = _g48$;
+-var _g50$ = _g3$();
+-_$setAttribute__r_dom(_g50$, "id", state.id);
+-_$setStyleProperty__r_dom(_g50$, "background-color", state.color);
+-_g50$.textContent = state.content;
+-_$effect__r_custom(() => {
++_g47$.firstChild.nextSibling.nextSibling.innerHTML = "<div/>";
++const template2 = _g47$;
++var _g49$ = _g3$();
++_$setAttribute__r_dom(_g49$, "id", state.id);
++_$setStyleProperty__r_dom(_g49$, "background-color", state.color);
++_$effect__r_dom(() => {
+   return state.name;
+-}, _g49$ => {
+-  _$setAttribute__r_dom(_g50$, "name", _g49$);
+-});
+-const template3 = _g50$;
+-var _g51$ = _g4$();
+-_$className__r_dom(_g51$, {
+-  "ccc:ddd": true
++}, _g48$ => {
++  _$setAttribute__r_dom(_g49$, "name", _g48$);
+ });
+-_$effect__r_custom(() => {
++_g49$.textContent = state.content;
++const template3 = _g49$;
++var _g50$ = _g4$();
++_$effect__r_dom(() => {
+   return state.class;
+-}, _g49$ => {
+-  _$setAttribute__r_dom(_g51$, "className", _g49$);
++}, (_g48$, _$p) => {
++  _$className__r_dom(_g50$, _g48$, _$p);
+ });
+-const template4 = _g51$;
++_g50$.classList.toggle("ccc:ddd", !!true);
++const template4 = _g50$;
+ const template5 = _g5$();
+-var _g52$ = _g4$();
+-_g52$.textContent = "Hi";
+-_$effect__r_custom(() => {
++var _g51$ = _g4$();
++_$effect__r_dom(() => {
+   return someStyle();
+-}, (_g49$, _$p) => {
+-  _$style__r_dom(_g52$, _g49$, _$p);
++}, (_g48$, _$p) => {
++  _$style__r_dom(_g51$, _g48$, _$p);
+ });
+-const template6 = _g52$;
++_g51$.textContent = "Hi";
++const template6 = _g51$;
+ let undefVar;
+-var _g53$ = _g6$();
+-_g53$.classList.toggle("other-class2", !!undefVar);
+-_$effect__r_custom(() => {
++var _g52$ = _g4$();
++_$effect__r_dom(() => {
+   return {
+     "background-color": color(),
++    "margin-right": "40px",
+     ...props.style
+   };
+-}, (_g49$, _$p) => {
+-  _$style__r_dom(_g53$, _g49$, _$p);
++}, (_g48$, _$p) => {
++  _$style__r_dom(_g52$, _g48$, _$p);
+ });
+-const template7 = _g53$;
++_g52$.classList.toggle("other-class2", !!undefVar);
++const template7 = _g52$;
+ let refTarget;
+-var _g54$ = _g4$();
+-var _g55$ = refTarget;
+-typeof _g55$ === "function" || Array.isArray(_g55$) ? _$ref__r_dom(() => {
+-  return _g55$;
+-}, _g54$) : refTarget = _g54$;
+-const template8 = _g54$;
+-var _g56$ = _g4$();
++var _g53$ = _g4$();
++var _g54$ = refTarget;
++typeof _g54$ === "function" || Array.isArray(_g54$) ? _$ref__r_dom(() => {
++  return _g54$;
++}, _g53$) : refTarget = _g53$;
++const template8 = _g53$;
++var _g55$ = _g4$();
+ _$ref__r_dom(() => {
+   return e => {
+     return console.log(e);
+   };
++}, _g55$);
++const template9 = _g55$;
++var _g56$ = _g4$();
++var _g57$ = refFactory();
++(typeof _g57$ === "function" || Array.isArray(_g57$)) && _$ref__r_dom(() => {
++  return _g57$;
+ }, _g56$);
+-const template9 = _g56$;
+-var _g57$ = _g4$();
+-var _g58$ = refFactory();
+-(typeof _g58$ === "function" || Array.isArray(_g58$)) && _$ref__r_dom(() => {
+-  return _g58$;
+-}, _g57$);
+-const template10 = _g57$;
+-var _g59$ = _g7$();
+-_g59$.htmlFor = thing;
+-_g59$.number = 123;
+-const template12 = _g59$;
+-const template13 = _g8$();
+-var _g60$ = _g9$();
+-_$effect__r_custom(() => {
++const template10 = _g56$;
++var _g58$ = _g6$();
++_g58$.htmlFor = thing;
++_g58$.number = 123;
++const template12 = _g58$;
++const template13 = _g7$();
++var _g59$ = _g8$();
++_$effect__r_dom(() => {
+   return state.visible;
+-}, _g49$ => {
+-  _g60$.checked = _g49$;
++}, _g48$ => {
++  _g59$.checked = _g48$;
+ });
+-const template14 = _g60$;
+-const template15 = _g10$();
+-const template16 = _g11$();
+-var _g61$ = _g12$();
+-_$addEvent__r_dom(_g61$, "click", increment, true);
+-const template17 = _g61$;
+-var _g62$ = _g4$();
+-_$spread__r_dom(_g62$, _$mergeProps__r_custom(() => {
+-  return {
+-    get [key()]() {
+-      return props.value;
+-    }
+-  };
+-}), false);
+-const template18 = _g62$;
+-var _g63$ = _g4$();
+-_$className__r_dom(_g63$, [{
+-  "bg-red-500": true
+-}, "flex flex-col"]);
+-const template19 = _g63$;
+-var _g64$ = _g13$();
+-_$addEvent__r_dom(_g64$.firstChild, "input", doSomething, true);
+-_$addEvent__r_dom(_g64$.firstChild.nextSibling, "input", doSomethingElse, true);
+-_$setAttribute__r_dom(_g64$.firstChild.nextSibling, "readonly", value);
+-_$effect__r_custom(() => {
+-  return {
+-    e: s(),
+-    t: min(),
+-    a: max(),
+-    o: s2(),
+-    i: min(),
+-    n: max()
+-  };
+-}, ({
+-  e: e,
+-  t: t,
+-  a: a,
+-  o: o,
+-  i: i,
+-  n: n
+-}, _g65$) => {
+-  _g64$.firstChild.value = e ?? "";
+-  t !== _g65$?.t && _$setAttribute__r_dom(_g64$.firstChild, "min", t);
+-  a !== _g65$?.a && _$setAttribute__r_dom(_g64$.firstChild, "max", a);
+-  _g64$.firstChild.nextSibling.checked = o;
+-  i !== _g65$?.i && _$setAttribute__r_dom(_g64$.firstChild.nextSibling, "min", i);
+-  n !== _g65$?.n && _$setAttribute__r_dom(_g64$.firstChild.nextSibling, "max", n);
++const template14 = _g59$;
++const template15 = _g9$();
++const template16 = _g10$();
++var _g60$ = _g11$();
++_g60$.classList.toggle("a", !!true);
++_g60$.classList.toggle("b", !!true);
++_g60$.classList.toggle("c", !!true);
++_$addEvent__r_dom(_g60$, "click", increment, true);
++const template17 = _g60$;
++var _g61$ = _g4$();
++_$spread__r_dom(_g61$, {
++  get [key()]() {
++    return props.value;
++  }
++}, false);
++const template18 = _g61$;
++const template19 = _g12$();
++var _g62$ = _g13$();
++_$effect__r_dom(() => {
++  return s();
++}, _g48$ => {
++  _g62$.firstChild.value = _g48$;
+ });
+-const template20 = _g64$;
+-var _g66$ = _g14$();
+-_$effect__r_custom(() => {
++_$effect__r_dom(() => {
++  return min();
++}, _g48$ => {
++  _$setAttribute__r_dom(_g62$.firstChild, "min", _g48$);
++});
++_$effect__r_dom(() => {
++  return max();
++}, _g48$ => {
++  _$setAttribute__r_dom(_g62$.firstChild, "max", _g48$);
++});
++_$addEvent__r_dom(_g62$.firstChild, "input", doSomething, true);
++_$effect__r_dom(() => {
++  return s2();
++}, _g48$ => {
++  _g62$.firstChild.nextSibling.checked = _g48$;
++});
++_$effect__r_dom(() => {
++  return min();
++}, _g48$ => {
++  _$setAttribute__r_dom(_g62$.firstChild.nextSibling, "min", _g48$);
++});
++_$effect__r_dom(() => {
++  return max();
++}, _g48$ => {
++  _$setAttribute__r_dom(_g62$.firstChild.nextSibling, "max", _g48$);
++});
++_$addEvent__r_dom(_g62$.firstChild.nextSibling, "input", doSomethingElse, true);
++_$setAttribute__r_dom(_g62$.firstChild.nextSibling, "readonly", value);
++const template20 = _g62$;
++var _g63$ = _g4$();
++_$effect__r_dom(() => {
+   return {
++    a: "static",
+     ...rest
+   };
+-}, (_g49$, _$p) => {
+-  _$style__r_dom(_g66$, _g49$, _$p);
+-});
+-const template21 = _g66$;
+-const template22 = _g15$();
+-var _g67$ = _g4$();
+-_$insert__r_dom(_g67$, () => {
+-  return "t" in test && "true";
++}, (_g48$, _$p) => {
++  _$style__r_dom(_g63$, _g48$, _$p);
+ });
+-_$effect__r_custom(() => {
++const template21 = _g63$;
++const template22 = _g14$();
++var _g64$ = _g4$();
++_$effect__r_dom(() => {
+   return "t" in test;
+-}, _g49$ => {
+-  _$setAttribute__r_dom(_g67$, "disabled", _g49$);
++}, _g48$ => {
++  _$setAttribute__r_dom(_g64$, "disabled", _g48$);
+ });
+-const template23 = _g67$;
+-var _g68$ = _g16$();
+-_$spread__r_dom(_g68$, _$mergeProps__r_custom(props, {
++_$insert__r_dom(_g64$, "t" in test && "true");
++const template23 = _g64$;
++var _g65$ = _g15$();
++_$spread__r_dom(_g65$, _$mergeProps__r_dom(props, {
+   something: true
+ }), false);
+-const template24 = _g68$;
+-var _g69$ = _g17$();
+-_$insert__r_dom(_g69$, () => {
++const template24 = _g65$;
++var _g66$ = _g16$();
++_$insert__r_dom(_g66$, () => {
+   return props.children;
+-}, _g69$.firstChild);
+-_$spread__r_dom(_g69$.firstChild, _$mergeProps__r_custom(props, {
++}, _g66$.firstChild);
++_$spread__r_dom(_g66$.firstChild, _$mergeProps__r_dom(props, {
+   something: true
+ }), false);
+-const template25 = _g69$;
+-var _g70$ = _g18$();
+-_$spread__r_dom(_g70$, _$mergeProps__r_custom({
++const template25 = _g66$;
++var _g67$ = _g17$();
++_$spread__r_dom(_g67$, _$mergeProps__r_dom({
+   start: "Hi",
+   middle: middle
+ }, spread), true);
+-const template26 = _g70$;
+-var _g71$ = _g18$();
+-_$spread__r_dom(_g71$, _$mergeProps__r_custom({
++const template26 = _g67$;
++var _g68$ = _g17$();
++_$spread__r_dom(_g68$, _$mergeProps__r_dom({
+   start: "Hi"
+ }, first, {
+   middle: middle
+ }, second), true);
+-const template27 = _g71$;
+-var _g72$ = _g19$();
+-_$spread__r_dom(_g72$, _$mergeProps__r_custom(api), true);
+-_$spread__r_dom(_g72$.firstChild, _$mergeProps__r_custom(api), true);
+-_$insert__r_dom(_g72$.firstChild, () => {
++const template27 = _g68$;
++var _g69$ = _g18$();
++_$spread__r_dom(_g69$, () => {
++  return api();
++}, true);
++_$spread__r_dom(_g69$.firstChild, () => {
++  return api();
++}, true);
++_$insert__r_dom(_g69$.firstChild, () => {
+   return api() ? "checked" : "unchecked";
+ }, null);
+-_$spread__r_dom(_g72$.firstChild.nextSibling, _$mergeProps__r_custom(api), false);
+-_$spread__r_dom(_g72$.firstChild.nextSibling.nextSibling, _$mergeProps__r_custom(api), false);
+-const template28 = _g72$;
+-var _g73$ = _g4$();
+-_$setAttribute__r_dom(_g73$, "attribute", !!someValue);
+-_$insert__r_dom(_g73$, !!someValue);
+-const template29 = _g73$;
+-const template30 = _g20$();
+-var _g74$ = _g4$();
+-_$effect__r_custom(() => {
++_$spread__r_dom(_g69$.firstChild.nextSibling, () => {
++  return api();
++}, false);
++_$spread__r_dom(_g69$.firstChild.nextSibling.nextSibling, () => {
++  return api();
++}, false);
++const template28 = _g69$;
++var _g70$ = _g4$();
++_$setAttribute__r_dom(_g70$, "attribute", !!someValue);
++_$insert__r_dom(_g70$, !!someValue);
++const template29 = _g70$;
++const template30 = _g19$();
++var _g71$ = _g4$();
++_$effect__r_dom(() => {
+   return getStore.itemProperties.color;
+-}, _g49$ => {
+-  _$setStyleProperty__r_dom(_g74$, "background-color", _g49$);
++}, _g48$ => {
++  _$setStyleProperty__r_dom(_g71$, "background-color", _g48$);
+ });
+-const template31 = _g74$;
++const template31 = _g71$;
+ const template32 = _g4$();
+ const template33 = [(() => {
+-  var _g75$ = _g21$();
+-  _$effect__r_custom(() => {
++  var _g72$ = _g20$();
++  _$effect__r_dom(() => {
+     return styles.button;
+-  }, (_g49$, _$p) => {
+-    _$className__r_dom(_g75$, _g49$, _$p);
++  }, (_g48$, _$p) => {
++    _$className__r_dom(_g72$, _g48$, _$p);
+   });
+-  return _g75$;
++  return _g72$;
+ })(), (() => {
+-  var _g76$ = _g21$();
+-  _$effect__r_custom(() => {
++  var _g73$ = _g20$();
++  _$effect__r_dom(() => {
+     return styles["foo--bar"];
+-  }, (_g49$, _$p) => {
+-    _$className__r_dom(_g76$, _g49$, _$p);
++  }, (_g48$, _$p) => {
++    _$className__r_dom(_g73$, _g48$, _$p);
+   });
+-  return _g76$;
++  return _g73$;
+ })(), (() => {
+-  var _g77$ = _g21$();
+-  _$effect__r_custom(() => {
++  var _g74$ = _g20$();
++  _$effect__r_dom(() => {
+     return styles.foo.bar;
+-  }, (_g49$, _$p) => {
+-    _$className__r_dom(_g77$, _g49$, _$p);
++  }, (_g48$, _$p) => {
++    _$className__r_dom(_g74$, _g48$, _$p);
+   });
+-  return _g77$;
++  return _g74$;
+ })(), (() => {
+-  var _g78$ = _g21$();
+-  _$effect__r_custom(() => {
++  var _g75$ = _g20$();
++  _$effect__r_dom(() => {
+     return styles[foo()];
+-  }, (_g49$, _$p) => {
+-    _$className__r_dom(_g78$, _g49$, _$p);
++  }, (_g48$, _$p) => {
++    _$className__r_dom(_g75$, _g48$, _$p);
+   });
+-  return _g78$;
++  return _g75$;
+ })()];
+-var _g79$ = _g4$();
+-var _g80$ = a().b.c;
+-typeof _g80$ === "function" || Array.isArray(_g80$) ? _$ref__r_dom(() => {
+-  return _g80$;
+-}, _g79$) : a().b.c = _g79$;
+-const template35 = _g79$;
+-var _g81$ = _g4$();
+-var _g82$ = a().b?.c;
+-(typeof _g82$ === "function" || Array.isArray(_g82$)) && _$ref__r_dom(() => {
+-  return _g82$;
+-}, _g81$);
+-const template36 = _g81$;
+-var _g83$ = _g4$();
+-var _g84$ = a() ? b : c;
+-(typeof _g84$ === "function" || Array.isArray(_g84$)) && _$ref__r_dom(() => {
+-  return _g84$;
+-}, _g83$);
+-const template37 = _g83$;
+-var _g85$ = _g4$();
+-var _g86$ = a() ?? b;
+-(typeof _g86$ === "function" || Array.isArray(_g86$)) && _$ref__r_dom(() => {
+-  return _g86$;
+-}, _g85$);
+-const template38 = _g85$;
+-const template39 = _g22$();
+-var _g87$ = _g4$();
+-_$effect__r_custom(() => {
++var _g76$ = _g4$();
++var _g77$ = a().b.c;
++typeof _g77$ === "function" || Array.isArray(_g77$) ? _$ref__r_dom(() => {
++  return _g77$;
++}, _g76$) : a().b.c = _g76$;
++const template35 = _g76$;
++var _g78$ = _g4$();
++var _g79$ = a().b?.c;
++(typeof _g79$ === "function" || Array.isArray(_g79$)) && _$ref__r_dom(() => {
++  return _g79$;
++}, _g78$);
++const template36 = _g78$;
++var _g80$ = _g4$();
++var _g81$ = a() ? b : c;
++(typeof _g81$ === "function" || Array.isArray(_g81$)) && _$ref__r_dom(() => {
++  return _g81$;
++}, _g80$);
++const template37 = _g80$;
++var _g82$ = _g4$();
++var _g83$ = a() ?? b;
++(typeof _g83$ === "function" || Array.isArray(_g83$)) && _$ref__r_dom(() => {
++  return _g83$;
++}, _g82$);
++const template38 = _g82$;
++const template39 = _g21$();
++var _g84$ = _g4$();
++_$effect__r_dom(() => {
+   return a();
+-}, _g49$ => {
+-  _$setStyleProperty__r_dom(_g87$, "color", _g49$);
++}, _g48$ => {
++  _$setStyleProperty__r_dom(_g84$, "color", _g48$);
+ });
+-const template40 = _g87$;
+-var _g88$ = _g23$();
+-_$effect__r_custom(() => {
+-  return {
+-    e: state.color,
+-    t: Color.Red,
+-    a: Color.Blue
+-  };
+-}, ({
+-  e: e,
+-  t: t,
+-  a: a
+-}, _g65$) => {
+-  queueMicrotask(() => {
+-    return _g88$.value = e;
+-  }) || (_g88$.value = e);
+-  _g88$.firstChild.value = t;
+-  _g88$.firstChild.nextSibling.value = a;
++const template40 = _g84$;
++var _g85$ = _g22$();
++_$effect__r_dom(() => {
++  return state.color;
++}, _g48$ => {
++  _g85$.value = _g48$;
+ });
+-const template41 = _g88$;
+-const template42 = _g24$();
+-const template43 = _g25$();
+-const template44 = _g26$();
+-const template45 = _g27$();
+-const template46 = _g28$();
+-const template47 = _g29$();
+-const template48 = _g30$();
+-const template49 = _g31$();
+-const template50 = _g32$();
+-var _g89$ = _g4$();
+-_$ref__r_dom(() => {
+-  return binding;
+-}, _g89$);
+-const template51 = _g89$;
++_$effect__r_dom(() => {
++  return Color.Red;
++}, _g48$ => {
++  _g85$.firstChild.value = _g48$;
++});
++_$effect__r_dom(() => {
++  return Color.Blue;
++}, _g48$ => {
++  _g85$.firstChild.nextSibling.value = _g48$;
++});
++const template41 = _g85$;
++const template42 = _g23$();
++const template43 = _g24$();
++const template44 = _g25$();
++const template45 = _g26$();
++const template46 = _g27$();
++const template47 = _g28$();
++const template48 = _g29$();
++const template49 = _g30$();
++const template50 = _g31$();
++var _g86$ = _g4$();
++var _g87$ = binding;
++typeof _g87$ === "function" || Array.isArray(_g87$) ? _$ref__r_dom(() => {
++  return _g87$;
++}, _g86$) : binding = _g86$;
++const template51 = _g86$;
++var _g88$ = _g4$();
++var _g89$ = binding.prop;
++typeof _g89$ === "function" || Array.isArray(_g89$) ? _$ref__r_dom(() => {
++  return _g89$;
++}, _g88$) : binding.prop = _g88$;
++const template52 = _g88$;
+ var _g90$ = _g4$();
+-var _g91$ = binding.prop;
++var _g91$ = refFn;
+ typeof _g91$ === "function" || Array.isArray(_g91$) ? _$ref__r_dom(() => {
+   return _g91$;
+-}, _g90$) : binding.prop = _g90$;
+-const template52 = _g90$;
++}, _g90$) : refFn = _g90$;
++const template53 = _g90$;
+ var _g92$ = _g4$();
+-var _g93$ = refFn;
++var _g93$ = refConst;
+ typeof _g93$ === "function" || Array.isArray(_g93$) ? _$ref__r_dom(() => {
+   return _g93$;
+-}, _g92$) : refFn = _g92$;
+-const template53 = _g92$;
++}, _g92$) : refConst = _g92$;
++const template54 = _g92$;
+ var _g94$ = _g4$();
+-_$ref__r_dom(() => {
+-  return refConst;
+-}, _g94$);
+-const template54 = _g94$;
+-var _g95$ = _g4$();
+-var _g96$ = refUnknown;
+-typeof _g96$ === "function" || Array.isArray(_g96$) ? _$ref__r_dom(() => {
+-  return _g96$;
+-}, _g95$) : refUnknown = _g95$;
+-const template55 = _g95$;
+-const template56 = _g33$();
+-const template57 = _g34$();
+-var _g97$ = _g4$();
+-_g97$.true = true;
+-_g97$.false = false;
+-const template58 = _g97$;
+-const template59 = _g35$();
+-var _g98$ = _g36$();
+-_$setAttribute__r_dom(_g98$, "i", undefined);
+-_$setAttribute__r_dom(_g98$, "j", null);
+-_$setAttribute__r_dom(_g98$, "k", void 0);
+-const template60 = _g98$;
+-var _g99$ = _$createElement__r_custom("math", {
++var _g95$ = refUnknown;
++typeof _g95$ === "function" || Array.isArray(_g95$) ? _$ref__r_dom(() => {
++  return _g95$;
++}, _g94$) : refUnknown = _g94$;
++const template55 = _g94$;
++const template56 = _g32$();
++const template57 = _g33$();
++var _g96$ = _g4$();
++_g96$.true = true;
++_g96$.false = false;
++const template58 = _g96$;
++const template59 = _g34$();
++var _g97$ = _g35$();
++_$setAttribute__r_dom(_g97$, "i", undefined);
++_$setAttribute__r_dom(_g97$, "j", null);
++_$setAttribute__r_dom(_g97$, "k", void 0);
++const template60 = _g97$;
++var _g45$ = _$createElement__r_custom("math", {
+   display: "block"
+ });
+-var _g100$ = _$createElement__r_custom("mrow");
+-_$insertNode__r_custom(_g99$, _g100$);
+-const template61 = _g99$;
+-var _g101$ = _$createElement__r_custom("mrow");
+-var _g102$ = _$createElement__r_custom("mi");
+-var _g103$ = _$createElement__r_custom("mo");
+-_$insertNode__r_custom(_g101$, _g102$);
+-_$insertNode__r_custom(_g101$, _g103$);
+-_$insertNode__r_custom(_g102$, _$createTextNode__r_custom("x"));
+-_$insertNode__r_custom(_g103$, _$createTextNode__r_custom("="));
+-const template62 = _g101$;
+-const template63 = _g37$();
+-const template64 = _g38$();
+-const template65 = _g39$();
+-var _g104$ = _g39$();
+-_$effect__r_custom(() => {
++var _g98$ = _$createElement__r_custom("mrow");
++_$insertNode__r_custom(_g45$, _g45$.firstChild);
++const template61 = _g45$;
++var _g99$ = _$createElement__r_custom("mrow");
++var _g47$ = _$createElement__r_custom("mi");
++_$insertNode__r_custom(_g47$, _$createTextNode__r_custom("x"));
++_$insertNode__r_custom(_g45$.firstChild.firstChild, _g47$);
++var _g100$ = _$createElement__r_custom("mo");
++_$insertNode__r_custom(_g47$.firstChild, _$createTextNode__r_custom("="));
++_$insertNode__r_custom(_g45$.firstChild.firstChild, _g47$.firstChild);
++const template62 = _g45$.firstChild.firstChild;
++const template63 = _g36$();
++const template64 = _g37$();
++const template65 = _g38$();
++var _g101$ = _g38$();
++_$effect__r_dom(() => {
+   return signal();
+-}, _g49$ => {
+-  _$setStyleProperty__r_dom(_g104$, "border", _g49$);
++}, _g48$ => {
++  _$setStyleProperty__r_dom(_g101$, "border", _g48$);
+ });
+-const template66 = _g104$;
+-var _g105$ = _g39$();
+-_$setStyleProperty__r_dom(_g105$, "border", somevalue);
+-const template67 = _g105$;
+-var _g106$ = _g39$();
+-_$effect__r_custom(() => {
++const template66 = _g101$;
++var _g102$ = _g38$();
++_$setStyleProperty__r_dom(_g102$, "border", somevalue);
++const template67 = _g102$;
++var _g103$ = _g38$();
++_$effect__r_dom(() => {
+   return some.access;
+-}, _g49$ => {
+-  _$setStyleProperty__r_dom(_g106$, "border", _g49$);
++}, _g48$ => {
++  _$setStyleProperty__r_dom(_g103$, "border", _g48$);
+ });
+-const template68 = _g106$;
+-const template69 = _g39$();
+-var _g107$ = _g40$();
+-_$setAttribute__r_dom(_g107$, "playsinline", value);
+-const template70 = _g107$;
+-const template71 = _g41$();
+-const template72 = _g40$();
+-const template73 = _g42$();
+-const template74 = _g43$();
+-var _g108$ = _g40$();
+-_g108$.poster = "1.jpg";
+-const template75 = _g108$;
+-var _g109$ = _g44$();
+-_g109$.firstChild.poster = "1.jpg";
+-const template76 = _g109$;
+-var _g110$ = _g4$();
+-_$setStyleProperty__r_dom(_g110$, "width", props.width);
+-_$setStyleProperty__r_dom(_g110$, "height", props.height);
+-const template77 = _g110$;
+-var _g111$ = _g4$();
+-_$setStyleProperty__r_dom(_g111$, "width", props.width);
+-_$setStyleProperty__r_dom(_g111$, "height", props.height);
+-_$effect__r_custom(() => {
++const template68 = _g103$;
++const template69 = _g38$();
++var _g104$ = _g39$();
++_$setAttribute__r_dom(_g104$, "playsinline", value);
++const template70 = _g104$;
++const template71 = _g40$();
++const template72 = _g39$();
++const template73 = _g41$();
++const template74 = _g42$();
++var _g105$ = _g39$();
++_g105$.poster = "1.jpg";
++const template75 = _g105$;
++var _g106$ = _g43$();
++_g106$.firstChild.poster = "1.jpg";
++const template76 = _g106$;
++var _g107$ = _g4$();
++_$setStyleProperty__r_dom(_g107$, "width", props.width);
++_$setStyleProperty__r_dom(_g107$, "height", props.height);
++const template77 = _g107$;
++var _g108$ = _g4$();
++_$setStyleProperty__r_dom(_g108$, "width", props.width);
++_$setStyleProperty__r_dom(_g108$, "height", props.height);
++_$effect__r_dom(() => {
+   return color();
+-}, _g49$ => {
+-  _$setAttribute__r_dom(_g111$, "something", _g49$);
+-});
+-const template78 = _g111$;
+-var _g112$ = _g4$();
+-_$setStyleProperty__r_dom(_g112$, "height", props.height);
+-_$setAttribute__r_dom(_g112$, "something", color());
+-_$effect__r_custom(() => {
+-  return props.width;
+-}, _g49$ => {
+-  _$setStyleProperty__r_dom(_g112$, "width", _g49$);
++}, _g48$ => {
++  _$setAttribute__r_dom(_g108$, "something", _g48$);
+ });
+-const template79 = _g112$;
++const template78 = _g108$;
++var _g109$ = _g4$();
++_$setStyleProperty__r_dom(_g109$, "width", props.width);
++_$setStyleProperty__r_dom(_g109$, "height", props.height);
++_$setAttribute__r_dom(_g109$, "something", color());
++const template79 = _g109$;
+ const propsSpread = {
+   something: color(),
+   style: {
+@@ -517,90 +524,74 @@
+     "margin-right": props.right
+   }
+ };
+-var _g113$ = _g4$();
+-_$spread__r_dom(_g113$, propsSpread, false);
+-const template80 = _g113$;
+-var _g114$ = _g4$();
+-_$spread__r_dom(_g114$, {
+-  ...propsSpread
+-}, false);
+-const template81 = _g114$;
+-var _g115$ = _g4$();
+-_$spread__r_dom(_g115$, _$mergeProps__r_custom(propsSpread, {
+-  get ["data-dynamic"]() {
++var _g110$ = _g4$();
++_$spread__r_dom(_g110$, propsSpread, false);
++const template80 = _g110$;
++var _g111$ = _g4$();
++_$spread__r_dom(_g111$, propsSpread, false);
++const template81 = _g111$;
++var _g112$ = _g4$();
++_$spread__r_dom(_g112$, _$mergeProps__r_dom(propsSpread, {
++  get "data-dynamic"() {
+     return color();
+   },
+   "data-static": color()
+ }), false);
+-const template82 = _g115$;
+-var _g116$ = _g4$();
+-_$spread__r_dom(_g116$, _$mergeProps__r_custom({
+-  ...propsSpread
+-}, {
+-  get ["data-dynamic"]() {
++const template82 = _g112$;
++var _g113$ = _g4$();
++_$spread__r_dom(_g113$, _$mergeProps__r_dom(propsSpread, {
++  get "data-dynamic"() {
+     return color();
+   },
+   "data-static": color()
+ }), false);
+-const template83 = _g116$;
+-var _g117$ = _g4$();
+-_$spread__r_dom(_g117$, _$mergeProps__r_custom({
+-  ...propsSpread1
+-}, propsSpread2, {
+-  ...propsSpread3
+-}, {
+-  get ["data-dynamic"]() {
++const template83 = _g113$;
++var _g114$ = _g4$();
++_$spread__r_dom(_g114$, _$mergeProps__r_dom(propsSpread1, propsSpread2, propsSpread3, {
++  get "data-dynamic"() {
+     return color();
+   },
+   "data-static": color()
+ }), false);
+-const template84 = _g117$;
++const template84 = _g114$;
+ const styleProp = {
+   style: {
+     width: props.width,
+     height: props.height
+   }
+ };
+-var _g118$ = _g4$();
+-_$style__r_dom(_g118$, styleProp.style);
+-const template85 = _g118$;
+-var _g119$ = _g4$();
+-_$effect__r_custom(() => {
++var _g115$ = _g4$();
++_$style__r_dom(_g115$, styleProp.style);
++const template85 = _g115$;
++var _g116$ = _g4$();
++_$effect__r_dom(() => {
+   return styleProp.style;
+-}, (_g49$, _$p) => {
+-  _$style__r_dom(_g119$, _g49$, _$p);
++}, (_g48$, _$p) => {
++  _$style__r_dom(_g116$, _g48$, _$p);
+ });
+-const template86 = _g119$;
++const template86 = _g116$;
+ const style = {
+   background: "red",
+   border: "solid black " + count() + "px"
+ };
+-var _g120$ = _g45$();
+-_$insert__r_dom(_g120$, count);
+-_$effect__r_custom(() => {
+-  return {
+-    e: count(),
+-    t: style,
+-    a: style
+-  };
+-}, ({
+-  e: e,
+-  t: t,
+-  a: a
+-}, _g65$) => {
+-  e !== _g65$?.e && _$setAttribute__r_dom(_g120$, "aria-label", e);
+-  _$style__r_dom(_g120$, t, _g65$?.t);
+-  _$className__r_dom(_g120$, a, _g65$?.a);
++var _g117$ = _g44$();
++_$effect__r_dom(() => {
++  return count();
++}, _g48$ => {
++  _$setAttribute__r_dom(_g117$, "aria-label", _g48$);
+ });
+-const template87 = _g120$;
+-var _g121$ = _g45$();
+-_$style__r_dom(_g121$, style);
+-_$className__r_dom(_g121$, style);
+-_$insert__r_dom(_g121$, count);
+-_$effect__r_custom(() => {
++_$style__r_dom(_g117$, style);
++_$className__r_dom(_g117$, style);
++_$insert__r_dom(_g117$, count);
++const template87 = _g117$;
++var _g118$ = _g44$();
++_$effect__r_dom(() => {
+   return count();
+-}, _g49$ => {
+-  _$setAttribute__r_dom(_g121$, "aria-label", _g49$);
++}, _g48$ => {
++  _$setAttribute__r_dom(_g118$, "aria-label", _g48$);
+ });
+-const template88 = _g121$;
++_$style__r_dom(_g118$, style);
++_$className__r_dom(_g118$, style);
++_$insert__r_dom(_g118$, count);
++const template88 = _g118$;
+ _$delegateEvents__r_dom(["click", "input"]);
