@@ -82,11 +82,32 @@ function createAssetTracking() {
   const boundaryModules = new Map();
   const boundaryStyles = new Map();
   const emittedAssets = new Set();
+  const inlineStyles = new Map();
   let currentBoundaryId = null;
   return {
     boundaryModules,
     boundaryStyles,
     emittedAssets,
+    inlineStyles,
+    // Inline styles (dev CSS collected from the module graph, critical CSS)
+    // dedupe by `id` — repeated registrations reuse the same entry object so
+    // boundary Sets and the head injection never emit the same style twice.
+    registerInlineStyle(desc) {
+      let entry = inlineStyles.get(desc.id);
+      if (!entry) {
+        entry = { id: desc.id, content: desc.content || "", attrs: desc.attrs, emitted: false };
+        inlineStyles.set(desc.id, entry);
+      }
+      if (currentBoundaryId) {
+        let styles = boundaryStyles.get(currentBoundaryId);
+        if (!styles) {
+          styles = new Set();
+          boundaryStyles.set(currentBoundaryId, styles);
+        }
+        styles.add(entry);
+      }
+      return entry;
+    },
     get currentBoundaryId() {
       return currentBoundaryId;
     },
@@ -181,16 +202,20 @@ export function renderToString(code, options = {}) {
       }
       serializer.write(id, p);
     },
-    registerAsset(type, url) {
+    registerAsset(type, value) {
+      if (type === "inline-style") {
+        tracking.registerInlineStyle(value);
+        return;
+      }
       if (tracking.currentBoundaryId && type === "style") {
         let styles = tracking.boundaryStyles.get(tracking.currentBoundaryId);
         if (!styles) {
           styles = new Set();
           tracking.boundaryStyles.set(tracking.currentBoundaryId, styles);
         }
-        styles.add(url);
+        styles.add(value);
       }
-      tracking.emittedAssets.add(url);
+      tracking.emittedAssets.add(value);
     }
   };
   applyAssetTracking(sharedConfig.context, tracking, manifest);
@@ -207,6 +232,7 @@ export function renderToString(code, options = {}) {
   serializer.close();
   html = injectAssets(sharedConfig.context.assets, html);
   html = injectPreloadLinks(tracking.emittedAssets, html, nonce);
+  html = injectInlineStyles(tracking.inlineStyles, html, nonce);
   if (scripts.length) html = injectScripts(html, scripts, options.nonce);
   return html;
 }
@@ -316,19 +342,30 @@ export function renderToStream(code, options = {}) {
     async: true,
     assets: [],
     nonce,
-    registerAsset(type, url) {
+    registerAsset(type, value) {
+      if (type === "inline-style") {
+        const entry = tracking.registerInlineStyle(value);
+        // Boundary-attributed inline styles flush with their fragment; a late
+        // registration outside any boundary has no other emission point, so
+        // write the tag into the stream immediately.
+        if (firstFlushed && !tracking.currentBoundaryId && !entry.emitted) {
+          entry.emitted = true;
+          buffer.write(renderInlineStyle(entry, nonce));
+        }
+        return;
+      }
       if (tracking.currentBoundaryId && type === "style") {
         let styles = tracking.boundaryStyles.get(tracking.currentBoundaryId);
         if (!styles) {
           styles = new Set();
           tracking.boundaryStyles.set(tracking.currentBoundaryId, styles);
         }
-        styles.add(url);
+        styles.add(value);
       }
-      if (!tracking.emittedAssets.has(url)) {
-        tracking.emittedAssets.add(url);
+      if (!tracking.emittedAssets.has(value)) {
+        tracking.emittedAssets.add(value);
         if (firstFlushed && type === "module") {
-          buffer.write(`<link rel="modulepreload" href="${url}">`);
+          buffer.write(`<link rel="modulepreload" href="${value}">`);
         }
       }
     },
@@ -421,10 +458,15 @@ export function renderToStream(code, options = {}) {
               serializeFragmentAssets(key, tracking.boundaryModules, context);
               const styles = collectStreamStyles(key, tracking, headStyles);
               const deferActivation = !!revealGroup;
-              if (styles.length) {
-                emitTask(`$dfs("${key}",${styles.length},${deferActivation ? 1 : 0})`);
+              // Inline styles apply as soon as the parser sees them — emit
+              // before the template, no load gating needed.
+              for (let i = 0; i < styles.inline.length; i++) {
+                buffer.write(renderInlineStyle(styles.inline[i], nonce));
+              }
+              if (styles.links.length) {
+                emitTask(`$dfs("${key}",${styles.links.length},${deferActivation ? 1 : 0})`);
                 writeTasks();
-                for (const url of styles) {
+                for (const url of styles.links) {
                   buffer.write(
                     `<link rel="stylesheet" href="${url}" onload="$dfc('${key}')" onerror="$dfc('${key}')">`
                   );
@@ -519,6 +561,7 @@ export function renderToStream(code, options = {}) {
       if (url.endsWith(".css")) headStyles.add(url);
     }
     html = injectPreloadLinks(tracking.emittedAssets, html, nonce);
+    html = injectInlineStyles(tracking.inlineStyles, html, nonce);
     serializeRootAssets();
     if (tasks.length) html = injectScripts(html, tasks, nonce);
     buffer.write(html);
@@ -1109,16 +1152,56 @@ function propagateBoundaryStyles(childKey, parentKey, tracking) {
   }
 }
 
+// Boundary style sets hold two kinds of entries: url strings (stylesheet
+// links, load-gated via $dfs) and inline style entry objects (emitted as
+// <style> tags, ready as soon as parsed). Splits them for the fragment
+// flush, consuming inline entries so they emit at most once.
 function collectStreamStyles(key, tracking, headStyles) {
   const styles = tracking.getBoundaryStyles(key);
-  if (!styles) return [];
-  const result = [];
-  for (const url of styles) {
-    if (!headStyles || !headStyles.has(url)) {
-      result.push(url);
+  const links = [];
+  const inline = [];
+  if (!styles) return { links, inline };
+  for (const entry of styles) {
+    if (typeof entry === "string") {
+      if (!headStyles || !headStyles.has(entry)) links.push(entry);
+    } else if (!entry.emitted) {
+      entry.emitted = true;
+      inline.push(entry);
     }
   }
-  return result;
+  return { links, inline };
+}
+
+// `</style` inside content would close the tag early; escaping the slash is
+// valid CSS and neutralizes the sequence.
+function escapeStyleContent(content) {
+  return content.replace(/<\/(style)/gi, "<\\/$1");
+}
+
+function renderInlineStyle(entry, nonce) {
+  let attrs = "";
+  if (entry.attrs) {
+    for (const name in entry.attrs) {
+      attrs += ` ${name}="${escape(String(entry.attrs[name]), true)}"`;
+    }
+  }
+  return `<style${nonce ? ` nonce="${nonce}"` : ""} data-asset="${escape(
+    entry.id,
+    true
+  )}"${attrs}>${escapeStyleContent(entry.content)}</style>`;
+}
+
+function injectInlineStyles(inlineStyles, html, nonce) {
+  if (!inlineStyles.size) return html;
+  const index = html.indexOf("</head>");
+  if (index === -1) return html;
+  let out = "";
+  for (const entry of inlineStyles.values()) {
+    if (entry.emitted) continue;
+    entry.emitted = true;
+    out += renderInlineStyle(entry, nonce);
+  }
+  return out ? html.slice(0, index) + out + html.slice(index) : html;
 }
 
 function injectScripts(html, scripts, nonce) {
@@ -1326,7 +1409,8 @@ export {
   notSup as getNextMarker,
   notSup as runHydrationEvents,
   notSup as ref,
-  notSup as setStyleProperty
+  notSup as setStyleProperty,
+  notSup as acquireAsset
 };
 
 function notSup() {

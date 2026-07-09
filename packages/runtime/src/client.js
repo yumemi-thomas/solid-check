@@ -459,6 +459,122 @@ export function assign(node, props, skipChildren, prevProps = {}, skipRef = fals
   }
 }
 
+// ---- Asset Registry ----
+//
+// Ref-counted client-side ownership of shared document assets. Consumers
+// (routers, lazy wrappers, metadata components) acquire an asset when content
+// that needs it mounts and release it on cleanup; the element is created — or
+// an SSR/stream-emitted one adopted — on the first acquire and removed
+// shortly after the last release. The removal grace period lets quick
+// release/re-acquire cycles (route transitions sharing CSS) reuse the live
+// element instead of flashing unstyled content while it reloads.
+//
+// Descriptor forms:
+//   { type: "style", href, attrs? }               → <link rel="stylesheet">
+//   { type: "inline-style", id, content?, attrs? } → <style data-asset={id}>
+//   { type: "module", href }                       → <link rel="modulepreload">
+//   { policy: "exclusive", key, value, get, set }  → singleton slot
+//
+// Exclusive slots implement last-writer-wins with restore-on-release (the
+// title/meta ownership model): the newest acquire's value is applied via
+// `set`; releasing it re-applies the previous writer's value, and the
+// original document value (captured with `get` on first acquire) once every
+// writer has released.
+
+const ASSET_REMOVAL_GRACE = 100;
+const assetRegistry = new Map();
+
+function assetEntryKey(descriptor) {
+  if (descriptor.policy === "exclusive") return "x|" + descriptor.key;
+  return descriptor.type === "inline-style"
+    ? "i|" + descriptor.id
+    : descriptor.type + "|" + descriptor.href;
+}
+
+// Attribute-compared lookup (instead of an attribute selector) so href/id
+// values never need selector escaping.
+function findAssetElement(selector, attr, value) {
+  const nodes = document.querySelectorAll(selector);
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].getAttribute(attr) === value) return nodes[i];
+  }
+  return null;
+}
+
+function mountAssetElement(descriptor) {
+  let el;
+  if (descriptor.type === "inline-style") {
+    el = findAssetElement("style[data-asset]", "data-asset", descriptor.id);
+    if (!el) {
+      el = document.createElement("style");
+      el.setAttribute("data-asset", descriptor.id);
+      el.textContent = descriptor.content || "";
+    }
+  } else {
+    const rel = descriptor.type === "module" ? "modulepreload" : "stylesheet";
+    el = findAssetElement(`link[rel="${rel}"]`, "href", descriptor.href);
+    if (!el) {
+      el = document.createElement("link");
+      el.rel = rel;
+      el.href = descriptor.href;
+    }
+  }
+  if (descriptor.attrs) {
+    for (const name in descriptor.attrs) el.setAttribute(name, descriptor.attrs[name]);
+  }
+  if (!el.isConnected) document.head.appendChild(el);
+  return el;
+}
+
+export function acquireAsset(descriptor) {
+  const key = assetEntryKey(descriptor);
+  let entry = assetRegistry.get(key);
+  if (descriptor.policy === "exclusive") {
+    if (!entry) {
+      entry = { original: descriptor.get(), set: descriptor.set, writers: [] };
+      assetRegistry.set(key, entry);
+    }
+    const writer = { value: descriptor.value };
+    entry.writers.push(writer);
+    entry.set(writer.value);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const index = entry.writers.indexOf(writer);
+      const wasTop = index === entry.writers.length - 1;
+      entry.writers.splice(index, 1);
+      if (!wasTop) return;
+      if (entry.writers.length) {
+        entry.set(entry.writers[entry.writers.length - 1].value);
+      } else {
+        entry.set(entry.original);
+        assetRegistry.delete(key);
+      }
+    };
+  }
+  if (!entry) {
+    entry = { count: 0, element: null, timer: null };
+    assetRegistry.set(key, entry);
+  }
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  entry.count++;
+  if (!entry.element || !entry.element.isConnected) entry.element = mountAssetElement(descriptor);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--entry.count > 0) return;
+    entry.timer = setTimeout(() => {
+      assetRegistry.delete(key);
+      entry.element && entry.element.remove();
+    }, ASSET_REMOVAL_GRACE);
+  };
+}
+
 // Module asset loading for hydration. `mapping` pairs opaque keys with
 // client-loadable entry URLs. Keys are chosen by the reactive library's
 // server-side lazy() (e.g. hydration ids) and are never interpreted here —

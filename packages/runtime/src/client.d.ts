@@ -103,6 +103,19 @@ export function getNextMatch(start: Node, elementName: string): Element;
 export function getNextMarker(start: Node): [Node, Array<Node>];
 export function useAssets(fn: () => JSX.Element): void;
 export function getAssets(): string;
+export type AssetDescriptor =
+  | { type: "style"; href: string; attrs?: Record<string, string> }
+  | { type: "inline-style"; id: string; content?: string; attrs?: Record<string, string> }
+  | { type: "module"; href: string }
+  | ExclusiveAssetDescriptor<any>;
+export interface ExclusiveAssetDescriptor<T> {
+  policy: "exclusive";
+  key: string;
+  value: T;
+  get(): T;
+  set(value: T): void;
+}
+export function acquireAsset(descriptor: AssetDescriptor): () => void;
 export function HydrationScript(props?: { nonce?: string; eventNames?: string[] }): JSX.Element;
 export function generateHydrationScript(options?: {
   nonce?: string;
