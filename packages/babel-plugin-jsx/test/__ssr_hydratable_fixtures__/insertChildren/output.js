@@ -43,7 +43,12 @@ const template6 = Module({
 });
 const template7 = _$ssrElement("module", dynamic, undefined, true);
 const template8 = _$ssrElement("module", dynamic, () => "Hello", true);
-const template9 = _$ssrElement("module", dynamic, () => () => _$escape(dynamic.children), true);
+const template9 = _$ssrElement(
+  "module",
+  dynamic,
+  () => _$scope(() => _$escape(dynamic.children)),
+  true
+);
 const template10 = Module(
   _$mergeProps(dynamic, {
     children: "Hello"
@@ -96,7 +101,7 @@ const template23 = Module({
 const template24 = _$ssrElement(
   "module",
   dynamic,
-  () => ["Hi", "<!--$-->", () => _$escape(dynamic.children), "<!--/-->"],
+  () => ["Hi", "<!--$-->", _$scope(() => _$escape(dynamic.children)), "<!--/-->"],
   true
 );
 const tiles = [];
