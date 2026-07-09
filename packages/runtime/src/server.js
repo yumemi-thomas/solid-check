@@ -93,14 +93,17 @@ function createAssetTracking() {
     set currentBoundaryId(v) {
       currentBoundaryId = v;
     },
-    registerModule(moduleUrl, entryUrl) {
+    // `key` is opaque to the runtime — the reactive library's server-side
+    // lazy() picks it (e.g. a hydration id) and its client-side counterpart
+    // looks preloaded modules up under the same key after loadModuleAssets.
+    registerModule(key, entryUrl) {
       const id = currentBoundaryId || "";
       let map = boundaryModules.get(id);
       if (!map) {
         map = {};
         boundaryModules.set(id, map);
       }
-      map[moduleUrl] = entryUrl;
+      map[key] = entryUrl;
     },
     getBoundaryModules(id) {
       return boundaryModules.get(id) || null;

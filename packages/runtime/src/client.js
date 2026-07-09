@@ -459,27 +459,31 @@ export function assign(node, props, skipChildren, prevProps = {}, skipRef = fals
   }
 }
 
-// Module asset loading for hydration
+// Module asset loading for hydration. `mapping` pairs opaque keys with
+// client-loadable entry URLs. Keys are chosen by the reactive library's
+// server-side lazy() (e.g. hydration ids) and are never interpreted here —
+// they only need to match what the client-side lazy() looks up in
+// `_$HY.modules` after preload.
 function loadModuleAssets(mapping) {
   const hy = globalThis._$HY;
   if (!hy) return;
   const pending = [];
-  for (const moduleUrl in mapping) {
-    if (hy.modules[moduleUrl]) continue;
-    const entryUrl = mapping[moduleUrl];
-    if (!hy.loading[moduleUrl]) {
-      hy.loading[moduleUrl] = import(/* @vite-ignore */ entryUrl).then(
+  for (const key in mapping) {
+    if (hy.modules[key]) continue;
+    const entryUrl = mapping[key];
+    if (!hy.loading[key]) {
+      hy.loading[key] = import(/* @vite-ignore */ entryUrl).then(
         mod => {
-          hy.modules[moduleUrl] = mod;
+          hy.modules[key] = mod;
         },
         err => {
           // drop the rejected entry so a later boundary/navigation can retry
-          delete hy.loading[moduleUrl];
+          delete hy.loading[key];
           throw err;
         }
       );
     }
-    pending.push(hy.loading[moduleUrl]);
+    pending.push(hy.loading[key]);
   }
   return pending.length ? Promise.all(pending).then(() => {}) : undefined;
 }
@@ -899,7 +903,16 @@ function insertExpression(parent, value, current, marker) {
     const tc = typeof current;
     if (tc === "string" || tc === "number") {
       parent.firstChild.data = value;
-    } else parent.textContent = value;
+    } else {
+      const owned = ownedChildCount(current);
+      if (owned === -1 || owned === parent.childNodes.length) parent.textContent = value;
+      else {
+        // Foreign nodes present (e.g. stream-injected stylesheet links) —
+        // replace only our own nodes, keeping text content leading.
+        removeOwnedChildren(parent, current);
+        parent.insertBefore(document.createTextNode(value), parent.firstChild);
+      }
+    }
   } else if (value === undefined) {
     cleanChildren(parent, current, marker);
   } else if (value.nodeType) {
@@ -928,7 +941,7 @@ function insertExpression(parent, value, current, marker) {
         appendNodes(parent, value, marker);
       } else reconcileArrays(parent, current, value, marker);
     } else {
-      current && cleanChildren(parent);
+      current && cleanChildren(parent, current);
       appendNodes(parent, value);
     }
   } else if ("_DX_DEV_") console.warn(`Unrecognized value. Skipped inserting`, value);
@@ -977,8 +990,45 @@ function appendNodes(parent, array, marker = null) {
   }
 }
 
+// Number of parent children the tracked `current` value accounts for, or -1
+// when unknown (initial render / untracked content — the whole parent is
+// considered owned, preserving the designed clear-on-first-render behavior).
+function ownedChildCount(current) {
+  if (Array.isArray(current)) return current.length;
+  if (current == null) return -1;
+  if (current === "") return 0; // `textContent = ""` left no node behind
+  return 1; // single node, or a string/number rendered as one text node
+}
+
+// Remove only the nodes tracked by `current` from a root-level (markerless)
+// region, leaving foreign siblings in place.
+function removeOwnedChildren(parent, current) {
+  if (Array.isArray(current)) {
+    for (let i = 0; i < current.length; i++) {
+      const el = current[i];
+      if (el.parentNode === parent) el.remove();
+    }
+  } else if (current.nodeType) {
+    if (current.parentNode === parent) current.remove();
+  } else {
+    // string/number content lives in a leading text node (set via
+    // `textContent = value`, before any foreign node was appended).
+    const first = parent.firstChild;
+    if (first && first.nodeType === 3) first.remove();
+  }
+}
+
 function cleanChildren(parent, current, marker, replacement) {
-  if (marker === undefined) return (parent.textContent = "");
+  if (marker === undefined) {
+    // Root-level clear (no marker). `textContent = ""` wipes every child,
+    // which is only safe when the nodes we track are the parent's only
+    // children. Streaming can append foreign nodes to the root (late-flushed
+    // stylesheet <link>s land at the end of <body>) and those must survive a
+    // re-render — wiping them drops loaded CSS.
+    const owned = ownedChildCount(current);
+    if (owned === -1 || owned === parent.childNodes.length) return (parent.textContent = "");
+    return removeOwnedChildren(parent, current);
+  }
   if (current.length) {
     let inserted = false;
     for (let i = current.length - 1; i >= 0; i--) {
