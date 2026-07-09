@@ -857,12 +857,25 @@ function createElement(
             `Fragments can only be used top level in JSX. Not used under a <${tagName}>.`
           );
         }
+        const allocatesIds = hydratable && canChildSlotAllocateIds(path);
         const child = transformNode(path);
         if (!child) return memo;
         if (markers && child.exprs.length && !child.spreadElement)
           memo.push(t.stringLiteral("<!--$-->"));
         if (child.exprs.length && !doNotEscape && !child.spreadElement)
           child.exprs[0] = escapeExpression(path, child.exprs[0] as babelTypes.Expression)!;
+        // Deferred holes that can allocate hydration ids evaluate under their
+        // own owner scope, exactly like `transformChildren` does for the
+        // template path. Spread elements render through `ssrElement` instead
+        // of a template, but their children holes still need the wrap — the
+        // dom generate scope()s the matching insert accessor regardless of
+        // spread, so skipping it here desyncs every hydration id that follows
+        // the hole.
+        if (child.exprs.length && allocatesIds && child.dynamic) {
+          child.exprs[0] = t.callExpression(registerImportMethod(path, "scope"), [
+            child.exprs[0] as babelTypes.Expression
+          ]);
+        }
         memo.push(
           getCreateTemplate(config, path, child)(path, child, false) as babelTypes.Expression
         );
