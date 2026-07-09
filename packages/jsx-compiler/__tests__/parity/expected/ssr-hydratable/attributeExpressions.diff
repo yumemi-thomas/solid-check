@@ -77,32 +77,34 @@
  function refFn() {}
  const refConst = null;
  const selected = true;
-@@ -84,304 +19,183 @@
-   style: {
-     color: color
-   }
--}), () => {
--  return _$ssrElement__r_server("h1", _$mergeProps__r_server({
--    id: "my-h1"
--  }, results, {
--    foo: true,
--    disabled: true,
--    get title() {
--      return welcoming();
--    },
--    get style() {
--      return {
--        "background-color": color(),
--        "margin-right": "40px"
--      };
--    },
--    get ["class"]() {
--      return ["base", {
--        dynamic: dynamic(),
--        selected: selected
--      }];
--    }
--  }), () => {
+@@ -86,314 +21,193 @@
+       color: color
+     }
+   });
+-}, () => {
+-  return _$ssrElement__r_server("h1", () => {
+-    return _$mergeProps__r_server({
+-      id: "my-h1"
+-    }, results, {
+-      foo: true,
+-      disabled: true,
+-      get title() {
+-        return welcoming();
+-      },
+-      get style() {
+-        return {
+-          "background-color": color(),
+-          "margin-right": "40px"
+-        };
+-      },
+-      get ["class"]() {
+-        return ["base", {
+-          dynamic: dynamic(),
+-          selected: selected
+-        }];
+-      }
+-    });
+-  }, () => {
 -    return _g1$ = link, _$ssr__r_server(_g10$, "ccc ddd");
 -  }, false);
 -}, true);
@@ -132,26 +134,28 @@
 -var _g67$ = _$ssrHydrationKey__r_server();
 -var _g68$ = () => {
 -  return _$ssrStyle__r_server({
-+}), _$ssrElement__r_server("h1", _$mergeProps__r_server({
-+  id: "my-h1"
-+}, results(), {
-+  foo: true,
-+  disabled: true,
-+  title: welcoming(),
-+  style: {
-     "background-color": color(),
+-    "background-color": color(),
 -    "margin-right": "40px",
 -    ...props.style
--  });
++}, _$ssrElement__r_server("h1", () => {
++  return _$mergeProps__r_server({
++    id: "my-h1"
++  }, results(), {
++    foo: true,
++    disabled: true,
++    title: welcoming(),
++    style: {
++      "background-color": color(),
++      "margin-right": "40px"
++    },
++    class: ["base", {
++      dynamic: dynamic(),
++      selected: selected
++    }]
+   });
 -};
 -const template7 = _$ssr__r_server(_g16$, _g67$, _g68$, undefVar ? "other-class2" : "");
-+    "margin-right": "40px"
-+  },
-+  class: ["base", {
-+    dynamic: dynamic(),
-+    selected: selected
-+  }]
-+}), _$ssr__r_server(["<a", " href=\"/\" ref=\"", "\" class=\"", "\">Welcome</a>"], _$ssrHydrationKey__r_server(), _$escape__r_server(link, true), _$escape__r_server({
++}, _$ssr__r_server(["<a", " href=\"/\" ref=\"", "\" class=\"", "\">Welcome</a>"], _$ssrHydrationKey__r_server(), _$escape__r_server(link, true), _$escape__r_server({
 +  "ccc ddd": true
 +}, true)), false), false);
 +const template2 = _$ssrElement__r_server("div", getProps("test"), [_$ssr__r_server(["<div", " textContent=\"", "\"></div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(rowId, true)), _$ssr__r_server(["<div", " textContent=\"", "\"></div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(row.label, true)), _$ssr__r_server(["<div", " innerHTML=\"<div/>\"></div>"], _$ssrHydrationKey__r_server())], false);
@@ -266,33 +270,41 @@
 +}, true));
 +const template22 = _$ssr__r_server(["<div", " data=\"&quot;hi&quot;\" data2=\"&quot;\"></div>"], _$ssrHydrationKey__r_server());
 +const template23 = _$ssr__r_server(["<div", " disabled=\"", "\">", "</div>"], _$ssrHydrationKey__r_server(), _$escape__r_server("t" in test, true), _$escape__r_server("t" in test && "true"));
- const template24 = _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
-   something: true
--}), undefined, true);
+ const template24 = _$ssrElement__r_server("a", () => {
+   return _$mergeProps__r_server(props, {
+     something: true
+   });
+-}, undefined, true);
 -var _g94$ = _$ssrHydrationKey__r_server();
 -var _g95$ = _$scope__r_server(() => {
-+}), undefined, false);
++}, undefined, false);
 +const template25 = _$ssr__r_server(["<div", ">", "", "</div>"], _$ssrHydrationKey__r_server(), _$scope__r_server(() => {
    return _$escape__r_server(props.children);
 -});
--var _g96$ = _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
-+}), _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
-   something: true
--}), undefined, false);
+-var _g96$ = _$ssrElement__r_server("a", () => {
++}), _$ssrElement__r_server("a", () => {
+   return _$mergeProps__r_server(props, {
+     something: true
+   });
+-}, undefined, false);
 -const template25 = _$ssr__r_server(_g29$, _g94$, _g95$, _g96$);
-+}), undefined, false));
- const template26 = _$ssrElement__r_server("div", _$mergeProps__r_server({
-   start: "Hi",
-   middle: middle
--}, spread), () => {
++}, undefined, false));
+ const template26 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server({
+     start: "Hi",
+     middle: middle
+   }, spread);
+-}, () => {
 -  return "Hi";
 -}, true);
-+}, spread), "Hi", false);
- const template27 = _$ssrElement__r_server("div", _$mergeProps__r_server({
-   start: "Hi"
- }, first, {
-   middle: middle
--}, second), () => {
++}, "Hi", false);
+ const template27 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server({
+     start: "Hi"
+   }, first, {
+     middle: middle
+   }, second);
+-}, () => {
 -  return "Hi";
 -}, true);
 -const template28 = _$ssrElement__r_server("label", api(), () => {
@@ -442,7 +454,7 @@
 -  return _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true));
 -};
 -const template79 = _$ssr__r_server(_g55$, _g163$, _g164$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
-+}, second), "Hi", false);
++}, "Hi", false);
 +const template28 = _$ssrElement__r_server("label", api(), [_$ssrElement__r_server("span", api(), ["Input is ", api() ? "checked" : "unchecked"], false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)], false);
 +const template29 = _$ssr__r_server(["<div", " attribute=\"", "\">", "</div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(!!someValue, true), _$escape__r_server(!!someValue));
 +const template30 = _$ssr__r_server(["<div", " class=\"class1 class2\n    class3 class4\n    class5 class6\" style=\"color: red;\n    background-color: blue !important;\n    border: 1px solid black;\n    font-size: 12px;\" random=\"random1 random2\n    random3 random4\"></div>"], _$ssrHydrationKey__r_server());
@@ -539,7 +551,7 @@
  const propsSpread = {
    something: color(),
    style: {
-@@ -390,72 +204,41 @@
+@@ -402,78 +216,47 @@
      "margin-right": props.right
    }
  };
@@ -547,30 +559,36 @@
 -const template81 = _$ssrElement__r_server("div", propsSpread, undefined, true);
 +const template80 = _$ssrElement__r_server("div", propsSpread, undefined, false);
 +const template81 = _$ssrElement__r_server("div", propsSpread, undefined, false);
- const template82 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread, {
--  get ["data-dynamic"]() {
--    return color();
--  },
-+  "data-dynamic": color(),
-   "data-static": color()
--}), undefined, true);
-+}), undefined, false);
- const template83 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread, {
--  get ["data-dynamic"]() {
--    return color();
--  },
-+  "data-dynamic": color(),
-   "data-static": color()
--}), undefined, true);
-+}), undefined, false);
- const template84 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread1, propsSpread2, propsSpread3, {
--  get ["data-dynamic"]() {
--    return color();
--  },
-+  "data-dynamic": color(),
-   "data-static": color()
--}), undefined, true);
-+}), undefined, false);
+ const template82 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server(propsSpread, {
+-    get ["data-dynamic"]() {
+-      return color();
+-    },
++    "data-dynamic": color(),
+     "data-static": color()
+   });
+-}, undefined, true);
++}, undefined, false);
+ const template83 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server(propsSpread, {
+-    get ["data-dynamic"]() {
+-      return color();
+-    },
++    "data-dynamic": color(),
+     "data-static": color()
+   });
+-}, undefined, true);
++}, undefined, false);
+ const template84 = _$ssrElement__r_server("div", () => {
+   return _$mergeProps__r_server(propsSpread1, propsSpread2, propsSpread3, {
+-    get ["data-dynamic"]() {
+-      return color();
+-    },
++    "data-dynamic": color(),
+     "data-static": color()
+   });
+-}, undefined, true);
++}, undefined, false);
  const styleProp = {
    style: {
      width: props.width,

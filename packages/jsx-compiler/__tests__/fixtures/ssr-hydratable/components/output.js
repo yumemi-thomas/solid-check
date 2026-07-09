@@ -208,5 +208,9 @@ const template25 = Component({ get children() {
 function MyComponent(props) {
 	let el;
 	const others = omit(props, "children");
-	return _$ssrElement("div", _$mergeProps({ ref: el }, others), props.children, false);
+	return _$ssrElement("div", () => {
+		return _$mergeProps({ ref: el }, others);
+	}, _$scope(() => {
+		return props.children;
+	}), false);
 }

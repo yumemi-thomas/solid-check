@@ -11,22 +11,26 @@ const refConst = null;
 const selected = true;
 let id = "my-h1";
 let link;
-const template = _$ssrElement("div", _$mergeProps({ id: "main" }, results, {
-	class: { selected: unknown },
-	style: { color }
-}), _$ssrElement("h1", _$mergeProps({ id }, results(), {
-	foo: true,
-	disabled: true,
-	title: welcoming(),
-	style: {
-		"background-color": color(),
-		"margin-right": "40px"
-	},
-	class: ["base", {
-		dynamic: dynamic(),
-		selected
-	}]
-}), _$ssr([
+const template = _$ssrElement("div", () => {
+	return _$mergeProps({ id: "main" }, results, {
+		class: { selected: unknown },
+		style: { color }
+	});
+}, _$ssrElement("h1", () => {
+	return _$mergeProps({ id }, results(), {
+		foo: true,
+		disabled: true,
+		title: welcoming(),
+		style: {
+			"background-color": color(),
+			"margin-right": "40px"
+		},
+		class: ["base", {
+			dynamic: dynamic(),
+			selected
+		}]
+	});
+}, _$ssr([
 	"<a",
 	" href=\"/\" ref=\"",
 	"\" class=\"",
@@ -163,7 +167,9 @@ const template23 = _$ssr([
 	"\">",
 	"</div>"
 ], _$ssrHydrationKey(), _$escape("t" in test, true), _$escape("t" in test && "true"));
-const template24 = _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false);
+const template24 = _$ssrElement("a", () => {
+	return _$mergeProps(props, { something: true });
+}, undefined, false);
 const template25 = _$ssr([
 	"<div",
 	">",
@@ -171,12 +177,18 @@ const template25 = _$ssr([
 	"</div>"
 ], _$ssrHydrationKey(), _$scope(() => {
 	return _$escape(props.children);
-}), _$ssrElement("a", _$mergeProps(props, { something: true }), undefined, false));
-const template26 = _$ssrElement("div", _$mergeProps({
-	start: "Hi",
-	middle
-}, spread), "Hi", false);
-const template27 = _$ssrElement("div", _$mergeProps({ start: "Hi" }, first, { middle }, second), "Hi", false);
+}), _$ssrElement("a", () => {
+	return _$mergeProps(props, { something: true });
+}, undefined, false));
+const template26 = _$ssrElement("div", () => {
+	return _$mergeProps({
+		start: "Hi",
+		middle
+	}, spread);
+}, "Hi", false);
+const template27 = _$ssrElement("div", () => {
+	return _$mergeProps({ start: "Hi" }, first, { middle }, second);
+}, "Hi", false);
 const template28 = _$ssrElement("label", api(), [
 	_$ssrElement("span", api(), ["Input is ", api() ? "checked" : "unchecked"], false),
 	_$ssrElement("input", api(), undefined, false),
@@ -422,18 +434,24 @@ const propsSpread = {
 };
 const template80 = _$ssrElement("div", propsSpread, undefined, false);
 const template81 = _$ssrElement("div", propsSpread, undefined, false);
-const template82 = _$ssrElement("div", _$mergeProps(propsSpread, {
-	"data-dynamic": color(),
-	"data-static": color()
-}), undefined, false);
-const template83 = _$ssrElement("div", _$mergeProps(propsSpread, {
-	"data-dynamic": color(),
-	"data-static": color()
-}), undefined, false);
-const template84 = _$ssrElement("div", _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
-	"data-dynamic": color(),
-	"data-static": color()
-}), undefined, false);
+const template82 = _$ssrElement("div", () => {
+	return _$mergeProps(propsSpread, {
+		"data-dynamic": color(),
+		"data-static": color()
+	});
+}, undefined, false);
+const template83 = _$ssrElement("div", () => {
+	return _$mergeProps(propsSpread, {
+		"data-dynamic": color(),
+		"data-static": color()
+	});
+}, undefined, false);
+const template84 = _$ssrElement("div", () => {
+	return _$mergeProps(propsSpread1, propsSpread2, propsSpread3, {
+		"data-dynamic": color(),
+		"data-static": color()
+	});
+}, undefined, false);
 // STATIC PROPERTY OF OBJECT ACCESS
 // https://github.com/ryansolid/dom-expressions/issues/252#issuecomment-1572220563
 const styleProp = { style: {

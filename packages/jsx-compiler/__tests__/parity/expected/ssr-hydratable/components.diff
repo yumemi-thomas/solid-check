@@ -260,7 +260,7 @@
            }
          });
        }
-@@ -239,60 +180,50 @@
+@@ -239,60 +180,54 @@
  }, props));
  const Template17 = Pre({
    get children() {
@@ -328,11 +328,15 @@
    let el;
    const others = omit(props, "children");
 -  return _$ssrElement__r_server("div", others, () => {
--    return () => {
+-    return _$scope__r_server(() => {
 -      return _$escape__r_server(props.children);
--    };
+-    });
 -  }, true);
-+  return _$ssrElement__r_server("div", _$mergeProps__r_server({
-+    ref: el
-+  }, others), props.children, false);
++  return _$ssrElement__r_server("div", () => {
++    return _$mergeProps__r_server({
++      ref: el
++    }, others);
++  }, _$scope__r_server(() => {
++    return props.children;
++  }), false);
  }
