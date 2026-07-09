@@ -1,0 +1,113 @@
+@@ -2,9 +2,6 @@
+ import { mergeProps as _$mergeProps__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+ import { ssrElement as _$ssrElement__r_server } from "r-server";
+-var _g1$ = ["<module>", "</module>"];
+-var _g2$ = ["<module>Hi ", "</module>"];
+-var _g3$ = ["<div>", "</div>"];
+ const children = _$ssr__r_server("<div></div>");
+ const dynamic = {
+   children: children
+@@ -12,15 +9,10 @@
+ const template = Module({
+   children: children
+ });
+-var _g4$ = _$escape__r_server(children);
+-const template2 = _$ssr__r_server(_g1$, _g4$);
+-const template3 = _$ssr__r_server("<module>Hello</module>");
+-var _g5$ = _$escape__r_server(Hello({}));
+-const template4 = _$ssr__r_server(_g1$, _g5$);
+-var _g6$ = () => {
+-  return _$escape__r_server(dynamic.children);
+-};
+-const template5 = _$ssr__r_server(_g1$, _g6$);
++const template2 = _$ssr__r_server(["<module children=\"", "\"></module>"], _$escape__r_server(children, true));
++const template3 = _$ssr__r_server(["<module children=\"", "\">Hello</module>"], _$escape__r_server(children, true));
++const template4 = _$ssr__r_server(["<module children=\"", "\">", "</module>"], _$escape__r_server(children, true), Hello({}));
++const template5 = _$ssr__r_server(["<module children=\"", "\"></module>"], _$escape__r_server(dynamic.children, true));
+ const template6 = Module({
+   get children() {
+     return dynamic.children;
+@@ -28,68 +20,47 @@
+ });
+ const template7 = _$ssrElement__r_server("module", dynamic, undefined, false);
+ const template8 = _$ssrElement__r_server("module", dynamic, "Hello", false);
+-const template9 = _$ssrElement__r_server("module", dynamic, () => {
+-  return _$escape__r_server(dynamic.children);
+-}, false);
++const template9 = _$ssrElement__r_server("module", dynamic, dynamic.children, false);
+ const template10 = Module(_$mergeProps__r_server(dynamic, {
+   children: "Hello"
+ }));
+-var _g7$ = _$escape__r_server(state.children);
+-const template11 = _$ssr__r_server(_g1$, _g7$);
++const template11 = _$ssr__r_server(["<module children=\"", "\"></module>"], _$escape__r_server(state.children, true));
+ const template12 = Module({
+   children: state.children
+ });
+-var _g8$ = _$escape__r_server(children);
+-const template13 = _$ssr__r_server(_g1$, _g8$);
++const template13 = _$ssr__r_server(["<module>", "</module>"], _$escape__r_server(children));
+ const template14 = Module({
+-  children: children
++  get children() {
++    return children;
++  }
+ });
+-var _g9$ = () => {
+-  return _$escape__r_server(dynamic.children);
+-};
+-const template15 = _$ssr__r_server(_g1$, _g9$);
++const template15 = _$ssr__r_server(["<module>", "</module>"], _$escape__r_server(dynamic.children));
+ const template16 = Module({
+   get children() {
+     return dynamic.children;
+   }
+ });
+-var _g10$ = _$escape__r_server(children);
+-const template18 = _$ssr__r_server(_g2$, _g10$);
++const template18 = _$ssr__r_server(["<module>Hi ", "</module>"], _$escape__r_server(children));
+ const template19 = Module({
+   get children() {
+     return ["Hi ", children];
+   }
+ });
+-var _g11$ = () => {
+-  return _$escape__r_server(children());
+-};
+-const template20 = _$ssr__r_server(_g1$, _g11$);
++const template20 = _$ssr__r_server(["<module>", "</module>"], _$escape__r_server(children()));
+ const template21 = Module({
+   get children() {
+     return children();
+   }
+ });
+-var _g12$ = () => {
+-  return _$escape__r_server(state.children());
+-};
+-const template22 = _$ssr__r_server(_g1$, _g12$);
++const template22 = _$ssr__r_server(["<module>", "</module>"], _$escape__r_server(state.children()));
+ const template23 = Module({
+   get children() {
+     return state.children();
+   }
+ });
+-const template24 = _$ssrElement__r_server("module", dynamic, ["Hi", () => {
+-  return _$escape__r_server(dynamic.children);
+-}], false);
++const template24 = _$ssrElement__r_server("module", dynamic, ["Hi", dynamic.children], false);
+ const tiles = [];
+ tiles.push(_$ssr__r_server("<div>Test 1</div>"));
+-var _g13$ = _$escape__r_server(tiles);
+-const template25 = _$ssr__r_server(_g3$, _g13$);
+-var _g14$ = () => {
+-  return _$escape__r_server((expression(), "static"));
+-};
+-const comma = _$ssr__r_server(_g3$, _g14$);
+-var _g15$ = () => {
+-  return _$escape__r_server(children()());
+-};
+-const double = _$ssr__r_server(_g3$, _g15$);
++const template25 = _$ssr__r_server(["<div>", "</div>"], _$escape__r_server(tiles));
++const comma = _$ssr__r_server(["<div>", "</div>"], _$escape__r_server((expression(), "static")));
++const double = _$ssr__r_server(["<div>", "</div>"], _$escape__r_server(children()()));

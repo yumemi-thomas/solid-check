@@ -1,0 +1,240 @@
+@@ -1,4 +1,5 @@
+ import { For as _$For__r_dom } from "r-dom";
++import { Show as _$Show__r_dom } from "r-dom";
+ import { applyRef as _$applyRef__r_dom } from "r-dom";
+ import { createComponent as _$createComponent__r_dom } from "r-dom";
+ import { insert as _$insert__r_dom } from "r-dom";
+@@ -24,24 +25,24 @@
+   const [s, set] = createSignal();
+   return [(() => {
+     var _g11$ = _g1$();
+-    var _g12$ = _g11$.firstChild;
+-    var _g13$ = props.ref;
+-    typeof _g13$ === "function" || Array.isArray(_g13$) ? _$ref__r_dom(() => {
+-      return _g13$;
++    var _g12$ = props.ref;
++    typeof _g12$ === "function" || Array.isArray(_g12$) ? _$ref__r_dom(() => {
++      return _g12$;
+     }, _g11$) : props.ref = _g11$;
+     _$insert__r_dom(_g11$, () => {
+       return props.name;
+     }, null);
+     return _g11$;
+   })(), (() => {
+-    var _g14$ = _g2$();
+-    _$ref__r_dom(() => {
+-      return set;
+-    }, _g14$);
+-    _$insert__r_dom(_g14$, () => {
++    var _g13$ = _g2$();
++    var _g14$ = set;
++    typeof _g14$ === "function" || Array.isArray(_g14$) ? _$ref__r_dom(() => {
++      return _g14$;
++    }, _g13$) : set = _g13$;
++    _$insert__r_dom(_g13$, () => {
+       return props.children;
+     });
+-    return _g14$;
++    return _g13$;
+   })()];
+ };
+ const template = props => {
+@@ -67,7 +68,9 @@
+   })), _g16$);
+   _$insert__r_dom(_g15$, _$createComponent__r_dom(Child, _$mergeProps__r_dom({
+     name: "Jason"
+-  }, dynamicSpread, {
++  }, () => {
++    return dynamicSpread();
++  }, {
+     ref(r$) {
+       var _g20$ = props.ref;
+       typeof _g20$ === "function" || Array.isArray(_g20$) ? _$applyRef__r_dom(_g20$, r$) : props.ref = r$;
+@@ -98,7 +101,7 @@
+   },
+   stale: state.data,
+   handleClick: clickHandler,
+-  get ["hyphen-ated"]() {
++  get "hyphen-ated"() {
+     return state.data;
+   },
+   ref: el => {
+@@ -133,7 +136,7 @@
+     return _$createComponent__r_dom(Loading, {});
+   },
+   children: item => {
+-    return _$createComponent__r_dom(Show, {
++    return _$createComponent__r_dom(_$Show__r_dom, {
+       get when() {
+         return state.condition;
+       },
+@@ -206,7 +209,7 @@
+ }), _g25$.firstChild.nextSibling);
+ _$insert__r_dom(_g25$, _$createComponent__r_dom(Link, {
+   children: "show"
+-}), _g25$.firstChild.nextSibling.nextSibling.nextSibling);
++}), _g25$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling);
+ const template12 = _g25$;
+ class Template13 {
+   render() {
+@@ -254,28 +257,22 @@
+   return s.dynamic();
+ }));
+ const Template20 = _$createComponent__r_dom(Component, {
+-  get ["class"]() {
++  get class() {
+     return prop.red ? "red" : "green";
+   }
+ });
+-const template21 = _$createComponent__r_dom(Component, _$mergeProps__r_dom(() => {
+-  return {
+-    get [key()]() {
+-      return props.value;
+-    }
+-  };
+-}));
++const template21 = _$createComponent__r_dom(Component, {
++  get [key()]() {
++    return props.value;
++  }
++});
+ const template22 = _$createComponent__r_dom(Component, {
+-  get passObject() {
+-    return {
+-      ...a
+-    };
++  passObject: {
++    ...a
+   }
+ });
+ const template23 = _$createComponent__r_dom(Component, {
+-  get disabled() {
+-    return "t" in test;
+-  },
++  disabled: "t" in test,
+   get children() {
+     return "t" in test && "true";
+   }
+@@ -292,10 +289,12 @@
+ });
+ const template26 = [_$createComponent__r_dom(Component, {
+   get when() {
+-    const foo = test();
+-    if ("t" in foo) {
+-      return foo;
+-    }
++    return (() => {
++      const foo = test();
++      if ("t" in foo) {
++        return foo;
++      }
++    })();
+   }
+ }), _$createComponent__r_dom(Component, {
+   get when() {
+@@ -306,7 +305,9 @@
+ })];
+ const template27 = _$createComponent__r_dom(Component, {
+   get when() {
+-    return prop.red ? "red" : "green";
++    return (() => {
++      return prop.red ? "red" : "green";
++    })();
+   }
+ });
+ class Template28 {
+@@ -314,10 +315,12 @@
+     const _g27$ = this;
+     return _$createComponent__r_dom(Component, {
+       get when() {
+-        const foo = _g27$.value;
+-        if ("key" in foo) {
+-          return foo;
+-        }
++        return (() => {
++          const foo = _g27$.value;
++          if ("key" in foo) {
++            return foo;
++          }
++        })();
+       }
+     });
+   }
+@@ -326,7 +329,7 @@
+   constructor() {
+     super();
+     const _g28$ = this;
+-    _$createComponent__r_dom(this.component, {
++    _$createComponent__r_dom(_g28$.component, {
+       get method() {
+         return _g28$.method;
+       }
+@@ -334,7 +337,7 @@
+   }
+   get get() {
+     const _g29$ = this;
+-    _$createComponent__r_dom(this.component, {
++    _$createComponent__r_dom(_g29$.component, {
+       get method() {
+         return _g29$.method;
+       }
+@@ -342,7 +345,7 @@
+   }
+   set set(v) {
+     const _g30$ = this;
+-    _$createComponent__r_dom(this.component, {
++    _$createComponent__r_dom(_g30$.component, {
+       get method() {
+         return _g30$.method;
+       }
+@@ -350,7 +353,7 @@
+   }
+   method() {
+     const _g31$ = this;
+-    _$createComponent__r_dom(this.component, {
++    _$createComponent__r_dom(_g31$.component, {
+       get method() {
+         return _g31$.method;
+       }
+@@ -358,7 +361,7 @@
+   }
+   field = (() => {
+     const _g32$ = this;
+-    return _$createComponent__r_dom(this.component, {
++    return _$createComponent__r_dom(_g32$.component, {
+       get method() {
+         return _g32$.method;
+       },
+@@ -369,7 +372,7 @@
+   })();
+   fieldArrow = () => {
+     const _g33$ = this;
+-    return _$createComponent__r_dom(this.component, {
++    return _$createComponent__r_dom(_g33$.component, {
+       get method() {
+         return _g33$.method;
+       }
+@@ -377,7 +380,7 @@
+   };
+   fieldFunction = function () {
+     const _g34$ = this;
+-    _$createComponent__r_dom(this.component, {
++    _$createComponent__r_dom(_g34$.component, {
+       get method() {
+         return _g34$.method;
+       }
+@@ -420,11 +423,9 @@
+   let el;
+   const others = omit(props, "children");
+   var _g39$ = _g2$();
+-  var _g40$ = el;
+-  typeof _g40$ === "function" || Array.isArray(_g40$) ? _$ref__r_dom(() => {
+-    return _g40$;
+-  }, _g39$) : el = _g39$;
+-  _$spread__r_dom(_g39$, others, true);
++  _$spread__r_dom(_g39$, _$mergeProps__r_dom({
++    ref: el
++  }, others), true);
+   _$insert__r_dom(_g39$, () => {
+     return props.children;
+   });

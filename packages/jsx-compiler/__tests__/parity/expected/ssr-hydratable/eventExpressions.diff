@@ -1,0 +1,22 @@
+@@ -1,11 +1,18 @@
++import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+ import { ssrHydrationKey as _$ssrHydrationKey__r_server } from "r-server";
+-var _g1$ = ["<div", " id=\"main\"><button>Change Bound</button><button>Change Bound</button><button>Click Delegated</button><button>Click Delegated</button></div>"];
+ function hoistedCustomEvent1() {
+   console.log("hoisted");
+ }
+ const hoistedcustomevent2 = () => {
+   return console.log("hoisted");
+ };
+-var _g2$ = _$ssrHydrationKey__r_server();
+-const template = _$ssr__r_server(_g1$, _g2$);
++const template = _$ssr__r_server(["<div", " id=\"main\"><button onchange=\"", "\">Change Bound</button><button onChange=\"", "\">Change Bound</button><button onclick=\"", "\">Click Delegated</button><button onClick=\"", "\">Click Delegated</button></div>"], _$ssrHydrationKey__r_server(), _$escape__r_server(() => {
++  return console.log("bound");
++}, true), _$escape__r_server([id => {
++  return console.log("bound", id);
++}, id], true), _$escape__r_server(() => {
++  return console.log("delegated");
++}, true), _$escape__r_server([id => {
++  return console.log("delegated", id);
++}, rowId], true));

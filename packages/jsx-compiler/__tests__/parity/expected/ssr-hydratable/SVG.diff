@@ -1,0 +1,53 @@
+@@ -1,39 +1,21 @@
+ import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-import { ssrAttribute as _$ssrAttribute__r_server } from "r-server";
+-import { ssrClassName as _$ssrClassName__r_server } from "r-server";
+ import { ssrElement as _$ssrElement__r_server } from "r-server";
+-import { ssrGroup as _$ssrGroup__r_server } from "r-server";
+ import { ssrHydrationKey as _$ssrHydrationKey__r_server } from "r-server";
+-import { ssrStyleProperty as _$ssrStyleProperty__r_server } from "r-server";
+-var _g1$;
+-var _g2$;
+-var _g3$ = ["<svg", " width=\"400\" height=\"180\"><rect stroke-width=\"2\" x=\"50\" y=\"20\" rx=\"20\" ry=\"20\" width=\"150\" height=\"150\" style=\"fill:red;stroke:black;stroke-width:5;opacity:0.5\"></rect><linearGradient gradientTransform=\"rotate(25)\"><stop offset=\"0%\"></stop></linearGradient></svg>"];
+-var _g4$ = ["<svg", " width=\"400\" height=\"180\"><rect class=\"", "\"", "", "", " rx=\"20\" ry=\"20\" width=\"150\" height=\"150\" style=\"", "\"></rect></svg>"];
+-var _g5$ = ["<svg", " width=\"400\" height=\"180\">", "</svg>"];
+-var _g6$ = ["<rect", " x=\"50\" y=\"20\" width=\"150\" height=\"150\"></rect>"];
+-var _g7$ = ["<svg", " viewBox=\"0 0 160 40\" xmlns=\"http://www.w3.org/2000/svg\"><a", "><text x=\"10\" y=\"25\">MDN Web Docs</text></a></svg>"];
+-var _g8$ = ["<svg", " viewBox=\"0 0 160 40\" xmlns=\"http://www.w3.org/2000/svg\"><text x=\"10\" y=\"25\">", "</text></svg>"];
+-var _g9$ = _$ssrHydrationKey__r_server();
+-const template = _$ssr__r_server(_g3$, _g9$);
+-var _g10$ = _$ssrHydrationKey__r_server();
+-var _g11$ = _$ssrGroup__r_server(() => {
+-  return [_$ssrClassName__r_server(state.name), _$ssrAttribute__r_server("stroke-width", _$escape__r_server(state.width, true)), _$ssrAttribute__r_server("x", _$escape__r_server(state.x, true)), _$ssrAttribute__r_server("y", _$escape__r_server(state.y, true)), _$ssrStyleProperty__r_server("fill:", "red") + _$ssrStyleProperty__r_server(";stroke:", "black") + _$ssrStyleProperty__r_server(";stroke-width:", _$escape__r_server(props.stroke, true)) + _$ssrStyleProperty__r_server(";opacity:", 0.5)];
+-}, 5);
+-const template2 = _$ssr__r_server(_g4$, _g10$, _g11$, _g11$, _g11$, _g11$, _g11$);
+-var _g12$ = _$ssrHydrationKey__r_server();
+-var _g13$ = _$ssrElement__r_server("rect", props, undefined, false);
+-const template3 = _$ssr__r_server(_g5$, _g12$, _g13$);
+-var _g14$ = _$ssrHydrationKey__r_server();
+-const template4 = _$ssr__r_server(_g6$, _g14$);
+-const template5 = (_g1$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g1$));
++const template = _$ssr__r_server(["<svg", " width=\"400\" height=\"180\"><rect stroke-width=\"2\" x=\"50\" y=\"20\" rx=\"20\" ry=\"20\" width=\"150\" height=\"150\" style=\"fill:red;stroke:black;stroke-width:5;opacity:0.5\"></rect><linearGradient gradientTransform=\"rotate(25)\"><stop offset=\"0%\"></stop></linearGradient></svg>"], _$ssrHydrationKey__r_server());
++const template2 = _$ssr__r_server(["<svg", " width=\"400\" height=\"180\"><rect class=\"", "\" stroke-width=\"", "\" x=\"", "\" y=\"", "\" rx=\"20\" ry=\"20\" width=\"150\" height=\"150\" style=\"", "\"></rect></svg>"], _$ssrHydrationKey__r_server(), _$escape__r_server(state.name, true), _$escape__r_server(state.width, true), _$escape__r_server(state.x, true), _$escape__r_server(state.y, true), _$escape__r_server({
++  fill: "red",
++  stroke: "black",
++  "stroke-width": props.stroke,
++  opacity: 0.5
++}, true));
++const template3 = _$ssr__r_server(["<svg", " width=\"400\" height=\"180\">", "</svg>"], _$ssrHydrationKey__r_server(), _$ssrElement__r_server("rect", props, undefined, false));
++const template4 = _$ssr__r_server(["<rect", " x=\"50\" y=\"20\" width=\"150\" height=\"150\"></rect>"], _$ssrHydrationKey__r_server());
++const template5 = _$ssr__r_server(["<rect", " x=\"50\" y=\"20\" width=\"150\" height=\"150\"></rect>"], _$ssrHydrationKey__r_server());
+ const template6 = Component({
+   get children() {
+-    return _g2$ = _$ssrHydrationKey__r_server(), _$ssr__r_server(_g6$, _g2$);
++    return _$ssr__r_server(["<rect", " x=\"50\" y=\"20\" width=\"150\" height=\"150\"></rect>"], _$ssrHydrationKey__r_server());
+   }
+ });
+-var _g15$ = _$ssrHydrationKey__r_server();
+-const template7 = _$ssr__r_server(_g7$, _g15$, _$ssrAttribute__r_server("xlink:href", _$escape__r_server(url, true)));
+-var _g16$ = _$ssrHydrationKey__r_server();
+-var _g17$ = _$escape__r_server(text || " ");
+-const template8 = _$ssr__r_server(_g8$, _g16$, _g17$);
++const template7 = _$ssr__r_server(["<svg", " viewBox=\"0 0 160 40\" xmlns=\"http://www.w3.org/2000/svg\"><a xlink:href=\"", "\"><text x=\"10\" y=\"25\">MDN Web Docs</text></a></svg>"], _$ssrHydrationKey__r_server(), _$escape__r_server(url, true));
++const template8 = _$ssr__r_server(["<svg", " viewBox=\"0 0 160 40\" xmlns=\"http://www.w3.org/2000/svg\"><text x=\"10\" y=\"25\" textContent=\"", "\"></text></svg>"], _$ssrHydrationKey__r_server(), _$escape__r_server(text, true));

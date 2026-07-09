@@ -1,0 +1,536 @@
+@@ -1,51 +1,9 @@
++import * as styles from "./styles.module.css";
+ import { escape as _$escape__r_server } from "r-server";
+-import { memo as _$memo__r_server } from "r-server";
+ import { mergeProps as _$mergeProps__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-import { ssrAttribute as _$ssrAttribute__r_server } from "r-server";
+-import { ssrClassName as _$ssrClassName__r_server } from "r-server";
+ import { ssrElement as _$ssrElement__r_server } from "r-server";
+-import { ssrGroup as _$ssrGroup__r_server } from "r-server";
+-import { ssrStyle as _$ssrStyle__r_server } from "r-server";
+-import { ssrStyleProperty as _$ssrStyleProperty__r_server } from "r-server";
+-var _g1$;
+-var _g2$;
+-var _g3$;
+-var _g4$;
+-var _g5$;
+-var _g6$;
+-var _g7$;
+-var _g8$;
+-var _g9$;
+-var _g10$;
+-var _g11$ = ["<a href=\"/\" class=\"", "\">Welcome</a>"];
+-var _g12$ = ["<div>", "</div>"];
+-var _g13$ = ["<div foo", " style=\"", "\"", ">", "</div>"];
+-var _g14$ = ["<div", " class=\"", "\"></div>"];
+-var _g15$ = ["<div style=\"", "\">Hi</div>"];
+-var _g16$ = ["<div style=\"", "\" class=\"", "\"></div>"];
+-var _g17$ = ["<input type=\"checkbox\"", ">"];
+-var _g18$ = ["<button class=\"", "\" type=\"button\">Write</button>"];
+-var _g19$ = ["<button class=\"", "\">Hi</button>"];
+-var _g20$ = ["<div class=\"", "\"></div>"];
+-var _g21$ = ["<div><input", "", "", " readonly><input", "", "", "", "></div>"];
+-var _g22$ = ["<div style=\"", "\"></div>"];
+-var _g23$ = ["<div", ">", "</div>"];
+-var _g24$ = ["<div>", "", "</div>"];
+-var _g25$ = ["<button class=\"", "\"></button>"];
+-var _g26$ = ["<select", "><option", ">Red</option><option", ">Blue</option></select>"];
+-var _g27$ = ["<div a b c d f=\"0\" g h", "", "", " l></div>"];
+-var _g28$ = ["<video", "></video>"];
+-var _g29$ = ["<div style=\"", "\"", "></div>"];
+-var _g30$ = ["<button type=\"button\"", " style=\"", "\" class=\"", "\">", "</button>"];
+-var _g31$ = ["<style>", "</style>"];
+-var _g32$ = ["<div class=\"bg-(--bg)\" style=\"", "\"></div>"];
+-var _g33$ = ["<div", "></div>"];
+-var _g34$ = ["<div class=\"progress-fill\" style=\"", "\"></div>"];
+-var _g35$ = ["<div><textarea>", "</textarea><textarea>", "</textarea><textarea>", "</textarea><textarea></textarea><textarea>", "</textarea><textarea>static content</textarea><textarea>static content</textarea></div>"];
+-var _g36$ = ["<div><video muted></video><video></video><video></video><video muted></video><video", "></video><video src=\"test.mp4\" muted></video></div>"];
+-import * as styles from "./styles.module.css";
+-import { binding } from "somewhere";
++import { binding as _$binding__somewhere } from "somewhere";
+ function refFn() {}
+ const refConst = null;
+ const selected = true;
+@@ -61,116 +19,77 @@
+   }
+ }), _$ssrElement__r_server("h1", _$mergeProps__r_server({
+   id: "my-h1"
+-}, results, {
++}, results(), {
+   foo: true,
+   disabled: true,
+-  get title() {
+-    return welcoming();
+-  },
+-  get style() {
+-    return {
+-      "background-color": color(),
+-      "margin-right": "40px"
+-    };
++  title: welcoming(),
++  style: {
++    "background-color": color(),
++    "margin-right": "40px"
+   },
+-  get ["class"]() {
+-    return ["base", {
+-      dynamic: dynamic(),
+-      selected: selected
+-    }];
+-  }
+-}), (_g1$ = link, _$ssr__r_server(_g11$, "ccc ddd")), false), false);
+-const template2 = _$ssrElement__r_server("div", getProps("test"), [(_g2$ = _$escape__r_server(rowId), _$ssr__r_server(_g12$, _g2$)), (_g3$ = () => {
+-  return _$escape__r_server(row.label);
+-}, _$ssr__r_server(_g12$, _g3$)), _$ssr__r_server("<div><div/></div>")], false);
+-var _g37$ = _$ssrGroup__r_server(() => {
+-  return [_$ssrAttribute__r_server("name", _$escape__r_server(state.name, true)), _$escape__r_server(state.content)];
+-}, 2);
+-const template3 = _$ssr__r_server(_g13$, _$ssrAttribute__r_server("id", _$escape__r_server(state.id, true)), _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(state.color, true)), _g37$, _g37$);
+-var _g38$ = () => {
+-  return _$ssrAttribute__r_server("className", _$escape__r_server(state.class, true));
+-};
+-const template4 = _$ssr__r_server(_g14$, _g38$, "ccc:ddd");
++  class: ["base", {
++    dynamic: dynamic(),
++    selected: selected
++  }]
++}), _$ssr__r_server(["<a href=\"/\" ref=\"", "\" class=\"", "\">Welcome</a>"], _$escape__r_server(link, true), _$escape__r_server({
++  "ccc ddd": true
++}, true)), false), false);
++const template2 = _$ssrElement__r_server("div", getProps("test"), [_$ssr__r_server(["<div textContent=\"", "\"></div>"], _$escape__r_server(rowId, true)), _$ssr__r_server(["<div textContent=\"", "\"></div>"], _$escape__r_server(row.label, true)), _$ssr__r_server("<div innerHTML=\"<div/>\"></div>")], false);
++const template3 = _$ssr__r_server(["<div foo id=\"", "\" style=\"", "\" name=\"", "\" textContent=\"", "\"></div>"], _$escape__r_server(state.id, true), _$escape__r_server({
++  "background-color": state.color
++}, true), _$escape__r_server(state.name, true), _$escape__r_server(state.content, true));
++const template4 = _$ssr__r_server(["<div className=\"", "\" class=\"", "\"></div>"], _$escape__r_server(state.class, true), _$escape__r_server({
++  "ccc:ddd": true
++}, true));
+ const template5 = _$ssr__r_server("<div class=\"a\" className=\"b\"></div>");
+-var _g39$ = () => {
+-  return _$ssrStyle__r_server(someStyle());
+-};
+-const template6 = _$ssr__r_server(_g15$, _g39$);
++const template6 = _$ssr__r_server(["<div style=\"", "\" textContent=\"Hi\"></div>"], _$escape__r_server(someStyle(), true));
+ let undefVar;
+-var _g40$ = () => {
+-  return _$ssrStyle__r_server({
+-    "background-color": color(),
+-    "margin-right": "40px",
+-    ...props.style
+-  });
+-};
+-const template7 = _$ssr__r_server(_g16$, _g40$, undefVar ? "other-class2" : "");
++const template7 = _$ssr__r_server(["<div style=\"", "\" class=\"", "\"></div>"], _$escape__r_server({
++  "background-color": color(),
++  "margin-right": "40px",
++  ...props.style
++}, true), _$escape__r_server({
++  "other-class2": undefVar
++}, true));
+ let refTarget;
+-var _g41$ = refTarget;
+-const template8 = _$ssr__r_server("<div></div>");
+-var _g42$ = e => {
++const template8 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(refTarget, true));
++const template9 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(e => {
+   return console.log(e);
+-};
+-const template9 = _$ssr__r_server("<div></div>");
+-var _g43$ = refFactory();
+-const template10 = _$ssr__r_server("<div></div>");
++}, true));
++const template10 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(refFactory(), true));
+ const template12 = _$ssr__r_server("<div onclick=\"console.log('hi')\"></div>");
+ const template13 = _$ssr__r_server("<input type=\"checkbox\" checked>");
+-var _g44$ = () => {
+-  return _$ssrAttribute__r_server("checked", _$escape__r_server(state.visible, true));
+-};
+-const template14 = _$ssr__r_server(_g17$, _g44$);
++const template14 = _$ssr__r_server(["<input type=\"checkbox\" checked=\"", "\">"], _$escape__r_server(state.visible, true));
+ const template15 = _$ssr__r_server("<div class=\"`a\">`$`</div>");
+-const template16 = _$ssr__r_server(_g18$, _$ssrClassName__r_server(["static", {
++const template16 = _$ssr__r_server(["<button class=\"", "\" type=\"button\">Write</button>"], _$escape__r_server(["static", {
+   hi: "k"
+-}]));
+-const template17 = _$ssr__r_server(_g19$, "a  b  c");
++}], true));
++const template17 = _$ssr__r_server(["<button class=\"", "\" onClick=\"", "\">Hi</button>"], _$escape__r_server({
++  a: true,
++  b: true,
++  c: true
++}, true), _$escape__r_server(increment, true));
+ const template18 = _$ssrElement__r_server("div", {
+   get [key()]() {
+     return props.value;
+   }
+ }, undefined, false);
+-const template19 = _$ssr__r_server(_g20$, _$ssrClassName__r_server([{
++const template19 = _$ssr__r_server(["<div class=\"", "\"></div>"], _$escape__r_server([{
+   "bg-red-500": true
+-}, "flex flex-col"]));
+-var _g45$ = _$ssrGroup__r_server(() => {
+-  return [_$ssrAttribute__r_server("min", _$escape__r_server(min(), true)), _$ssrAttribute__r_server("max", _$escape__r_server(max(), true))];
+-}, 2);
+-var _g46$ = _$ssrGroup__r_server(() => {
+-  return [_$ssrAttribute__r_server("min", _$escape__r_server(min(), true)), _$ssrAttribute__r_server("max", _$escape__r_server(max(), true))];
+-}, 2);
+-var _g47$ = () => {
+-  return _$ssrAttribute__r_server("value", _$escape__r_server(s(), true));
+-};
+-var _g48$ = () => {
+-  return _$ssrAttribute__r_server("checked", _$escape__r_server(s2(), true));
+-};
+-const template20 = _$ssr__r_server(_g21$, _g47$, _g45$, _g45$, _g48$, _g46$, _g46$, _$ssrAttribute__r_server("readonly", _$escape__r_server(value, true)));
+-var _g49$ = () => {
+-  return _$ssrStyle__r_server({
+-    a: "static",
+-    ...rest
+-  });
+-};
+-const template21 = _$ssr__r_server(_g22$, _g49$);
++}, "flex flex-col"], true));
++const template20 = _$ssr__r_server(["<div><input value=\"", "\" min=\"", "\" max=\"", "\" onInput=\"", "\" readonly><input checked=\"", "\" min=\"", "\" max=\"", "\" onInput=\"", "\" readonly=\"", "\"></div>"], _$escape__r_server(s(), true), _$escape__r_server(min(), true), _$escape__r_server(max(), true), _$escape__r_server(doSomething, true), _$escape__r_server(s2(), true), _$escape__r_server(min(), true), _$escape__r_server(max(), true), _$escape__r_server(doSomethingElse, true), _$escape__r_server(value, true));
++const template21 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  a: "static",
++  ...rest
++}, true));
+ const template22 = _$ssr__r_server("<div data=\"&quot;hi&quot;\" data2=\"&quot;\"></div>");
+-var _g50$ = () => {
+-  return _$ssrAttribute__r_server("disabled", "t" in _$escape__r_server(test, true));
+-};
+-var _g51$ = () => {
+-  return "t" in test && "true";
+-};
+-const template23 = _$ssr__r_server(_g23$, _g50$, _g51$);
++const template23 = _$ssr__r_server(["<div disabled=\"", "\">", "</div>"], _$escape__r_server("t" in test, true), _$escape__r_server("t" in test && "true"));
+ const template24 = _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
+   something: true
+ }), undefined, false);
+-var _g52$ = () => {
+-  return _$escape__r_server(props.children);
+-};
+-var _g53$ = _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
++const template25 = _$ssr__r_server(["<div>", "", "</div>"], _$escape__r_server(props.children), _$ssrElement__r_server("a", _$mergeProps__r_server(props, {
+   something: true
+-}), undefined, false);
+-const template25 = _$ssr__r_server(_g24$, _g52$, _g53$);
++}), undefined, false));
+ const template26 = _$ssrElement__r_server("div", _$mergeProps__r_server({
+   start: "Hi",
+   middle: middle
+@@ -180,45 +99,25 @@
+ }, first, {
+   middle: middle
+ }, second), "Hi", false);
+-const template28 = _$ssrElement__r_server("label", api(), [_$ssrElement__r_server("span", api(), ["Input is ", () => {
+-  return api() ? "checked" : "unchecked";
+-}], false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)], false);
+-var _g54$ = !!someValue;
+-const template29 = _$ssr__r_server(_g23$, _$ssrAttribute__r_server("attribute", !!someValue), _g54$);
+-const template30 = _$ssr__r_server("<div class=\"class1 class2 class3 class4 class5 class6\" style=\"color:red;background-color:blue !important;border:1px solid black;font-size:12px;\" random=\"random1 random2\n    random3 random4\"></div>");
+-var _g55$ = () => {
+-  return _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(getStore.itemProperties.color, true));
+-};
+-const template31 = _$ssr__r_server(_g22$, _g55$);
+-const template32 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background-color:", _$escape__r_server(undefined, true)));
+-const template33 = [_$ssr__r_server(_g25$, _$ssrClassName__r_server(styles.button)), _$ssr__r_server(_g25$, _$ssrClassName__r_server(styles["foo--bar"])), (_g4$ = () => {
+-  return _$ssrClassName__r_server(styles.foo.bar);
+-}, _$ssr__r_server(_g25$, _g4$)), (_g5$ = () => {
+-  return _$ssrClassName__r_server(styles[foo()]);
+-}, _$ssr__r_server(_g25$, _g5$))];
+-var _g56$ = a().b.c;
+-const template35 = _$ssr__r_server("<div></div>");
+-var _g57$ = a().b?.c;
+-const template36 = _$ssr__r_server("<div></div>");
+-var _g58$ = a() ? b : c;
+-const template37 = _$ssr__r_server("<div></div>");
+-var _g59$ = a() ?? b;
+-const template38 = _$ssr__r_server("<div></div>");
++const template28 = _$ssrElement__r_server("label", api(), [_$ssrElement__r_server("span", api(), ["Input is ", api() ? "checked" : "unchecked"], false), _$ssrElement__r_server("input", api(), undefined, false), _$ssrElement__r_server("div", api(), undefined, false)], false);
++const template29 = _$ssr__r_server(["<div attribute=\"", "\">", "</div>"], _$escape__r_server(!!someValue, true), _$escape__r_server(!!someValue));
++const template30 = _$ssr__r_server("<div class=\"class1 class2\n    class3 class4\n    class5 class6\" style=\"color: red;\n    background-color: blue !important;\n    border: 1px solid black;\n    font-size: 12px;\" random=\"random1 random2\n    random3 random4\"></div>");
++const template31 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  "background-color": getStore.itemProperties.color
++}, true));
++const template32 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  "background-color": undefined
++}, true));
++const template33 = [_$ssr__r_server(["<button class=\"", "\"></button>"], _$escape__r_server(styles.button, true)), _$ssr__r_server(["<button class=\"", "\"></button>"], _$escape__r_server(styles["foo--bar"], true)), _$ssr__r_server(["<button class=\"", "\"></button>"], _$escape__r_server(styles.foo.bar, true)), _$ssr__r_server(["<button class=\"", "\"></button>"], _$escape__r_server(styles[foo()], true))];
++const template35 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(a().b.c, true));
++const template36 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(a().b?.c, true));
++const template37 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(a() ? b : c, true));
++const template38 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(a() ?? b, true));
+ const template39 = _$ssr__r_server("<input value=\"10\">");
+-var _g60$ = () => {
+-  return _$ssrStyleProperty__r_server("color:", _$escape__r_server(a(), true));
+-};
+-const template40 = _$ssr__r_server(_g22$, _g60$);
+-var _g61$ = () => {
+-  return _$ssrAttribute__r_server("value", _$escape__r_server(state.color, true));
+-};
+-var _g62$ = () => {
+-  return _$ssrAttribute__r_server("value", _$escape__r_server(Color.Red, true));
+-};
+-var _g63$ = () => {
+-  return _$ssrAttribute__r_server("value", _$escape__r_server(Color.Blue, true));
+-};
+-const template41 = _$ssr__r_server(_g26$, _g61$, _g62$, _g63$);
++const template40 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  color: a()
++}, true));
++const template41 = _$ssr__r_server(["<select value=\"", "\"><option value=\"", "\">Red</option><option value=\"", "\">Blue</option></select>"], _$escape__r_server(state.color, true), _$escape__r_server(Color.Red, true), _$escape__r_server(Color.Blue, true));
+ const template42 = _$ssr__r_server("<img src>");
+ const template43 = _$ssr__r_server("<div><img src></div>");
+ const template44 = _$ssr__r_server("<img src loading=\"lazy\">");
+@@ -228,52 +127,71 @@
+ const template48 = _$ssr__r_server("<iframe src loading=\"lazy\"></iframe>");
+ const template49 = _$ssr__r_server("<div><iframe src loading=\"lazy\"></iframe></div>");
+ const template50 = _$ssr__r_server("<div title=\"<u>data</u>\"></div>");
+-var _g64$ = binding;
+-const template51 = _$ssr__r_server("<div></div>");
+-var _g65$ = binding.prop;
+-const template52 = _$ssr__r_server("<div></div>");
+-var _g66$ = refFn;
+-const template53 = _$ssr__r_server("<div></div>");
+-var _g67$ = refConst;
+-const template54 = _$ssr__r_server("<div></div>");
+-var _g68$ = refUnknown;
+-const template55 = _$ssr__r_server("<div></div>");
++const template51 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(_$binding__somewhere, true));
++const template52 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(_$binding__somewhere.prop, true));
++const template53 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(refFn, true));
++const template54 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(refConst, true));
++const template55 = _$ssr__r_server(["<div ref=\"", "\"></div>"], _$escape__r_server(refUnknown, true));
+ const template56 = _$ssr__r_server("<div true truestr=\"true\" truestrjs=\"true\"></div>");
+ const template57 = _$ssr__r_server("<div falsestr=\"false\" falsestrjs=\"false\"></div>");
+ const template58 = _$ssr__r_server("<div></div>");
+ const template59 = _$ssr__r_server("<div true></div>");
+-const template60 = _$ssr__r_server(_g27$, _$ssrAttribute__r_server("i", _$escape__r_server(undefined, true)), _$ssrAttribute__r_server("j", _$escape__r_server(null, true)), _$ssrAttribute__r_server("k", void 0));
++const template60 = _$ssr__r_server(["<div a b c d f=\"0\" g h i=\"", "\" j=\"", "\" k=\"", "\" l></div>"], _$escape__r_server(undefined, true), _$escape__r_server(null, true), _$escape__r_server(void 0, true));
+ const template61 = _$ssr__r_server("<math display=\"block\"><mrow></mrow></math>");
+ const template62 = _$ssr__r_server("<mrow><mi>x</mi><mo>=</mo></mrow>");
+-const template63 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background:", "red"));
+-const template64 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";margin:", 3) + _$ssrStyleProperty__r_server(";padding:", 0.4));
+-const template65 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(undefined, true)));
+-var _g69$ = () => {
+-  return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(signal(), true));
+-};
+-const template66 = _$ssr__r_server(_g22$, _g69$);
+-const template67 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(somevalue, true)));
+-var _g70$ = () => {
+-  return _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(some.access, true));
+-};
+-const template68 = _$ssr__r_server(_g22$, _g70$);
+-const template69 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("background:", "red") + _$ssrStyleProperty__r_server(";color:", "green") + _$ssrStyleProperty__r_server(";border:", _$escape__r_server(null, true)));
+-const template70 = _$ssr__r_server(_g28$, _$ssrAttribute__r_server("playsinline", _$escape__r_server(value, true)));
++const template63 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red"
++}, true));
++const template64 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  margin: 3,
++  padding: 0.4
++}, true));
++const template65 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  border: undefined
++}, true));
++const template66 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  border: signal()
++}, true));
++const template67 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  border: somevalue
++}, true));
++const template68 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  border: some.access
++}, true));
++const template69 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  background: "red",
++  color: "green",
++  border: null
++}, true));
++const template70 = _$ssr__r_server(["<video playsinline=\"", "\"></video>"], _$escape__r_server(value, true));
+ const template71 = _$ssr__r_server("<video playsinline></video>");
+ const template72 = _$ssr__r_server("<video></video>");
+ const template73 = _$ssr__r_server("<video poster=\"1.jpg\"></video>");
+ const template74 = _$ssr__r_server("<div><video poster=\"1.jpg\"></video></div>");
+ const template75 = _$ssr__r_server("<video></video>");
+ const template76 = _$ssr__r_server("<div><video></video></div>");
+-const template77 = _$ssr__r_server(_g22$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)));
+-var _g71$ = () => {
+-  return _$ssrAttribute__r_server("something", _$escape__r_server(color(), true));
+-};
+-const template78 = _$ssr__r_server(_g29$, _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true)), _g71$);
+-var _g72$ = () => {
+-  return _$ssrStyleProperty__r_server("width:", _$escape__r_server(props.width, true)) + _$ssrStyleProperty__r_server(";height:", _$escape__r_server(props.height, true));
+-};
+-const template79 = _$ssr__r_server(_g29$, _g72$, _$ssrAttribute__r_server("something", _$escape__r_server(color(), true)));
++const template77 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({
++  width: props.width,
++  height: props.height
++}, true));
++const template78 = _$ssr__r_server(["<div style=\"", "\" something=\"", "\"></div>"], _$escape__r_server({
++  width: props.width,
++  height: props.height
++}, true), _$escape__r_server(color(), true));
++const template79 = _$ssr__r_server(["<div style=\"", "\" something=\"", "\"></div>"], _$escape__r_server({
++  width: props.width,
++  height: props.height
++}, true), _$escape__r_server(color(), true));
+ const propsSpread = {
+   something: color(),
+   style: {
+@@ -285,21 +203,15 @@
+ const template80 = _$ssrElement__r_server("div", propsSpread, undefined, false);
+ const template81 = _$ssrElement__r_server("div", propsSpread, undefined, false);
+ const template82 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread, {
+-  get ["data-dynamic"]() {
+-    return color();
+-  },
++  "data-dynamic": color(),
+   "data-static": color()
+ }), undefined, false);
+ const template83 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread, {
+-  get ["data-dynamic"]() {
+-    return color();
+-  },
++  "data-dynamic": color(),
+   "data-static": color()
+ }), undefined, false);
+ const template84 = _$ssrElement__r_server("div", _$mergeProps__r_server(propsSpread1, propsSpread2, propsSpread3, {
+-  get ["data-dynamic"]() {
+-    return color();
+-  },
++  "data-dynamic": color(),
+   "data-static": color()
+ }), undefined, false);
+ const styleProp = {
+@@ -308,97 +220,42 @@
+     height: props.height
+   }
+ };
+-const template85 = _$ssr__r_server(_g22$, _$ssrStyle__r_server(styleProp.style));
+-var _g73$ = () => {
+-  return _$ssrStyle__r_server(styleProp.style);
+-};
+-const template86 = _$ssr__r_server(_g22$, _g73$);
++const template85 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server(styleProp.style, true));
++const template86 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server(styleProp.style, true));
+ const style = {
+   background: "red",
+   border: "solid black " + count() + "px"
+ };
+-var _g74$ = () => {
+-  return _$ssrAttribute__r_server("aria-label", _$escape__r_server(count(), true));
+-};
+-var _g75$ = () => {
+-  return _$escape__r_server(count());
+-};
+-const template87 = _$ssr__r_server(_g30$, _g74$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g75$);
+-var _g76$ = () => {
+-  return _$ssrAttribute__r_server("aria-label", _$escape__r_server(count(), true));
+-};
+-var _g77$ = () => {
+-  return _$escape__r_server(count());
+-};
+-const template88 = _$ssr__r_server(_g30$, _g76$, _$ssrStyle__r_server(style), _$ssrClassName__r_server(style), _g77$);
++const template87 = _$ssr__r_server(["<button type=\"button\" aria-label=\"", "\" style=\"", "\" class=\"", "\">", "</button>"], _$escape__r_server(count(), true), _$escape__r_server(style, true), _$escape__r_server(style, true), _$escape__r_server(count()));
++const template88 = _$ssr__r_server(["<button type=\"button\" aria-label=\"", "\" style=\"", "\" class=\"", "\">", "</button>"], _$escape__r_server(count(), true), _$escape__r_server(style, true), _$escape__r_server(style, true), _$escape__r_server(count()));
+ const css = () => {
+   return "&{color:red}";
+ };
+-const template89 = [(_g6$ = () => {
+-  return css();
+-}, _$ssr__r_server(_g31$, _g6$)), (_g7$ = () => {
+-  return css();
+-}, _$ssr__r_server(_g31$, _g7$)), (_g8$ = () => {
+-  return css();
+-}, _$ssr__r_server(_g31$, _g8$)), (_g9$ = () => {
+-  return css();
+-}, _$ssr__r_server(_g31$, _g9$)), (_g10$ = () => {
+-  return css();
+-}, _$ssr__r_server(_g31$, _g10$))];
++const template89 = [_$ssr__r_server(["<style>", "</style>"], _$escape__r_server(css())), _$ssr__r_server(["<style children=\"", "\"></style>"], _$escape__r_server(css(), true)), _$ssr__r_server(["<style innerHTML=\"", "\"></style>"], _$escape__r_server(css(), true)), _$ssr__r_server(["<style innerText=\"", "\"></style>"], _$escape__r_server(css(), true)), _$ssr__r_server(["<style textContent=\"", "\"></style>"], _$escape__r_server(css(), true))];
+ const styleProps = {
+   children: css
+ };
+-const template90 = [_$ssrElement__r_server("style", styleProps(), () => {
+-  return css();
+-}, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps, {
+-  get children() {
+-    return css();
+-  }
+-}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps, {
+-  get innerHTML() {
+-    return css();
+-  }
+-}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps, {
+-  get innerText() {
+-    return css();
+-  }
+-}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps, {
+-  get textContent() {
+-    return css();
+-  }
++const template90 = [_$ssrElement__r_server("style", styleProps(), css(), false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps(), {
++  children: css()
++}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps(), {
++  innerHTML: css()
++}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps(), {
++  innerText: css()
++}), undefined, false), _$ssrElement__r_server("style", _$mergeProps__r_server(styleProps(), {
++  textContent: css()
+ }), undefined, false)];
+ const nope = () => {
+   return undefined;
+ };
+-var _g78$ = () => {
+-  return _$ssrStyleProperty__r_server("--bg:", _$escape__r_server(nope(), true));
+-};
+-const template91 = _$ssr__r_server(_g32$, _g78$);
+-const template92 = _$ssr__r_server("<div></div>");
+-var _g79$ = () => {
+-  return _$ssrAttribute__r_server("data-test", _$escape__r_server(state.flag || undefined, true));
+-};
+-const template93 = _$ssr__r_server(_g33$, _g79$);
++const template91 = _$ssr__r_server(["<div class=\"bg-(--bg)\" style=\"", "\"></div>"], _$escape__r_server({
++  "--bg": nope()
++}, true));
++const template92 = _$ssr__r_server(["<div style=\"", "\"></div>"], _$escape__r_server({}, true));
++const template93 = _$ssr__r_server(["<div data-test=\"", "\"></div>"], _$escape__r_server(state.flag || undefined, true));
+ function Progress(props) {
+-  var _g80$ = () => {
+-    return _$ssrStyleProperty__r_server(_$escape__r_server(props.orientation === "y" ? "height" : "width", true) + ":", `${_$escape__r_server(props.value, true) * 100}%`);
+-  };
+-  return _$ssr__r_server(_g34$, _g80$);
++  return _$ssr__r_server(["<div class=\"progress-fill\" style=\"", "\"></div>"], _$escape__r_server({
++    [props.orientation === "y" ? "height" : "width"]: `${props.value * 100}%`
++  }, true));
+ }
+-var _g81$ = () => {
+-  return _$escape__r_server(dynamicProperty());
+-};
+-var _g82$ = () => {
+-  return _$escape__r_server(dynamicProperty());
+-};
+-var _g83$ = () => {
+-  return _$escape__r_server(dynamicContent());
+-};
+-var _g84$ = () => {
+-  return _$escape__r_server(dynamicContent());
+-};
+-const template94 = _$ssr__r_server(_g35$, _g81$, _g82$, _g83$, _g84$);
+-var _g85$ = () => {
+-  return _$ssrAttribute__r_server("muted", _$escape__r_server(dynamicAttribute(), true));
+-};
+-const template95 = _$ssr__r_server(_g36$, _g85$);
++const template94 = _$ssr__r_server(["<div><textarea value=\"", "\"></textarea><textarea value=\"", "\">", "</textarea><textarea value=\"", "\"></textarea><textarea></textarea><textarea>", "</textarea><textarea value=\"static content\"></textarea><textarea value=\"static content\">I get replaced</textarea></div>"], _$escape__r_server(dynamicProperty(), true), _$escape__r_server(dynamicProperty(), true), _$escape__r_server(dynamicContent()), _$escape__r_server(dynamicContent(), true), _$escape__r_server(dynamicContent()));
++const template95 = _$ssr__r_server(["<div><video muted></video><video></video><video muted=\"", "\"></video><video defaultMuted muted=\"", "\"></video><video defaultMuted=\"", "\" muted=\"", "\"></video><video src=\"test.mp4\" muted></video></div>"], _$escape__r_server(dynamicProperty(), true), _$escape__r_server(dynamicProperty(), true), _$escape__r_server(dynamicAttribute(), true), _$escape__r_server(dynamicProperty(), true));

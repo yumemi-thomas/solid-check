@@ -1,0 +1,27 @@
+@@ -1,5 +1,6 @@
+ import { createComponent as _$createComponent__r_custom } from "r-custom";
+ import { mergeProps as _$mergeProps__r_custom } from "r-custom";
++import { createComponent as _$createComponent__r_dom } from "r-dom";
+ import { insert as _$insert__r_dom } from "r-dom";
+ import { spread as _$spread__r_dom } from "r-dom";
+ import { template as _$template__r_dom } from "r-dom";
+@@ -20,7 +21,7 @@
+ const template2 = _g6$;
+ const template3 = _g3$();
+ var _g7$ = _g2$();
+-_$insert__r_dom(_g7$, _$createComponent__r_custom(Hello, {}));
++_$insert__r_dom(_g7$, _$createComponent__r_dom(Hello, {}));
+ const template4 = _g7$;
+ var _g8$ = _g2$();
+ _$insert__r_dom(_g8$, () => {
+@@ -57,7 +58,9 @@
+ _$insert__r_dom(_g13$, children);
+ const template13 = _g13$;
+ const template14 = _$createComponent__r_custom(Module, {
+-  children: children
++  get children() {
++    return children;
++  }
+ });
+ var _g14$ = _g2$();
+ _$insert__r_dom(_g14$, () => {

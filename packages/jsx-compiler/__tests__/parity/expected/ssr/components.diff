@@ -1,0 +1,431 @@
+@@ -1,70 +1,46 @@
+ import { For as _$For__r_server } from "r-server";
+-import { applyRef as _$applyRef__r_server } from "r-server";
++import { Show as _$Show__r_server } from "r-server";
+ import { escape as _$escape__r_server } from "r-server";
+-import { memo as _$memo__r_server } from "r-server";
+ import { mergeProps as _$mergeProps__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+ import { ssrElement as _$ssrElement__r_server } from "r-server";
+-var _g1$ = ["<div>Hello ", "</div>"];
+-var _g2$ = ["<div>", "</div>"];
+-var _g3$ = ["<div>", "", "", "</div>"];
+-var _g4$ = ["<div>", " | ", " | ", " | ", " | ", " | ", "</div>"];
+-var _g5$ = ["<div>", " | ", "", " | ", "", " | ", "</div>"];
+-var _g6$ = ["<div> | ", " |  |  | ", " | </div>"];
+-import { Show, binding } from "somewhere";
++import { Show as _$Show__somewhere, binding as _$binding__somewhere } from "somewhere";
+ function refFn() {}
+ const refConst = null;
+ const Child = props => {
+-  var _g7$;
+-  var _g8$;
+-  var _g9$;
+-  var _g10$;
+   const [s, set] = createSignal();
+-  return [(_g7$ = props.ref, _g8$ = () => {
+-    return _$escape__r_server(props.name);
+-  }, _$ssr__r_server(_g1$, _g8$)), (_g9$ = set, _g10$ = () => {
+-    return _$escape__r_server(props.children);
+-  }, _$ssr__r_server(_g2$, _g10$))];
++  return [_$ssr__r_server(["<div ref=\"", "\">Hello ", "</div>"], _$escape__r_server(props.ref, true), _$escape__r_server(props.name)), _$ssr__r_server(["<div ref=\"", "\">", "</div>"], _$escape__r_server(set, true), _$escape__r_server(props.children))];
+ };
+ const template = props => {
+-  var _g11$;
+   let childRef;
+   const {
+     content: content
+   } = props;
+-  var _g12$ = _$escape__r_server(Child(_$mergeProps__r_server({
++  return _$ssr__r_server(["<div>", "", "", "</div>"], Child(_$mergeProps__r_server({
+     name: "John"
+   }, props, {
+-    ref(r$) {
+-      var _g13$ = childRef;
+-      typeof _g13$ === "function" || Array.isArray(_g13$) ? _$applyRef__r_server(_g13$, r$) : childRef = r$;
+-    },
++    ref: childRef,
+     booleanProperty: true,
+     get children() {
+       return _$ssr__r_server("<div>From Parent</div>");
+     }
+-  })));
+-  var _g14$ = _$escape__r_server(Child(_$mergeProps__r_server({
++  })), Child(_$mergeProps__r_server({
+     name: "Jason"
+-  }, dynamicSpread, {
+-    ref(r$) {
+-      var _g15$ = props.ref;
+-      typeof _g15$ === "function" || Array.isArray(_g15$) ? _$applyRef__r_server(_g15$, r$) : props.ref = r$;
+-    },
++  }, () => {
++    return dynamicSpread();
++  }, {
++    ref: props.ref,
+     get children() {
+-      return _g11$ = _$escape__r_server(content), _$ssr__r_server(_g2$, _g11$);
++      return _$ssr__r_server(["<div>", "</div>"], _$escape__r_server(content));
+     }
+-  })));
+-  var _g16$ = props.consumerRef();
+-  var _g17$ = _$escape__r_server(Context.Consumer({
+-    ref(r$) {
+-      (typeof _g16$ === "function" || Array.isArray(_g16$)) && _$applyRef__r_server(_g16$, r$);
+-    },
+-    children: context => {
+-      return context;
++  })), Context.Consumer({
++    ref: props.consumerRef(),
++    get children() {
++      return context => {
++        return context;
++      };
+     }
+   }));
+-  return _$ssr__r_server(_g3$, _g12$, _g14$, _g17$);
+ };
+ const template2 = Child({
+   name: "Jake",
+@@ -73,7 +49,7 @@
+   },
+   stale: state.data,
+   handleClick: clickHandler,
+-  get ["hyphen-ated"]() {
++  get "hyphen-ated"() {
+     return state.data;
+   },
+   ref: el => {
+@@ -107,20 +83,22 @@
+   get fallback() {
+     return Loading({});
+   },
+-  children: item => {
+-    return Show({
+-      get when() {
+-        return state.condition;
+-      },
+-      children: item
+-    });
++  get children() {
++    return item => {
++      return _$Show__r_server({
++        get when() {
++          return state.condition;
++        },
++        get children() {
++          return item;
++        }
++      });
++    };
+   }
+ });
+ const template7 = Child({
+   get children() {
+-    return [_$ssr__r_server("<div></div>"), _$memo__r_server(() => {
+-      return _$escape__r_server(state.dynamic);
+-    })];
++    return [_$ssr__r_server("<div></div>"), state.dynamic];
+   }
+ });
+ const template8 = Child({
+@@ -135,68 +113,54 @@
+ const template9 = _garbage({
+   children: "Hi"
+ });
+-var _g18$ = _$escape__r_server(Link({
++const template10 = _$ssr__r_server(["<div>", " | ", " | ", " | ", " | ", " | ", "</div>"], Link({
+   children: "new"
+-}));
+-var _g19$ = _$escape__r_server(Link({
++}), Link({
+   children: "comments"
+-}));
+-var _g20$ = _$escape__r_server(Link({
++}), Link({
+   children: "show"
+-}));
+-var _g21$ = _$escape__r_server(Link({
++}), Link({
+   children: "ask"
+-}));
+-var _g22$ = _$escape__r_server(Link({
++}), Link({
+   children: "jobs"
+-}));
+-var _g23$ = _$escape__r_server(Link({
++}), Link({
+   children: "submit"
+ }));
+-const template10 = _$ssr__r_server(_g4$, _g18$, _g19$, _g20$, _g21$, _g22$, _g23$);
+-var _g24$ = _$escape__r_server(Link({
++const template11 = _$ssr__r_server(["<div>", " | ", "", " | ", "", " | ", "</div>"], Link({
+   children: "new"
+-}));
+-var _g25$ = _$escape__r_server(Link({
++}), Link({
+   children: "comments"
+-}));
+-var _g26$ = _$escape__r_server(Link({
++}), Link({
+   children: "show"
+-}));
+-var _g27$ = _$escape__r_server(Link({
++}), Link({
+   children: "ask"
+-}));
+-var _g28$ = _$escape__r_server(Link({
++}), Link({
+   children: "jobs"
+-}));
+-var _g29$ = _$escape__r_server(Link({
++}), Link({
+   children: "submit"
+ }));
+-const template11 = _$ssr__r_server(_g5$, _g24$, _g25$, _g26$, _g27$, _g28$, _g29$);
+-var _g30$ = _$escape__r_server(Link({
++const template12 = _$ssr__r_server(["<div> | ", " |  |  | ", " | </div>"], Link({
+   children: "comments"
+-}));
+-var _g31$ = _$escape__r_server(Link({
++}), Link({
+   children: "show"
+ }));
+-const template12 = _$ssr__r_server(_g6$, _g30$, _g31$);
+ class Template13 {
+   render() {
+-    const _g32$ = this;
++    const _g1$ = this;
+     Component({
+       get prop() {
+-        return _g32$.something;
++        return _g1$.something;
+       },
+       onClick: () => {
+-        return _g32$.shouldStay;
++        return _g1$.shouldStay;
+       },
+       get children() {
+         return Nested({
+           get prop() {
+-            return _g32$.data;
++            return _g1$.data;
+           },
+           get children() {
+-            return _g32$.content;
++            return _g1$.content;
+           }
+         });
+       }
+@@ -226,35 +190,27 @@
+   return s.dynamic();
+ }));
+ const Template20 = Component({
+-  get ["class"]() {
+-    return prop.red ? "red" : "green";
++  class: prop.red ? "red" : "green"
++});
++const template21 = Component({
++  get [key()]() {
++    return props.value;
+   }
+ });
+-const template21 = Component(_$mergeProps__r_server(() => {
+-  return {
+-    get [key()]() {
+-      return props.value;
+-    }
+-  };
+-}));
+ const template22 = Component({
+-  get passObject() {
+-    return {
+-      ...a
+-    };
++  passObject: {
++    ...a
+   }
+ });
+ const template23 = Component({
+-  get disabled() {
+-    return "t" in test;
+-  },
++  disabled: "t" in test,
+   get children() {
+     return "t" in test && "true";
+   }
+ });
+ const template24 = Component({
+   get children() {
+-    return _$escape__r_server(state.dynamic);
++    return state.dynamic;
+   }
+ });
+ const template25 = Component({
+@@ -263,127 +219,116 @@
+   }
+ });
+ const template26 = [Component({
+-  get when() {
++  when: (() => {
+     const foo = test();
+     if ("t" in foo) {
+       return foo;
+     }
+-  }
++  })()
+ }), Component({
+-  get when() {
+-    return ((val = 123) => {
+-      return val * 2;
+-    })();
+-  }
++  when: ((val = 123) => {
++    return val * 2;
++  })()
+ })];
+ const template27 = Component({
+-  get when() {
++  when: (() => {
+     return prop.red ? "red" : "green";
+-  }
++  })()
+ });
+ class Template28 {
+   render() {
+-    const _g33$ = this;
+     return Component({
+-      get when() {
+-        const foo = _g33$.value;
++      when: (() => {
++        const _g2$ = this;
++        const foo = _g2$.value;
+         if ("key" in foo) {
+           return foo;
+         }
+-      }
++      })()
+     });
+   }
+ }
+ class Template29 extends ParentComponent {
+   constructor() {
+     super();
+-    const _g34$ = this;
+-    this.component({
++    const _g3$ = this;
++    _g3$.component({
+       get method() {
+-        return _g34$.method;
++        return _g3$.method;
+       }
+     });
+   }
+   get get() {
+-    const _g35$ = this;
+-    this.component({
++    const _g4$ = this;
++    _g4$.component({
+       get method() {
+-        return _g35$.method;
++        return _g4$.method;
+       }
+     });
+   }
+   set set(v) {
+-    const _g36$ = this;
+-    this.component({
++    const _g5$ = this;
++    _g5$.component({
+       get method() {
+-        return _g36$.method;
++        return _g5$.method;
+       }
+     });
+   }
+   method() {
+-    const _g37$ = this;
+-    this.component({
++    const _g6$ = this;
++    _g6$.component({
+       get method() {
+-        return _g37$.method;
++        return _g6$.method;
+       }
+     });
+   }
+   field = (() => {
+-    const _g38$ = this;
+-    return this.component({
++    const _g7$ = this;
++    return _g7$.component({
+       get method() {
+-        return _g38$.method;
++        return _g7$.method;
+       },
+       get comp() {
+-        return _g38$.another({});
++        return _g7$.another({});
+       }
+     });
+   })();
+   fieldArrow = () => {
+-    const _g39$ = this;
+-    return this.component({
++    const _g8$ = this;
++    return _g8$.component({
+       get method() {
+-        return _g39$.method;
++        return _g8$.method;
+       }
+     });
+   };
+   fieldFunction = function () {
+-    const _g40$ = this;
+-    this.component({
++    const _g9$ = this;
++    _g9$.component({
+       get method() {
+-        return _g40$.method;
++        return _g9$.method;
+       }
+     });
+   };
+ }
+ const template30 = Comp({
+-  ref: binding
++  ref: _$binding__somewhere
+ });
+ const template31 = Comp({
+-  ref(r$) {
+-    var _g41$ = binding.prop;
+-    typeof _g41$ === "function" || Array.isArray(_g41$) ? _$applyRef__r_server(_g41$, r$) : binding.prop = r$;
+-  }
++  ref: _$binding__somewhere.prop
+ });
+ const template32 = Comp({
+-  ref(r$) {
+-    var _g42$ = refFn;
+-    typeof _g42$ === "function" || Array.isArray(_g42$) ? _$applyRef__r_server(_g42$, r$) : refFn = r$;
+-  }
++  ref: refFn
+ });
+ const template33 = Comp({
+   ref: refConst
+ });
+ const template34 = Comp({
+-  ref(r$) {
+-    var _g43$ = refUnknown;
+-    typeof _g43$ === "function" || Array.isArray(_g43$) ? _$applyRef__r_server(_g43$, r$) : refUnknown = r$;
+-  }
++  ref: refUnknown
+ });
+ function MyComponent(props) {
+   let el;
+   const others = omit(props, "children");
+-  return _$ssrElement__r_server("div", others, () => {
+-    return _$escape__r_server(props.children);
+-  }, false);
++  return _$ssrElement__r_server("div", _$mergeProps__r_server({
++    ref: el
++  }, others), props.children, false);
+ }

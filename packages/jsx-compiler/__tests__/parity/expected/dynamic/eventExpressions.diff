@@ -1,0 +1,17 @@
+@@ -19,7 +19,7 @@
+ });
+ _$addEvent__r_dom(_g2$.firstChild.nextSibling.nextSibling, "change", handler);
+ _g2$.firstChild.nextSibling.nextSibling.nextSibling.addEventListener("change", handler);
+-_g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.addEventListener("change", hoisted1);
++_$addEvent__r_dom(_g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling, "change", hoisted1);
+ _g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.$$click = () => {
+   return console.log("delegated");
+ };
+@@ -29,6 +29,6 @@
+ _g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.$$clickData = rowId;
+ _$addEvent__r_dom(_g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling, "click", handler, true);
+ _g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.$$click = handler;
+-_g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.$$click = hoisted2;
++_$addEvent__r_dom(_g2$.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling, "click", hoisted2, true);
+ const template = _g2$;
+ _$delegateEvents__r_dom(["click"]);

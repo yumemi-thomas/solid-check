@@ -1,0 +1,45 @@
+@@ -14,25 +14,27 @@
+ _g5$._$owner = _$getOwner__r_dom();
+ const template = _g5$;
+ var _g6$ = _g1$();
+-_g6$._$owner = _$getOwner__r_dom();
+ _$effect__r_dom(() => {
+-  return {
+-    e: state.name,
+-    t: state.data,
+-    a: state.data,
+-    o: state.data
+-  };
+-}, ({
+-  e: e,
+-  t: t,
+-  a: a,
+-  o: o
+-}, _g7$) => {
+-  e !== _g7$?.e && _$setAttribute__r_dom(_g6$, "some-attr", e);
+-  t !== _g7$?.t && _$setAttribute__r_dom(_g6$, "notProp", t);
+-  a !== _g7$?.a && _$setAttribute__r_dom(_g6$, "my-attr", a);
+-  o !== _g7$?.o && (_g6$.someProp = o);
++  return state.name;
++}, _g7$ => {
++  _$setAttribute__r_dom(_g6$, "some-attr", _g7$);
+ });
++_$effect__r_dom(() => {
++  return state.data;
++}, _g7$ => {
++  _$setAttribute__r_dom(_g6$, "notProp", _g7$);
++});
++_$effect__r_dom(() => {
++  return state.data;
++}, _g7$ => {
++  _$setAttribute__r_dom(_g6$, "my-attr", _g7$);
++});
++_$effect__r_dom(() => {
++  return state.data;
++}, _g7$ => {
++  _g6$.someProp = _g7$;
++});
++_g6$._$owner = _$getOwner__r_dom();
+ const template2 = _g6$;
+ var _g8$ = _g2$();
+ _g8$._$owner = _$getOwner__r_dom();

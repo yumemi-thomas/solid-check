@@ -1,0 +1,261 @@
+@@ -1,169 +1,122 @@
+ import { createComponent as _$createComponent__r_custom } from "r-custom";
+ import { createElement as _$createElement__r_custom } from "r-custom";
+-import { effect as _$effect__r_custom } from "r-custom";
+ import { insert as _$insert__r_custom } from "r-custom";
+-import { insertNode as _$insertNode__r_custom } from "r-custom";
+-import { memo as _$memo__r_custom } from "r-custom";
+-import { setProp as _$setProp__r_custom } from "r-custom";
+ import { spread as _$spread__r_custom } from "r-custom";
++import { createComponent as _$createComponent__r_dom } from "r-dom";
++import { effect as _$effect__r_dom } from "r-dom";
+ import { insert as _$insert__r_dom } from "r-dom";
+ import { ref as _$ref__r_dom } from "r-dom";
+ import { setAttribute as _$setAttribute__r_dom } from "r-dom";
+ import { spread as _$spread__r_dom } from "r-dom";
+ import { template as _$template__r_dom } from "r-dom";
+-var _g1$ = _$template__r_dom("<div>Hello ");
+-var _g2$ = _$template__r_dom("<button>");
+-var _g3$ = _$template__r_dom("<div><div>");
+-var _g4$ = _$template__r_dom("<div>");
+-var _g5$ = _$template__r_dom("<div><button>");
++var _g1$ = _$template__r_dom("<div>Hello");
++var _g2$ = _$template__r_dom("<mesh scale=2>");
++var _g3$ = _$template__r_dom("<pointLight>");
++var _g4$ = _$template__r_dom("<button>");
++var _g5$ = _$template__r_dom("<div><div>");
++var _g6$ = _$template__r_dom("<mesh scale=2><pointLight>");
++var _g7$ = _$template__r_dom("<div><button>");
++var _g8$ = _$template__r_dom("<div>");
+ import { Show } from "somewhere";
+ const Child = props => {
+   const [s, set] = createSignal();
+   return [(() => {
+-    var _g6$ = _g1$();
+-    var _g7$ = _g6$.firstChild;
+-    var _g8$ = props.ref;
+-    typeof _g8$ === "function" || Array.isArray(_g8$) ? _$ref__r_dom(() => {
+-      return _g8$;
+-    }, _g6$) : props.ref = _g6$;
+-    _$insert__r_dom(_g6$, () => {
++    var _g9$ = _g1$();
++    var _g10$ = props.ref;
++    typeof _g10$ === "function" || Array.isArray(_g10$) ? _$ref__r_dom(() => {
++      return _g10$;
++    }, _g9$) : props.ref = _g9$;
++    _$effect__r_dom(() => {
++      return <div backgroundColor={s() ? "red" : "green"} />;
++    }, _g11$ => {
++      _$setAttribute__r_dom(_g9$, "element", _g11$);
++    });
++    _$insert__r_dom(_g9$, () => {
+       return props.name;
+     }, null);
+-    _$effect__r_custom(() => {
+-      return (() => {
+-        var _g9$ = _g4$();
+-        _$effect__r_custom(() => {
+-          return s() ? "red" : "green";
+-        }, _g10$ => {
+-          _$setAttribute__r_dom(_g9$, "backgroundColor", _g10$);
+-        });
+-        return _g9$;
+-      })();
+-    }, _g10$ => {
+-      _$setAttribute__r_dom(_g6$, "element", _g10$);
+-    });
+-    return _g6$;
++    return _g9$;
+   })(), (() => {
+-    var _g11$ = _g3$();
+-    var _g12$ = _g11$.firstChild;
+-    _$ref__r_dom(() => {
+-      return set;
+-    }, _g12$);
+-    _$insert__r_dom(_g12$, () => {
++    var _g12$ = _g5$();
++    var _g13$ = _g12$.firstChild;
++    var _g14$ = set;
++    typeof _g14$ === "function" || Array.isArray(_g14$) ? _$ref__r_dom(() => {
++      return _g14$;
++    }, _g13$) : set = _g13$;
++    _$insert__r_dom(_g13$, () => {
+       return props.children;
+     });
+-    _$insert__r_dom(_g11$, _$createComponent__r_custom(Canvas, {
++    _$insert__r_dom(_g12$, _$createComponent__r_dom(Canvas, {
+       get children() {
+-        return [(() => {
+-          var _g13$ = _$createElement__r_custom("mesh", {
+-            scale: 2,
+-            position: [0, 0, 0],
+-            geometry: _$createElement__r_custom("boxBufferGeometry", {
+-              args: [0, 1, 2]
+-            })
+-          });
+-          _$effect__r_custom(() => {
+-            return (() => {
+-              var _g14$ = _$createElement__r_custom("basicMaterial", {
+-                alpha: 0
+-              });
+-              _$effect__r_custom(() => {
+-                return s() ? "red" : "green";
+-              }, (_g10$, _$p) => {
+-                _$setProp__r_custom(_g14$, "color", _g10$, _$p);
+-              });
+-              return _g14$;
+-            })();
+-          }, (_g10$, _$p) => {
+-            _$setProp__r_custom(_g13$, "material", _g10$, _$p);
+-          });
+-          return _g13$;
+-        })(), _$createElement__r_custom("pointLight"), _$createComponent__r_custom(HTML, {
++        var _g15$ = _g2$();
++        _$setAttribute__r_dom(_g15$, "position", [0, 0, 0]);
++        _$setAttribute__r_dom(_g15$, "geometry", <boxBufferGeometry args={[0, 1, 2]} />);
++        _$effect__r_dom(() => {
++          return <basicMaterial alpha={0} color={s() ? "red" : "green"} />;
++        }, _g11$ => {
++          _$setAttribute__r_dom(_g15$, "material", _g11$);
++        });
++        return [_g15$, _g3$(), _$createComponent__r_dom(HTML, {
+           get children() {
+-            return [(() => {
+-              var _g15$ = _g1$();
+-              var _g16$ = _g15$.firstChild;
+-              var _g17$ = props.ref;
+-              typeof _g17$ === "function" || Array.isArray(_g17$) ? _$ref__r_dom(() => {
+-                return _g17$;
+-              }, _g15$) : props.ref = _g15$;
+-              _$insert__r_dom(_g15$, () => {
+-                return props.name;
+-              }, null);
+-              _$effect__r_custom(() => {
+-                return (() => {
+-                  var _g18$ = _g4$();
+-                  _$effect__r_custom(() => {
+-                    return s() ? "red" : "green";
+-                  }, _g10$ => {
+-                    _$setAttribute__r_dom(_g18$, "backgroundColor", _g10$);
+-                  });
+-                  return _g18$;
+-                })();
+-              }, _g10$ => {
+-                _$setAttribute__r_dom(_g15$, "element", _g10$);
+-              });
+-              return _g15$;
+-            })(), _g2$()];
++            var _g16$ = _g1$();
++            var _g17$ = props.ref;
++            typeof _g17$ === "function" || Array.isArray(_g17$) ? _$ref__r_dom(() => {
++              return _g17$;
++            }, _g16$) : props.ref = _g16$;
++            _$effect__r_dom(() => {
++              return <div backgroundColor={s() ? "red" : "green"} />;
++            }, _g11$ => {
++              _$setAttribute__r_dom(_g16$, "element", _g11$);
++            });
++            _$insert__r_dom(_g16$, () => {
++              return props.name;
++            }, null);
++            return [_g16$, _g4$()];
+           }
+         })];
+       }
+     }), null);
+-    return _g11$;
++    return _g12$;
+   })()];
+ };
+ const Component = props => {
+-  var _g19$ = _g4$();
+-  _$insert__r_dom(_g19$, (() => {
+-    var _g20$ = _$memo__r_custom(() => {
+-      return !!props.three;
+-    });
+-    return () => {
+-      return _g20$() ? (() => {
+-        var _g21$ = _$createElement__r_custom("mesh", {
+-          scale: 2,
+-          position: [0, 0, 0],
+-          geometry: _$createElement__r_custom("boxBufferGeometry", {
+-            args: [0, 1, 2]
+-          })
+-        });
+-        var _g22$ = _$createElement__r_custom("pointLight");
+-        _$insertNode__r_custom(_g21$, _g22$);
+-        _$effect__r_custom(() => {
+-          return (() => {
+-            var _g23$ = _$createElement__r_custom("basicMaterial", {
+-              alpha: 0
+-            });
+-            _$effect__r_custom(() => {
+-              return s() ? "red" : "green";
+-            }, (_g10$, _$p) => {
+-              _$setProp__r_custom(_g23$, "color", _g10$, _$p);
+-            });
+-            return _g23$;
+-          })();
+-        }, (_g10$, _$p) => {
+-          _$setProp__r_custom(_g21$, "material", _g10$, _$p);
++  return (() => {
++    var _g18$ = _g8$();
++    _$insert__r_dom(_g18$, () => {
++      return props.three ? (() => {
++        var _g19$ = _g6$();
++        _$setAttribute__r_dom(_g19$, "position", [0, 0, 0]);
++        _$setAttribute__r_dom(_g19$, "geometry", <boxBufferGeometry args={[0, 1, 2]} />);
++        _$effect__r_dom(() => {
++          return <basicMaterial alpha={0} color={s() ? "red" : "green"} />;
++        }, _g11$ => {
++          _$setAttribute__r_dom(_g19$, "material", _g11$);
+         });
+-        return _g21$;
+-      })() : _g5$();
+-    };
+-  })());
+-  return _g19$;
++        return _g19$;
++      })() : _g7$();
++    });
++    return _g18$;
++  })();
+ };
+ const Mesh = props => {
+-  var _g24$ = _$createElement__r_custom("group");
+-  _$spread__r_custom(_g24$, props, true);
+-  _$insert__r_custom(_g24$, [(() => {
+-    var _g25$ = _$createElement__r_custom("group");
+-    _$insert__r_custom(_g25$, a ? _$createElement__r_custom("mesh") : _$createElement__r_custom("instancedMesh"));
+-    return _g25$;
+-  })(), _$createComponent__r_custom(HTML, {
+-    get children() {
+-      var _g26$ = _g4$();
+-      _$spread__r_dom(_g26$, props, true);
+-      _$insert__r_dom(_g26$, b ? _g4$() : _g2$());
+-      return _g26$;
+-    }
+-  })]);
+-  return _g24$;
++  return (() => {
++    var _g9$ = _$createElement__r_custom("group");
++    _$spread__r_custom(_g9$, props, true);
++    _$insert__r_custom(_g9$, [(() => {
++      var _g12$ = _$createElement__r_custom("group");
++      _$insert__r_custom(_g12$, a ? <mesh /> : <instancedMesh />);
++      return _g12$;
++    })(), _$createComponent__r_custom(HTML, {
++      get children() {
++        return (() => {
++          var _g20$ = _g8$();
++          _$spread__r_dom(_g20$, props, true);
++          _$insert__r_dom(_g20$, () => {
++            return b ? _g8$() : _g4$();
++          });
++          return _g20$;
++        })();
++      }
++    })]);
++    return _g9$;
++  })();
+ };

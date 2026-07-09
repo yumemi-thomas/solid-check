@@ -1,0 +1,17 @@
+@@ -1,15 +1,10 @@
+ import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-import { ssrAttribute as _$ssrAttribute__r_server } from "r-server";
+-var _g1$ = ["<div", ">title</div>"];
+ const dynamicId = () => {
+   return "dyn-id";
+ };
+ const t1 = _$ssr__r_server("<div id=\"second\">id</div>");
+-var _g2$ = () => {
+-  return _$ssrAttribute__r_server("title", _$escape__r_server(dynamicId(), true));
+-};
+-const t2 = _$ssr__r_server(_g1$, _g2$);
++const t2 = _$ssr__r_server(["<div title=\"", "\">title</div>"], _$escape__r_server(dynamicId(), true));
+ const t3 = _$ssr__r_server("<div data-x=\"fixed\">data</div>");
+ const t4 = _$ssr__r_server("<svg><use xlink:href=\"#b\"></use></svg>");
+ const t5 = _$ssr__r_server("<input>");

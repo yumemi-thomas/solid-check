@@ -1,0 +1,118 @@
+@@ -10,73 +10,78 @@
+ var _g7$ = _$template__r_dom("<span>Hello");
+ var _g8$ = _$template__r_dom("<span>&nbsp;&lt;Hi&gt;&nbsp;");
+ var _g9$ = _$template__r_dom("<span>Hi&lt;script>alert();&lt;/script>");
+-var _g10$ = _$template__r_dom("<span>Hello World!");
+-var _g11$ = _$template__r_dom("<span>4 + 5 = 9");
+-var _g12$ = _$template__r_dom("<div>\nd");
+-var _g13$ = _$template__r_dom("<div>");
+-var _g14$ = _$template__r_dom("<span> ");
+-var _g15$ = _$template__r_dom("<div normal=Search\u2026 title=Search&amp;hellip;>");
++var _g10$ = _$template__r_dom("<span>4 + 5 = ");
++var _g11$ = _$template__r_dom("<div>\nd");
++var _g12$ = _$template__r_dom("<div>");
++var _g13$ = _$template__r_dom("<span> ");
++var _g14$ = _$template__r_dom("<div normal=Search\u2026 title=Search&amp;hellip;>");
+ const trailing = _g1$();
+ const leading = _g2$();
+ const extraSpaces = _g3$();
+-var _g16$ = _g1$();
+-_$insert__r_dom(_g16$, name, null);
+-const trailingExpr = _g16$;
+-var _g17$ = _g2$();
++var _g15$ = _g1$();
++_$insert__r_dom(_g15$, name, null);
++const trailingExpr = _g15$;
++var _g16$ = _g2$();
++_$insert__r_dom(_g16$, greeting, _g16$.firstChild);
++const leadingExpr = _g16$;
++var _g17$ = _g4$();
+ _$insert__r_dom(_g17$, greeting, _g17$.firstChild);
+-const leadingExpr = _g17$;
+-var _g18$ = _g4$();
+-_$insert__r_dom(_g18$, greeting, _g18$.firstChild);
+-_$insert__r_dom(_g18$, name, _g18$.firstChild.nextSibling);
+-const multiExpr = _g18$;
+-var _g19$ = _g5$();
++_$insert__r_dom(_g17$, name, _g17$.firstChild.nextSibling);
++const multiExpr = _g17$;
++var _g18$ = _g5$();
++_$insert__r_dom(_g18$, greeting, _g18$.firstChild.nextSibling);
++_$insert__r_dom(_g18$, name, _g18$.firstChild.nextSibling.nextSibling.nextSibling);
++const multiExprSpaced = _g18$;
++var _g19$ = _g6$();
+ _$insert__r_dom(_g19$, greeting, _g19$.firstChild.nextSibling);
+-_$insert__r_dom(_g19$, name, _g19$.firstChild.nextSibling.nextSibling.nextSibling);
+-const multiExprSpaced = _g19$;
+-var _g20$ = _g6$();
+-_$insert__r_dom(_g20$, greeting, _g20$.firstChild.nextSibling);
+-_$insert__r_dom(_g20$, name, _g20$.firstChild.nextSibling.nextSibling);
+-const multiExprTogether = _g20$;
++_$insert__r_dom(_g19$, name, _g19$.firstChild.nextSibling.nextSibling);
++const multiExprTogether = _g19$;
+ const multiLine = _g7$();
+ const multiLineTrailingSpace = _g3$();
+ const multiLineNoTrailingSpace = _g3$();
+ const escape = _g8$();
+ const escape2 = _$createComponent__r_custom(Comp, {
+-  children: "\xA0<Hi>\xA0"
++  children: "&nbsp;&lt;Hi&gt;&nbsp;"
+ });
+ const injection = _g9$();
+-const evaluated = _g10$();
++var _g20$ = _g1$();
++_$insert__r_dom(_g20$, "World" + "!", null);
++const evaluated = _g20$;
+ let number = 4 + 5;
+-const evaluatedNonString = _g11$();
+-var _g21$ = _g12$();
+-_$insert__r_dom(_g21$, s, _g21$.firstChild);
+-const newLineLiteral = _g21$;
+-var _g22$ = _g13$();
+-_$insert__r_dom(_g22$, expr);
+-const trailingSpace = _g22$;
++var _g21$ = _g10$();
++_$insert__r_dom(_g21$, number, null);
++const evaluatedNonString = _g21$;
++var _g22$ = _g11$();
++_$insert__r_dom(_g22$, s, _g22$.firstChild);
++const newLineLiteral = _g22$;
++var _g23$ = _g12$();
++_$insert__r_dom(_g23$, expr);
++const trailingSpace = _g23$;
+ const trailingSpaceComp = _$createComponent__r_custom(Comp, {
+-  children: expr
++  get children() {
++    return expr;
++  }
+ });
+ const trailingSpaceFrag = expr;
+-var _g23$ = _g14$();
+-_$insert__r_dom(_g23$, expr, null);
+-const leadingSpaceElement = _g23$;
++var _g24$ = _g13$();
++_$insert__r_dom(_g24$, expr, null);
++const leadingSpaceElement = _g24$;
+ const leadingSpaceComponent = _$createComponent__r_custom(Div, {
+   get children() {
+     return [" ", expr];
+   }
+ });
+ const leadingSpaceFragment = [" ", expr];
+-var _g24$ = _g14$();
+-_$insert__r_dom(_g24$, expr, _g24$.firstChild);
+-const trailingSpaceElement = _g24$;
++var _g25$ = _g13$();
++_$insert__r_dom(_g25$, expr, _g25$.firstChild);
++const trailingSpaceElement = _g25$;
+ const trailingSpaceComponent = _$createComponent__r_custom(Div, {
+   get children() {
+     return [expr, " "];
+   }
+ });
+ const trailingSpaceFragment = [expr, " "];
+-const escapeAttribute = _g15$();
++const escapeAttribute = _g14$();
+ const escapeCompAttribute = _$createComponent__r_custom(Div, {
+   normal: "Search\u2026",
+   title: "Search&hellip;"

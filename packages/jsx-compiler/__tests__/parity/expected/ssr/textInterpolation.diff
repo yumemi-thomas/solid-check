@@ -1,0 +1,86 @@
+@@ -1,60 +1,40 @@
+ import { escape as _$escape__r_server } from "r-server";
+ import { ssr as _$ssr__r_server } from "r-server";
+-var _g1$ = ["<span>Hello ", "</span>"];
+-var _g2$ = ["<span>", " John</span>"];
+-var _g3$ = ["<span>", " ", "</span>"];
+-var _g4$ = ["<span> ", " ", " </span>"];
+-var _g5$ = ["<span> ", "", " </span>"];
+-var _g6$ = ["<div>", "\nd</div>"];
+-var _g7$ = ["<div>", "</div>"];
+-var _g8$ = ["<span> ", "</span>"];
+-var _g9$ = ["<span>", " </span>"];
+-var _g10$ = ["<div><div></div>", "</div>"];
+ const trailing = _$ssr__r_server("<span>Hello </span>");
+ const leading = _$ssr__r_server("<span> John</span>");
+ const extraSpaces = _$ssr__r_server("<span>Hello John</span>");
+-var _g11$ = _$escape__r_server(name);
+-const trailingExpr = _$ssr__r_server(_g1$, _g11$);
+-var _g12$ = _$escape__r_server(greeting);
+-const leadingExpr = _$ssr__r_server(_g2$, _g12$);
+-var _g13$ = _$escape__r_server(greeting);
+-var _g14$ = _$escape__r_server(name);
+-const multiExpr = _$ssr__r_server(_g3$, _g13$, _g14$);
+-var _g15$ = _$escape__r_server(greeting);
+-var _g16$ = _$escape__r_server(name);
+-const multiExprSpaced = _$ssr__r_server(_g4$, _g15$, _g16$);
+-var _g17$ = _$escape__r_server(greeting);
+-var _g18$ = _$escape__r_server(name);
+-const multiExprTogether = _$ssr__r_server(_g5$, _g17$, _g18$);
++const trailingExpr = _$ssr__r_server(["<span>Hello ", "</span>"], _$escape__r_server(name));
++const leadingExpr = _$ssr__r_server(["<span>", " John</span>"], _$escape__r_server(greeting));
++const multiExpr = _$ssr__r_server(["<span>", " ", "</span>"], _$escape__r_server(greeting), _$escape__r_server(name));
++const multiExprSpaced = _$ssr__r_server(["<span> ", " ", " </span>"], _$escape__r_server(greeting), _$escape__r_server(name));
++const multiExprTogether = _$ssr__r_server(["<span> ", "", " </span>"], _$escape__r_server(greeting), _$escape__r_server(name));
+ const multiLine = _$ssr__r_server("<span>Hello</span>");
+ const multiLineTrailingSpace = _$ssr__r_server("<span>Hello John</span>");
+ const multiLineNoTrailingSpace = _$ssr__r_server("<span>Hello John</span>");
+ const escape = _$ssr__r_server("<span>&nbsp;&lt;Hi&gt;&nbsp;</span>");
+ const escape2 = Comp({
+-  children: "\xA0<Hi>\xA0"
++  children: "&nbsp;&lt;Hi&gt;&nbsp;"
+ });
+ const injection = _$ssr__r_server("<span>Hi&lt;script>alert();&lt;/script></span>");
+-const evaluated = _$ssr__r_server("<span>Hello World!</span>");
++const evaluated = _$ssr__r_server(["<span>Hello ", "</span>"], _$escape__r_server("World" + "!"));
+ let number = 4 + 5;
+-const evaluatedNonString = _$ssr__r_server("<span>4 + 5 = 9</span>");
+-var _g19$ = _$escape__r_server(s);
+-const newLineLiteral = _$ssr__r_server(_g6$, _g19$);
+-var _g20$ = _$escape__r_server(expr);
+-const trailingSpace = _$ssr__r_server(_g7$, _g20$);
++const evaluatedNonString = _$ssr__r_server(["<span>4 + 5 = ", "</span>"], _$escape__r_server(number));
++const newLineLiteral = _$ssr__r_server(["<div>", "\nd</div>"], _$escape__r_server(s));
++const trailingSpace = _$ssr__r_server(["<div>", "</div>"], _$escape__r_server(expr));
+ const trailingSpaceComp = Comp({
+-  children: expr
++  get children() {
++    return expr;
++  }
+ });
+ const trailingSpaceFrag = expr;
+-var _g21$ = _$escape__r_server(expr);
+-const leadingSpaceElement = _$ssr__r_server(_g8$, _g21$);
++const leadingSpaceElement = _$ssr__r_server(["<span> ", "</span>"], _$escape__r_server(expr));
+ const leadingSpaceComponent = Div({
+   get children() {
+     return [" ", expr];
+   }
+ });
+ const leadingSpaceFragment = [" ", expr];
+-var _g22$ = _$escape__r_server(expr);
+-const trailingSpaceElement = _$ssr__r_server(_g9$, _g22$);
++const trailingSpaceElement = _$ssr__r_server(["<span>", " </span>"], _$escape__r_server(expr));
+ const trailingSpaceComponent = Div({
+   get children() {
+     return [expr, " "];
+@@ -66,8 +46,5 @@
+   normal: "Search\u2026",
+   title: "Search&hellip;"
+ });
+-var _g23$ = () => {
+-  return _$escape__r_server(expr());
+-};
+-const lastElementExpression = _$ssr__r_server(_g10$, _g23$);
++const lastElementExpression = _$ssr__r_server(["<div><div></div>", "</div>"], _$escape__r_server(expr()));
+ const messwithTemplates = _$ssr__r_server("<p>${blah}</p>");
