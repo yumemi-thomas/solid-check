@@ -32,7 +32,7 @@ const template = _$ssrElement("div", _$mergeProps({ id: "main" }, results, {
 const template2 = _$ssrElement("div", getProps("test"), [
 	_$ssr(["<div textContent=\"", "\"></div>"], _$escape(rowId, true)),
 	_$ssr(["<div textContent=\"", "\"></div>"], _$escape(row.label, true)),
-	_$ssr("<div innerHTML=\"&lt;div/>\"></div>")
+	_$ssr("<div innerHTML=\"<div/>\"></div>")
 ], false);
 const template3 = _$ssr([
 	"<div foo id=\"",
@@ -75,7 +75,7 @@ const template8 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(refTarget, true))
 const template9 = _$ssr(["<div ref=\"", "\"></div>"], _$escape((e) => console.log(e), true));
 const template10 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(refFactory(), true));
 const template12 = _$ssr("<div onclick=\"console.log('hi')\"></div>");
-const template13 = _$ssr("<input type=\"checkbox\" checked=\"true\">");
+const template13 = _$ssr("<input type=\"checkbox\" checked>");
 const template14 = _$ssr(["<input type=\"checkbox\" checked=\"", "\">"], _$escape(state.visible, true));
 const template15 = _$ssr("<div class=\"`a\">`$`</div>");
 const template16 = _$ssr(["<button class=\"", "\" type=\"button\">Write</button>"], _$escape(["static", { hi: "k" }], true));
@@ -97,7 +97,7 @@ const template20 = _$ssr([
 	"\" min=\"",
 	"\" max=\"",
 	"\" onInput=\"",
-	"\" readonly=\"\"><input checked=\"",
+	"\" readonly><input checked=\"",
 	"\" min=\"",
 	"\" max=\"",
 	"\" onInput=\"",
@@ -156,29 +156,30 @@ const template41 = _$ssr([
 	"\">Red</option><option value=\"",
 	"\">Blue</option></select>"
 ], _$escape(state.color, true), _$escape(Color.Red, true), _$escape(Color.Blue, true));
-const template42 = _$ssr("<img src=\"\">");
-const template43 = _$ssr("<div><img src=\"\"></div>");
-const template44 = _$ssr("<img src=\"\" loading=\"lazy\">");
-const template45 = _$ssr("<div><img src=\"\" loading=\"lazy\"></div>");
-const template46 = _$ssr("<iframe src=\"\"></iframe>");
-const template47 = _$ssr("<div><iframe src=\"\"></iframe></div>");
-const template48 = _$ssr("<iframe src=\"\" loading=\"lazy\"></iframe>");
-const template49 = _$ssr("<div><iframe src=\"\" loading=\"lazy\"></iframe></div>");
-const template50 = _$ssr("<div title=\"&lt;u>data&lt;/u>\"></div>");
+const template42 = _$ssr("<img src>");
+const template43 = _$ssr("<div><img src></div>");
+const template44 = _$ssr("<img src loading=\"lazy\">");
+const template45 = _$ssr("<div><img src loading=\"lazy\"></div>");
+const template46 = _$ssr("<iframe src></iframe>");
+const template47 = _$ssr("<div><iframe src></iframe></div>");
+const template48 = _$ssr("<iframe src loading=\"lazy\"></iframe>");
+const template49 = _$ssr("<div><iframe src loading=\"lazy\"></iframe></div>");
+const template50 = _$ssr("<div title=\"<u>data</u>\"></div>");
 const template51 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(binding, true));
 const template52 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(binding.prop, true));
 const template53 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(refFn, true));
 const template54 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(refConst, true));
 const template55 = _$ssr(["<div ref=\"", "\"></div>"], _$escape(refUnknown, true));
-const template56 = _$ssr("<div true=\"true\" truestr=\"true\" truestrjs=\"true\"></div>");
-const template57 = _$ssr("<div false=\"false\" falsestr=\"false\" falsestrjs=\"false\"></div>");
+const template56 = _$ssr("<div true truestr=\"true\" truestrjs=\"true\"></div>");
+const template57 = _$ssr("<div falsestr=\"false\" falsestrjs=\"false\"></div>");
 const template58 = _$ssr("<div></div>");
-const template59 = _$ssr("<div true=\"true\" false=\"false\"></div>");
+const template59 = _$ssr("<div true></div>");
 const template60 = _$ssr([
-	"<div a b=\"\" c=\"\" d=\"true\" e=\"false\" f=\"0\" g=\"\" h=\"\" i=\"",
-	"\" j=\"null\" k=\"",
+	"<div a b c d f=\"0\" g h i=\"",
+	"\" j=\"",
+	"\" k=\"",
 	"\" l></div>"
-], _$escape(undefined, true), _$escape(void 0, true));
+], _$escape(undefined, true), _$escape(null, true), _$escape(void 0, true));
 const template61 = _$ssr("<math display=\"block\"><mrow></mrow></math>");
 const template62 = _$ssr("<mrow><mi>x</mi><mo>=</mo></mrow>");
 const template63 = _$ssr(["<div style=\"", "\"></div>"], _$escape({ "background": "red" }, true));
@@ -214,8 +215,8 @@ const template69 = _$ssr(["<div style=\"", "\"></div>"], _$escape({
 	"border": null
 }, true));
 const template70 = _$ssr(["<video playsinline=\"", "\"></video>"], _$escape(value, true));
-const template71 = _$ssr("<video playsinline=\"true\"></video>");
-const template72 = _$ssr("<video playsinline=\"false\"></video>");
+const template71 = _$ssr("<video playsinline></video>");
+const template72 = _$ssr("<video></video>");
 const template73 = _$ssr("<video poster=\"1.jpg\"></video>");
 const template74 = _$ssr("<div><video poster=\"1.jpg\"></video></div>");
 const template75 = _$ssr("<video></video>");
@@ -346,8 +347,8 @@ const template94 = _$ssr([
 	"</textarea><textarea value=\"static content\"></textarea><textarea value=\"static content\">I get replaced</textarea></div>"
 ], _$escape(dynamicProperty(), true), _$escape(dynamicProperty(), true), _$escape(dynamicContent()), _$escape(dynamicContent(), true), _$escape(dynamicContent()));
 const template95 = _$ssr([
-	"<div><video muted=\"true\"></video><video muted=\"false\"></video><video defaultMuted=\"false\" muted=\"",
-	"\"></video><video defaultMuted=\"true\" muted=\"",
+	"<div><video muted></video><video></video><video muted=\"",
+	"\"></video><video defaultMuted muted=\"",
 	"\"></video><video defaultMuted=\"",
 	"\" muted=\"",
 	"\"></video><video src=\"test.mp4\" muted></video></div>"

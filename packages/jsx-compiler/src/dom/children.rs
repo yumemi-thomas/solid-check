@@ -6,7 +6,7 @@ use oxc_ast_visit::VisitMut;
 
 use crate::dom::attrs::CloseTagContext;
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
-use crate::dom::static_template::{last_static_element_child, lower_static_native_template};
+use crate::dom::static_template::lower_static_native_template;
 use crate::dom::template::InsertMarker;
 use crate::shared::utils::{
     child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
@@ -20,10 +20,35 @@ impl<'a> AstDomTransform<'a, '_> {
         tag_name: &str,
         element_id: &str,
         template: &mut String,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
+        operations: &mut std::vec::Vec<Statement<'a>>,
+    ) -> Result<()> {
+        // Walk anchors are per-parent: this element's positional walks start
+        // from its own reference, not an outer marker.
+        let saved_anchor = self.hydration_walk_anchor.take();
+        let result = self.lower_dom_children_inner(
+            element,
+            tag_name,
+            element_id,
+            template,
+            declarations,
+            operations,
+        );
+        self.hydration_walk_anchor = saved_anchor;
+        result
+    }
+
+    fn lower_dom_children_inner(
+        &mut self,
+        element: &JSXElement<'a>,
+        tag_name: &str,
+        element_id: &str,
+        template: &mut String,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
         operations: &mut std::vec::Vec<Statement<'a>>,
     ) -> Result<()> {
         let child_to_be_closed = self.child_close_context(tag_name, CloseTagContext::root());
-        let last_static_child = last_static_element_child(&element.children);
+        let last_element = self.find_last_element(&element.children);
         // Mirror of the Babel generate: when a parent hosts multiple dynamic
         // slots, each slot needs its own truthy insertion marker — the marker
         // doubles as the runtime's $$SLOT ownership tag, and shared or null
@@ -31,6 +56,11 @@ impl<'a> AstDomTransform<'a, '_> {
         // neighbor (solidjs/solid#2830). Slots ride an immediately following
         // static sibling when one exists, otherwise get a dedicated `<!>`.
         let per_slot = !self.hydratable && self.dynamic_slot_count(&element.children) > 1;
+        // Hydratable `<html>` children resolve by tag with `getNextMatch`
+        // (chained from the previous match) — browsers normalize the document
+        // shell, so positional walks are unreliable there.
+        let html_tag_walk = self.hydratable && tag_name == "html";
+        let mut previous_html_child: Option<String> = None;
         let mut index = 0;
         let mut child_node_index = 0;
 
@@ -57,7 +87,7 @@ impl<'a> AstDomTransform<'a, '_> {
                             element_id,
                             &mut child_node_index,
                             template,
-                            operations,
+                            declarations,
                         );
                         operations.push(self.insert_statement(
                             element.span,
@@ -69,28 +99,36 @@ impl<'a> AstDomTransform<'a, '_> {
                         self,
                         child,
                         CloseTagContext {
-                            last_element: Some(index) == last_static_child
-                                && !has_following_static_content(&element.children[index + 1..]),
+                            last_element: Some(index) == last_element,
                             to_be_closed: child_to_be_closed.clone(),
                         },
                     )? {
                         template.push_str(&static_template);
                         child_node_index += 1;
                     } else {
-                        self.lower_dynamic_native_child(
+                        let lookup_override = if html_tag_walk {
+                            Some(self.next_match_expression(
+                                child,
+                                element_id,
+                                previous_html_child.as_deref(),
+                            )?)
+                        } else {
+                            None
+                        };
+                        let child_id = self.lower_dynamic_native_child(
                             child,
                             CloseTagContext {
-                                last_element: Some(index) == last_static_child
-                                    && !has_following_static_content(
-                                        &element.children[index + 1..],
-                                    ),
+                                last_element: Some(index) == last_element,
                                 to_be_closed: child_to_be_closed.clone(),
                             },
                             element_id,
                             child_node_index,
+                            lookup_override,
                             template,
+                            declarations,
                             operations,
                         )?;
+                        previous_html_child = Some(child_id);
                         child_node_index += 1;
                     }
                 }
@@ -109,17 +147,21 @@ impl<'a> AstDomTransform<'a, '_> {
                     let run_end = dynamic_run_end(&element.children, index);
                     // Single-slot parents keep the previous marker strategy
                     // untouched: one shared placeholder when boxed by text,
-                    // the leading static content otherwise.
-                    let shared_marker_name = if !per_slot
+                    // the leading static content otherwise. Hydratable slots
+                    // always use `<!$><!/>` marker pairs instead.
+                    let shared_marker_name = if !self.hydratable
+                        && !per_slot
                         && has_previous_static_text(&element.children[..index])
                         && has_next_static_text(&element.children[run_end..])
                     {
                         template.push_str("<!>");
                         let marker_name = self.next_element_id();
-                        operations.push(self.variable_statement(
+                        let lookup =
+                            self.child_walk_expression(element.span, element_id, child_node_index);
+                        declarations.push(self.variable_statement(
                             element.span,
                             &marker_name,
-                            self.child_node_expression(element.span, element_id, child_node_index),
+                            lookup,
                         ));
                         child_node_index += 1;
                         Some(marker_name)
@@ -140,12 +182,20 @@ impl<'a> AstDomTransform<'a, '_> {
                         let mut value =
                             jsx_expression_to_expression(&container.expression, self.allocator);
                         self.visit_expression(&mut value);
-                        let value = self.dom_child_expression(container.span, value);
+                        // A `/*@static*/` marker opts the hole out of deferral:
+                        // the value inserts once, unwrapped and unscoped.
+                        let marked_static = self.has_static_marker(container.span);
+                        let value = if marked_static {
+                            value
+                        } else {
+                            self.dom_child_expression(container.span, value)
+                        };
                         // Mirror of the ssr generate's `scope()` wrap: deferred
                         // holes that can allocate hydration ids get their own
                         // owner scope. Both flags come from shared predicates
                         // so the generates can't desync.
-                        let value = if self.hydratable
+                        let value = if !marked_static
+                            && self.hydratable
                             && child_slot_allocates_ids(dynamic_child)
                             && is_dynamic_child_slot(dynamic_child)
                         {
@@ -168,7 +218,7 @@ impl<'a> AstDomTransform<'a, '_> {
                                 element_id,
                                 &mut child_node_index,
                                 template,
-                                operations,
+                                declarations,
                             )
                         };
                         operations.push(self.insert_statement(
@@ -200,7 +250,7 @@ impl<'a> AstDomTransform<'a, '_> {
                         element_id,
                         &mut child_node_index,
                         template,
-                        operations,
+                        declarations,
                     );
                     operations.push(self.insert_statement(element.span, element_id, value, marker));
                 }
@@ -214,6 +264,39 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         Ok(())
+    }
+
+    /// Mirror of the Babel generate's `findLastElement`: the last retained
+    /// child that ends the parent's template content. In hydratable mode any
+    /// retained child counts (dynamic slots append `<!$><!/>` markers, so an
+    /// element followed by one is not last); otherwise only template-inlined
+    /// children (text, static expressions, native elements) count.
+    pub(crate) fn find_last_element(&self, children: &[JSXChild<'a>]) -> Option<usize> {
+        for (index, child) in children.iter().enumerate().rev() {
+            let retained = match child {
+                JSXChild::Text(text) => !trim_jsx_text(&text.value).is_empty(),
+                JSXChild::ExpressionContainer(container) => {
+                    !matches!(container.expression, JSXExpression::EmptyExpression(_))
+                }
+                _ => true,
+            };
+            if !retained {
+                continue;
+            }
+            let qualifies = self.hydratable
+                || match child {
+                    JSXChild::Text(_) => true,
+                    JSXChild::ExpressionContainer(container) => self
+                        .static_jsx_expression_value(&container.expression)
+                        .is_some(),
+                    JSXChild::Element(child) => !is_component_name(&child.opening_element.name),
+                    _ => false,
+                };
+            if qualifies {
+                return Some(index);
+            }
+        }
+        None
     }
 
     /// Number of children that compile to `insert()` calls: dynamic expression
@@ -252,7 +335,7 @@ impl<'a> AstDomTransform<'a, '_> {
         element_id: &str,
         child_node_index: &mut usize,
         template: &mut String,
-        operations: &mut std::vec::Vec<Statement<'a>>,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
     ) -> Option<InsertMarker<'a>> {
         if self.hydratable {
             return self.hydration_slot_marker(
@@ -262,7 +345,7 @@ impl<'a> AstDomTransform<'a, '_> {
                 element_id,
                 child_node_index,
                 template,
-                operations,
+                declarations,
             );
         }
         if per_slot {
@@ -274,14 +357,14 @@ impl<'a> AstDomTransform<'a, '_> {
                     element_id,
                     child_node_index,
                     template,
-                    operations,
+                    declarations,
                 ),
                 initial: None,
             });
         }
         if has_following_static_content(&children[following_start..]) {
             return Some(InsertMarker {
-                marker: self.child_node_expression(span, element_id, *child_node_index),
+                marker: self.child_walk_expression(span, element_id, *child_node_index),
                 initial: None,
             });
         }
@@ -303,7 +386,7 @@ impl<'a> AstDomTransform<'a, '_> {
         element_id: &str,
         child_node_index: &mut usize,
         template: &mut String,
-        operations: &mut std::vec::Vec<Statement<'a>>,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
     ) -> Option<InsertMarker<'a>> {
         if self.dynamic_slot_count(children) == 1
             && *child_node_index == 0
@@ -313,18 +396,22 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         template.push_str("<!$><!/>");
-        let start_marker = self.child_node_expression(span, element_id, *child_node_index);
+        let start_marker = self.child_walk_expression(span, element_id, *child_node_index);
         let marker_name = self.next_element_id();
         let current_name = self.next_element_id();
         self.template_state.uses_get_next_marker = true;
         let marker_lookup =
             self.static_member_expression_from_expression(span, start_marker, "nextSibling");
         let init = self.call_identifier(span, "_$getNextMarker", vec![marker_lookup]);
-        operations.push(self.array_destructure_statement(
+        declarations.push(self.array_destructure_statement(
             span,
             &[&marker_name, &current_name],
             init,
         ));
+        // At hydration time the SSR'd DOM holds arbitrary content between the
+        // `<!$>`/`<!/>` pair; later positional walks in this parent must chain
+        // from the end marker node `getNextMarker` located, not from the root.
+        self.hydration_walk_anchor = Some((marker_name.clone(), *child_node_index + 1));
         *child_node_index += 2;
         Some(InsertMarker {
             marker: self.identifier_expression(span, &marker_name),
@@ -341,20 +428,17 @@ impl<'a> AstDomTransform<'a, '_> {
         element_id: &str,
         child_node_index: &mut usize,
         template: &mut String,
-        operations: &mut std::vec::Vec<Statement<'a>>,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
     ) -> Expression<'a> {
         if !self.slot_boxed_by_text(children, index)
             && self.next_child_is_template_node(children, index)
         {
-            return self.child_node_expression(span, element_id, *child_node_index);
+            return self.child_walk_expression(span, element_id, *child_node_index);
         }
         template.push_str("<!>");
         let marker_name = self.next_element_id();
-        operations.push(self.variable_statement(
-            span,
-            &marker_name,
-            self.child_node_expression(span, element_id, *child_node_index),
-        ));
+        let lookup = self.child_walk_expression(span, element_id, *child_node_index);
+        declarations.push(self.variable_statement(span, &marker_name, lookup));
         *child_node_index += 1;
         self.identifier_expression(span, &marker_name)
     }
@@ -428,18 +512,44 @@ impl<'a> AstDomTransform<'a, '_> {
         false
     }
 
+    /// `getNextMatch(<previous>.nextSibling | <parent>.firstChild, "<tag>")`
+    /// lookup for a direct child of a hydratable `<html>` element.
+    fn next_match_expression(
+        &mut self,
+        child: &JSXElement<'a>,
+        parent_id: &str,
+        previous_child: Option<&str>,
+    ) -> Result<Expression<'a>> {
+        let tag_name = element_name(&child.opening_element.name)?;
+        self.template_state.uses_get_next_match = true;
+        let base = match previous_child {
+            Some(previous) => {
+                self.static_member_expression(child.span, previous, "nextSibling")
+            }
+            None => self.static_member_expression(child.span, parent_id, "firstChild"),
+        };
+        let tag = self
+            .ast()
+            .expression_string_literal(child.span, self.ast().atom(&tag_name), None);
+        Ok(self.call_identifier(child.span, "_$getNextMatch", vec![base, tag]))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn lower_dynamic_native_child(
         &mut self,
         child: &JSXElement<'a>,
         close_context: CloseTagContext,
         parent_id: &str,
         child_node_index: usize,
+        lookup_override: Option<Expression<'a>>,
         parent_template: &mut String,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
         operations: &mut std::vec::Vec<Statement<'a>>,
-    ) -> Result<()> {
+    ) -> Result<String> {
         let tag_name = element_name(&child.opening_element.name)?;
         let mut child_template = format!("<{tag_name}");
         let child_id = self.next_element_id();
+        let mut child_declarations = std::vec::Vec::new();
         let mut child_operations = std::vec::Vec::new();
 
         self.lower_template_attributes(
@@ -457,6 +567,7 @@ impl<'a> AstDomTransform<'a, '_> {
             &tag_name,
             &child_id,
             &mut child_template,
+            &mut child_declarations,
             &mut child_operations,
         )?;
         if self.should_close_tag(&tag_name, close_context) {
@@ -464,11 +575,16 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         parent_template.push_str(&child_template);
-        let child_lookup =
-            self.child_element_expression(child.span, parent_id, child_node_index, &tag_name);
-        operations.push(self.variable_statement(child.span, &child_id, child_lookup));
+        let child_lookup = match lookup_override {
+            Some(lookup) => lookup,
+            None => {
+                self.child_element_expression(child.span, parent_id, child_node_index, &tag_name)
+            }
+        };
+        declarations.push(self.variable_statement(child.span, &child_id, child_lookup));
+        declarations.extend(child_declarations);
         operations.extend(child_operations);
-        Ok(())
+        Ok(child_id)
     }
 
     /// Wraps an insert accessor in `_$scope(...)`. The child lowering
@@ -507,7 +623,7 @@ impl<'a> AstDomTransform<'a, '_> {
         tag_name: &str,
     ) -> Expression<'a> {
         if !self.hydratable || !self.dev {
-            return self.child_node_expression(span, parent, index);
+            return self.child_walk_expression(span, parent, index);
         }
 
         let tag = self
@@ -524,7 +640,7 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         self.template_state.uses_get_next_sibling = true;
-        let previous = self.child_node_expression(span, parent, index - 1);
+        let previous = self.child_walk_expression(span, parent, index - 1);
         self.call_identifier(span, "_$getNextSibling", vec![previous, tag])
     }
 }

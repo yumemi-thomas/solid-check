@@ -90,6 +90,39 @@ pub(crate) fn inline_elements(name: &str) -> bool {
     INLINE_ELEMENTS.contains(&name)
 }
 
+/// SVG element names, mirroring the runtime's `SVGElements` set (`a`,
+/// `script`, `style`, and `title` excluded as HTML-ambiguous).
+pub(crate) const SVG_ELEMENTS: &[&str] = &[
+    "altGlyph", "altGlyphDef", "altGlyphItem", "animate", "animateColor", "animateMotion",
+    "animateTransform", "circle", "clipPath", "color-profile", "cursor", "defs", "desc",
+    "ellipse", "feBlend", "feColorMatrix", "feComponentTransfer", "feComposite",
+    "feConvolveMatrix", "feDiffuseLighting", "feDisplacementMap", "feDistantLight",
+    "feDropShadow", "feFlood", "feFuncA", "feFuncB", "feFuncG", "feFuncR", "feGaussianBlur",
+    "feImage", "feMerge", "feMergeNode", "feMorphology", "feOffset", "fePointLight",
+    "feSpecularLighting", "feSpotLight", "feTile", "feTurbulence", "filter", "font",
+    "font-face", "font-face-format", "font-face-name", "font-face-src", "font-face-uri",
+    "foreignObject", "g", "glyph", "glyphRef", "hkern", "image", "line", "linearGradient",
+    "marker", "mask", "metadata", "missing-glyph", "mpath", "path", "pattern", "polygon",
+    "polyline", "radialGradient", "rect", "set", "stop", "svg", "switch", "symbol", "text",
+    "textPath", "tref", "tspan", "use", "view", "vkern",
+];
+
+pub(crate) fn svg_elements(name: &str) -> bool {
+    SVG_ELEMENTS.contains(&name)
+}
+
+/// MathML element names, mirroring the runtime's `MathMLElements` set.
+pub(crate) const MATHML_ELEMENTS: &[&str] = &[
+    "annotation", "annotation-xml", "maction", "math", "menclose", "merror", "mfenced",
+    "mfrac", "mi", "mmultiscripts", "mn", "mo", "mover", "mpadded", "mphantom", "mprescripts",
+    "mroot", "mrow", "ms", "mspace", "msqrt", "mstyle", "msub", "msubsup", "msup", "mtable",
+    "mtd", "mtext", "mtr", "munder", "munderover", "semantics",
+];
+
+pub(crate) fn mathml_elements(name: &str) -> bool {
+    MATHML_ELEMENTS.contains(&name)
+}
+
 pub(crate) fn dom_with_state(tag_name: &str, name: &str) -> Option<DomPropertyState> {
     match tag_name.to_ascii_uppercase().as_str() {
         "INPUT" => match name {

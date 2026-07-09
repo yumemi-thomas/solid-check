@@ -14,6 +14,11 @@ impl<'a> AstDomTransform<'a, '_> {
         skip_children: bool,
     ) -> Result<Statement<'a>> {
         self.template_state.uses_spread = true;
+        // A spread may carry delegated event handlers, which can't be known at
+        // compile time; hydratable roots must replay events (Babel parity).
+        if self.hydratable {
+            self.has_hydratable_event = true;
+        }
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
         for attr in attributes {

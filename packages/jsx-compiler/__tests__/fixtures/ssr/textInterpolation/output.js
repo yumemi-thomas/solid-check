@@ -42,6 +42,6 @@ const newLineLiteral = _$ssr(["<div>", "\nd</div>"], _$escape(s));
 const trailingSpace = _$ssr(["<div>", "</div>"], _$escape(expr));
 const leadingSpaceElement = _$ssr(["<span> ", "</span>"], _$escape(expr));
 const trailingSpaceElement = _$ssr(["<span>", " </span>"], _$escape(expr));
-const escapeAttribute = _$ssr("<div normal=\"Search&amp;hellip;\" title=\"Search&amp;hellip;\"></div>");
+const escapeAttribute = _$ssr("<div normal=\"Search…\" title=\"Search&amp;hellip;\"></div>");
 const lastElementExpression = _$ssr(["<div><div></div>", "</div>"], _$escape(expr()));
 const messwithTemplates = _$ssr("<p>${blah}</p>");

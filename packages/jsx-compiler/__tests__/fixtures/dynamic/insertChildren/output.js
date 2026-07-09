@@ -4,7 +4,6 @@ import { template as _$template } from "r-dom";
 import { insert as _$insert } from "r-dom";
 import { createComponent as _$createComponent } from "r-dom";
 import { spread as _$spread } from "r-dom";
-import { effect as _$effect } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div>`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<module>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<module>Hello`);
@@ -15,38 +14,19 @@ const dynamic = { children };
 const template = _$createComponent2(Module, { children });
 const template2 = (() => {
 	var _el$2 = _tmpl$2();
-	_$effect(() => {
-		return children;
-	}, (_v$) => {
-		_el$2.children = _v$;
-	});
+	_$insert(_el$2, children);
 	return _el$2;
 })();
-const template3 = (() => {
-	var _el$3 = _tmpl$3();
-	_$effect(() => {
-		return children;
-	}, (_v$) => {
-		_el$3.children = _v$;
-	});
-	return _el$3;
-})();
+const template3 = _tmpl$3();
 const template4 = (() => {
 	var _el$4 = _tmpl$2();
-	_$effect(() => {
-		return children;
-	}, (_v$) => {
-		_el$4.children = _v$;
-	});
 	_$insert(_el$4, _$createComponent(Hello, {}));
 	return _el$4;
 })();
 const template5 = (() => {
 	var _el$5 = _tmpl$2();
-	_$effect(() => {
+	_$insert(_el$5, () => {
 		return dynamic.children;
-	}, (_v$) => {
-		_el$5.children = _v$;
 	});
 	return _el$5;
 })();
@@ -74,11 +54,11 @@ const template9 = (() => {
 const template10 = _$createComponent2(Module, _$mergeProps2(dynamic, { children: "Hello" }));
 const template11 = (() => {
 	var _el$9 = _tmpl$2();
-	_$effect(() => {
-		return state.children;
-	}, (_v$) => {
-		_el$9.children = _v$;
-	});
+	_$insert(
+		_el$9,
+		/*@static*/
+		state.children
+	);
 	return _el$9;
 })();
 const template12 = _$createComponent2(Module, { children: state.children });
@@ -135,7 +115,9 @@ const template24 = (() => {
 })();
 const comma = (() => {
 	var _el$17 = _tmpl$();
-	_$insert(_el$17, (expression(), "static"));
+	_$insert(_el$17, () => {
+		return expression(), "static";
+	});
 	return _el$17;
 })();
 const double = (() => {

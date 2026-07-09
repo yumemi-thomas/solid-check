@@ -94,7 +94,7 @@ const trailingSpaceComponent = Div({ get children() {
 	return [expr, " "];
 } });
 const trailingSpaceFragment = [expr, " "];
-const escapeAttribute = _$ssr(["<div", " normal=\"Search&amp;hellip;\" title=\"Search&amp;hellip;\"></div>"], _$ssrHydrationKey());
+const escapeAttribute = _$ssr(["<div", " normal=\"Search…\" title=\"Search&amp;hellip;\"></div>"], _$ssrHydrationKey());
 const escapeCompAttribute = Div({
 	normal: "Search…",
 	title: "Search&hellip;"

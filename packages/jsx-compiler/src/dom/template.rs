@@ -24,6 +24,7 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_template: bool,
     pub(crate) uses_get_next_element: bool,
     pub(crate) uses_get_next_marker: bool,
+    pub(crate) uses_get_next_match: bool,
     pub(crate) uses_get_first_child: bool,
     pub(crate) uses_get_next_sibling: bool,
     pub(crate) uses_get_owner: bool,
@@ -50,7 +51,8 @@ pub(crate) struct DomTemplateState {
 
 pub(crate) struct DomTemplate {
     pub(crate) html: String,
-    pub(crate) custom_element: bool,
+    /// `template()` second argument: 1 = importNode cloning, 2 = XML-wrapped.
+    pub(crate) flag: Option<u8>,
 }
 
 pub(crate) struct InsertMarker<'a> {
@@ -65,6 +67,7 @@ impl DomTemplateState {
             uses_template: false,
             uses_get_next_element: false,
             uses_get_next_marker: false,
+            uses_get_next_match: false,
             uses_get_first_child: false,
             uses_get_next_sibling: false,
             uses_get_owner: false,
@@ -102,6 +105,9 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         if self.template_state.uses_get_next_marker {
             statements.push(self.import_named("getNextMarker", "_$getNextMarker"));
+        }
+        if self.template_state.uses_get_next_match {
+            statements.push(self.import_named("getNextMatch", "_$getNextMatch"));
         }
         if self.template_state.uses_get_first_child {
             statements.push(self.import_named("getFirstChild", "_$getFirstChild"));
@@ -183,17 +189,22 @@ impl<'a> AstDomTransform<'a, '_> {
     pub(crate) fn template_id_with_options(
         &mut self,
         template: String,
-        custom_element: bool,
+        flag: Option<u8>,
     ) -> String {
         self.template_state.uses_template = true;
-        if let Some(index) = self.template_state.templates.iter().position(|candidate| {
-            candidate.html == template && candidate.custom_element == custom_element
-        }) {
+        // Templates dedupe on markup alone (the first registration's flag
+        // wins), matching the Babel plugin's template registry.
+        if let Some(index) = self
+            .template_state
+            .templates
+            .iter()
+            .position(|candidate| candidate.html == template)
+        {
             template_id(index)
         } else {
             self.template_state.templates.push(DomTemplate {
                 html: template,
-                custom_element,
+                flag,
             });
             template_id(self.template_state.templates.len() - 1)
         }
@@ -387,6 +398,31 @@ impl<'a> AstDomTransform<'a, '_> {
         expression
     }
 
+    /// Positional child lookup that chains from the current hydration marker
+    /// anchor when one is active (see `hydration_walk_anchor`); otherwise a
+    /// plain root-relative `firstChild.nextSibling…` walk.
+    pub(crate) fn child_walk_expression(
+        &self,
+        span: Span,
+        parent: &str,
+        index: usize,
+    ) -> Expression<'a> {
+        if let Some((anchor, anchor_index)) = &self.hydration_walk_anchor {
+            if *anchor_index < index {
+                let mut expression = self.identifier_expression(span, anchor);
+                for _ in *anchor_index..index {
+                    expression = self.static_member_expression_from_expression(
+                        span,
+                        expression,
+                        "nextSibling",
+                    );
+                }
+                return expression;
+            }
+        }
+        self.child_node_expression(span, parent, index)
+    }
+
     pub(crate) fn variable_statement(
         &self,
         span: Span,
@@ -468,11 +504,13 @@ impl<'a> AstDomTransform<'a, '_> {
         let span = Span::new(0, 0);
         let template_literal = self.template_literal_expression(span, &template.html);
         let mut args = vec![template_literal];
-        if template.custom_element {
-            args.push(
-                self.ast()
-                    .expression_numeric_literal(span, 1.0, None, NumberBase::Decimal),
-            );
+        if let Some(flag) = template.flag {
+            args.push(self.ast().expression_numeric_literal(
+                span,
+                f64::from(flag),
+                None,
+                NumberBase::Decimal,
+            ));
         }
         let mut init = self.call_identifier(span, "_$template", args);
         if let Expression::CallExpression(call) = &mut init {

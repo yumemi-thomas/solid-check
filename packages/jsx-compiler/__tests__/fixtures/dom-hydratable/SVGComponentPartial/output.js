@@ -2,7 +2,7 @@ import { template as _$template } from "r-dom";
 import { getNextElement as _$getNextElement } from "r-dom";
 import { effect as _$effect } from "r-dom";
 import { setAttribute as _$setAttribute } from "r-dom";
-var _tmpl$ = /* @__PURE__ */ _$template(`<g><circle r=5 fill=red>`);
+var _tmpl$ = /* @__PURE__ */ _$template(`<svg><g><circle r=5 fill=red></svg>`, 2);
 const template = (() => {
 	var _el$ = _$getNextElement(_tmpl$);
 	var _el$2 = _el$.firstChild;
