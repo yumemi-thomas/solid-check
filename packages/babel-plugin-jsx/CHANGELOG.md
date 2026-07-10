@@ -1,5 +1,19 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.17
+
+### Patch Changes
+
+- 203c9d5: Fix two option-handling bugs surfaced by the compiler parity sweep:
+  - `memoWrapper: false` no longer crashes when a conditional or logical expression is transformed (`transformCondition` registered an import under the falsy wrapper name). Conditions now compile memo-less: hoisted conditions keep a plain `var _c$ = () => !!cond` thunk and inline conditions collapse to an immediately-invoked thunk.
+  - `inlineStyles: false` no longer silently drops a literal `style` on a child element whose position otherwise allocates no element reference (e.g. `<svg><rect style="fill:red"/><g/></svg>` lost the style entirely). `detectExpressions` now accounts for the style-to-IIFE rewrite, so the element gets a reference and the style compiles to the expected effect.
+
+  The `effectWrapper`/`memoWrapper` config types now admit `false` alongside the import-name string.
+
+- bb7b2fd: Fix omitLastClosingTag corrupting templates when per-slot insertion markers follow the last static element. An element trailed by two or more dynamic slots now keeps its closing tag, so the trailing `<!>` placeholders parse as its siblings instead of being swallowed as children of the still-open element (which crashed the template walk with "Cannot read properties of null (reading 'nextSibling')").
+- 4686501: Fix hydration id drift for spread elements with dynamic children. The ssr generate's spread-element path (`ssrElement`) never applied the hole id `scope()` wrap that `transformChildren` applies on the template path — while the dom generate scope-wraps the matching insert accessor regardless of spread. For a shape like `<a {...props}>{children()}</a>`, the client reserved one hydration id for the hole and the server did not, so every hydration key allocated after the hole drifted and the following siblings were left unclaimed (duplicated DOM, "unclaimed server-rendered node" warnings). `createElement` now wraps dynamic, id-allocating children holes in `scope()` exactly like the template path.
+- 241ff76: Fix a spread element with dynamic props being left unclaimed on hydration. `mergeProps` with a function source creates a memo, which consumes a hydration child id. The ssr generate evaluated `mergeProps(...)` in `ssrElement`'s argument position — before the element's own hydration key was allocated — while the client claims the element (`getNextElement`) before applying the spread. The element's id shifted by one on the server and the client re-created it instead of claiming (later siblings re-synced, hiding the drift; a `<title>` rendered this way duplicated on every hydration). The ssr generate now defers the merge behind a thunk when hydratable and `ssrElement` allocates the hydration key before resolving function props, matching the client's allocation order.
+
 ## 0.50.0-next.16
 
 ### Patch Changes
