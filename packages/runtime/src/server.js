@@ -987,7 +987,16 @@ export function escape(s, attr) {
       for (let i = 0; i < s.length; i++) s[i] = escape(s[i]);
       return s;
     }
-    if (attr && t === "boolean") return s;
+    if (attr) {
+      // Nullish and boolean values pass through so callers can omit the
+      // attribute or emit it as a boolean attribute. Numbers can never
+      // contain `&` or `"`. Everything else (arrays, objects, symbols)
+      // would be stringified by the surrounding template literal anyway,
+      // so coerce to the final string here first — matching what the
+      // client DOM receives — and run it through the normal string path.
+      if (s == null || t === "boolean" || t === "number") return s;
+      return escape(String(s), attr);
+    }
     return s;
   }
   // Fast path: single forward pass over the string. Most values (color
