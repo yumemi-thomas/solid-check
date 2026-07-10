@@ -54,7 +54,7 @@ jobs:
           version=$(node -p "require('./packages/jsx-compiler/package.json').version")
           echo "Checking platform packages at $version"
           missing=0
-          for pkg in darwin-x64 darwin-arm64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc; do
+          for pkg in darwin-x64 darwin-arm64 linux-x64-gnu linux-arm64-gnu win32-x64-msvc wasm32-wasi; do
             if npm view "@dom-expressions/jsx-compiler-$pkg@$version" version >/dev/null 2>&1; then
               echo "ok      @dom-expressions/jsx-compiler-$pkg@$version"
             else

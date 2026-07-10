@@ -34,6 +34,8 @@ jobs:
             host: ubuntu-24.04-arm
           - target: x86_64-pc-windows-msvc
             host: windows-latest
+          - target: wasm32-wasip1-threads
+            host: ubuntu-latest
     name: build ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     steps:
@@ -60,8 +62,17 @@ jobs:
         run: pnpm install --ignore-scripts
 
       - name: Build binary
+        if: matrix.settings.target != 'wasm32-wasip1-threads'
         working-directory: packages/jsx-compiler
         run: pnpm exec napi build --platform --no-js --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
+
+      - name: Build WASI binary
+        if: matrix.settings.target == 'wasm32-wasip1-threads'
+        working-directory: packages/jsx-compiler
+        # napi-build locates crt1-reactor.o relative to RUSTC. Cargo otherwise
+        # supplies the rustup proxy name, which produces a WASM module that
+        # deadlocks before its thread runtime is initialized.
+        run: RUSTC="$(rustup which rustc)" pnpm exec napi build --platform --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
 
       # The parity suites compile every fixture through the babel plugin for
       # comparison, and its entry point is a rollup artifact.
@@ -77,7 +88,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: packages/jsx-compiler/jsx-compiler.*.node
+          path: |
+            packages/jsx-compiler/jsx-compiler.*.node
+            packages/jsx-compiler/jsx-compiler.*.wasm
+            packages/jsx-compiler/jsx-compiler.wasi.cjs
+            packages/jsx-compiler/jsx-compiler.wasi-browser.js
+            packages/jsx-compiler/wasi-worker*.mjs
           if-no-files-found: error
 
   publish:
@@ -111,6 +127,13 @@ jobs:
       - name: Move binaries into platform packages
         working-directory: packages/jsx-compiler
         run: pnpm exec napi artifacts
+
+      - name: Build babel plugin (needed by parity suites)
+        run: pnpm --filter @dom-expressions/babel-plugin-jsx run build
+
+      - name: Test WASI binary
+        working-directory: packages/jsx-compiler
+        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec jest --no-cache
 
       # Authenticates via OIDC trusted publishing (id-token: write above) —
       # no npm token. Each platform package must have this repo + workflow

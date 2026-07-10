@@ -19,7 +19,7 @@ no npm tokens or OTP codes. The steps, in order:
 1. **Version**: run `pnpm run version` locally (runs `changeset version` plus
    the napi version sync), review, commit, and push to `next`.
 2. **Binaries first**: run the "JSX Compiler Binaries" workflow from the
-   Actions tab with `publish: true`. This builds all five targets and
+   Actions tab with `publish: true`. This builds all six native/WASI targets and
    publishes the `@dom-expressions/jsx-compiler-<platform>` packages.
 3. **Main packages**: run the "Release" workflow (`release.yml`). It
    preflight-checks that the platform packages exist at the new version
@@ -46,7 +46,7 @@ The order matters because `@dom-expressions/jsx-compiler` pins the platform
 packages as exact-version `optionalDependencies` — publishing it before the
 binaries exist breaks installs.
 
-Each published package (all five main packages and all five platform
+Each published package (all five main packages and all six binary
 packages) has a Trusted Publisher configured on npmjs.com pointing at this
 repo and the workflow file that publishes it (`release.yml` for main
 packages, `jsx-compiler-binaries.yml` for platform packages). npm matches

@@ -15,6 +15,29 @@ matching your platform automatically through `optionalDependencies`. On other
 platforms, build from source with `pnpm run build` inside
 `packages/jsx-compiler` (requires a Rust toolchain).
 
+### WebAssembly and StackBlitz
+
+The compiler also ships a WASI fallback for environments such as StackBlitz
+WebContainers, where Node.js reports a native platform but cannot load `.node`
+addons. Enable the `wasm32` optional dependency when installing:
+
+```bash
+npm install --cpu=wasm32 @dom-expressions/jsx-compiler
+```
+
+With pnpm, add the installation architecture to `pnpm-workspace.yaml`:
+
+```yaml
+supportedArchitectures:
+  cpu:
+    - current
+    - wasm32
+```
+
+The normal package entry point prefers a native binding and falls back to
+`@dom-expressions/jsx-compiler-wasm32-wasi` when native addons are unavailable.
+Set `NAPI_RS_FORCE_WASI=error` to require the WASI binding for testing.
+
 ## Usage
 
 This package exposes a compiler backend API. It is not a Vite, Rollup, or Babel
@@ -213,4 +236,3 @@ The module layout mirrors the Babel plugin shape where possible:
 - `src/ssr/transform.rs`
 - `src/universal/mod.rs`
 - `src/universal/transform.rs`
-

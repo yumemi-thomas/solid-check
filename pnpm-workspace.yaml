@@ -1,5 +1,9 @@
 packages:
   - 'packages/*'
+supportedArchitectures:
+  cpu:
+    - current
+    - wasm32
 allowBuilds:
   '@parcel/watcher': true
   nx: true
@@ -14,3 +18,4 @@ overrides:
   '@dom-expressions/jsx-compiler-linux-x64-gnu': 'link:packages/jsx-compiler/npm/linux-x64-gnu'
   '@dom-expressions/jsx-compiler-linux-arm64-gnu': 'link:packages/jsx-compiler/npm/linux-arm64-gnu'
   '@dom-expressions/jsx-compiler-win32-x64-msvc': 'link:packages/jsx-compiler/npm/win32-x64-msvc'
+  '@dom-expressions/jsx-compiler-wasm32-wasi': 'link:packages/jsx-compiler/npm/wasm32-wasi'

@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const native = requireNative();
+const native = requireBinding();
 
 function transform(code, options) {
   if (typeof code !== "string") {
@@ -152,10 +152,20 @@ function platformArchSuffix() {
   return null;
 }
 
-function requireNative() {
+function requireBinding() {
   const explicit = process.env.JSX_DOM_EXPRESSIONS_COMPILER_NATIVE;
   if (explicit) return require(explicit);
 
+  const forceWasi = process.env.NAPI_RS_FORCE_WASI;
+  if (forceWasi === "true" || forceWasi === "error") {
+    const wasi = requireWasi();
+    if (wasi) return wasi;
+    if (forceWasi === "error") {
+      throw new Error("WASI binding not found and NAPI_RS_FORCE_WASI is set to error");
+    }
+  }
+
+  let nativeError;
   const suffix = platformArchSuffix();
 
   // Local builds (napi build output) take precedence for development.
@@ -164,23 +174,63 @@ function requireNative() {
   localCandidates.push("jsx-compiler.node");
   for (const file of localCandidates) {
     const full = path.join(__dirname, file);
-    if (fs.existsSync(full)) return require(full);
-  }
-
-  if (suffix) {
-    try {
-      return require(`@dom-expressions/jsx-compiler-${suffix}`);
-    } catch (error) {
-      if (error.code !== "MODULE_NOT_FOUND") throw error;
+    if (fs.existsSync(full)) {
+      try {
+        return require(full);
+      } catch (error) {
+        nativeError = error;
+        break;
+      }
     }
   }
 
+  if (!nativeError && suffix) {
+    const packageName = `@dom-expressions/jsx-compiler-${suffix}`;
+    try {
+      return require(packageName);
+    } catch (error) {
+      if (!isMissingPackage(error, packageName)) nativeError = error;
+    }
+  }
+
+  const wasi = requireWasi();
+  if (wasi) return wasi;
+
+  if (nativeError) {
+    nativeError.message +=
+      "\nThe native binding could not be loaded and the optional " +
+      "@dom-expressions/jsx-compiler-wasm32-wasi fallback is not installed.";
+    throw nativeError;
+  }
+
   throw new Error(
-    `Could not find the native @dom-expressions/jsx-compiler binary for ${process.platform}-${process.arch}` +
+    `Could not find an @dom-expressions/jsx-compiler binding for ${process.platform}-${process.arch}` +
       (suffix
-        ? ` (expected the @dom-expressions/jsx-compiler-${suffix} package or a local build)`
+        ? ` (expected @dom-expressions/jsx-compiler-${suffix}, @dom-expressions/jsx-compiler-wasm32-wasi, or a local build)`
         : " (no prebuilt binary is published for this platform)") +
-      ". Run `pnpm run build` in packages/jsx-compiler to build from source."
+      ". Install with WASM support or run `pnpm run build` in packages/jsx-compiler."
+  );
+}
+
+function requireWasi() {
+  const localWasi = path.join(__dirname, "jsx-compiler.wasi.cjs");
+  if (fs.existsSync(localWasi)) return require(localWasi);
+
+  const packageName = "@dom-expressions/jsx-compiler-wasm32-wasi";
+  try {
+    return require(packageName);
+  } catch (error) {
+    if (!isMissingPackage(error, packageName)) throw error;
+    return null;
+  }
+}
+
+function isMissingPackage(error, packageName) {
+  return (
+    error &&
+    error.code === "MODULE_NOT_FOUND" &&
+    typeof error.message === "string" &&
+    error.message.includes(`'${packageName}'`)
   );
 }
 
