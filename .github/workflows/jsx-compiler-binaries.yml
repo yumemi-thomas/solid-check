@@ -126,7 +126,7 @@ jobs:
 
       - name: Move binaries into platform packages
         working-directory: packages/jsx-compiler
-        run: pnpm exec napi artifacts
+        run: pnpm exec napi artifacts --build-output-dir artifacts/bindings-wasm32-wasip1-threads
 
       - name: Build babel plugin (needed by parity suites)
         run: pnpm --filter @dom-expressions/babel-plugin-jsx run build
