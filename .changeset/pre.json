@@ -13,6 +13,7 @@
     "add-insert-host-option",
     "add-jsx-customize-script",
     "add-sld-dom-expressions",
+    "add-wasm-compiler",
     "asset-registry-inline-styles",
     "babel-wrapperless-and-style-fixes",
     "export-void-rawtext-element-sets",

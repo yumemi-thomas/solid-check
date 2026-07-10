@@ -1,5 +1,11 @@
 # @dom-expressions/jsx-compiler
 
+## 0.50.0-next.18
+
+### Patch Changes
+
+- abe0213: Add an optional WebAssembly compiler binding for StackBlitz WebContainers and other environments that cannot load native Node.js addons.
+
 ## 0.50.0-next.17
 
 ### Patch Changes
