@@ -25,6 +25,22 @@ no npm tokens or OTP codes. The steps, in order:
    preflight-checks that the platform packages exist at the new version
    (fails with instructions if step 2 was skipped), builds, runs
    `changeset publish`, and pushes the git tags it creates.
+4. **Sync the `next` dist-tag manually** (temporary, until `0.50.0` stable):
+   because every `@dom-expressions/*` name has only ever had prerelease
+   versions (the packages were renamed mid-prerelease), changesets classifies
+   them "only-pre" and publishes to `latest` instead of `next`. OIDC trusted
+   publishing only authenticates `npm publish`, so the workflow can't retag.
+   After the Release workflow succeeds, run locally (requires `npm login`):
+
+   ```bash
+   v=$(node -p "require('./packages/runtime/package.json').version")
+   for p in runtime babel-plugin-jsx jsx-compiler hyperscript tagged-jsx; do
+     npm dist-tag add "@dom-expressions/$p@$v" next
+   done
+   ```
+
+   Once a stable `0.50.0` exists, changesets publishes prereleases to `next`
+   natively and this step disappears.
 
 The order matters because `@dom-expressions/jsx-compiler` pins the platform
 packages as exact-version `optionalDependencies` — publishing it before the

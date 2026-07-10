@@ -73,6 +73,14 @@ jobs:
       - name: Build packages
         run: pnpm --filter '!@dom-expressions/jsx-compiler' -r run build
 
+      # Note: because every @dom-expressions/* name has only ever had
+      # prerelease versions (the packages were renamed mid-prerelease),
+      # changesets publishes them to `latest` instead of `next` ("only-pre"
+      # publishedState), and `--tag` is forbidden in pre mode. The `next`
+      # dist-tag must be synced manually after this workflow — OIDC trusted
+      # publishing only authenticates `npm publish`, so it can't be done
+      # here. See .cursor/rules/releases.mdc. This self-resolves once a
+      # stable 0.50.0 is published.
       - name: Publish to npm
         run: pnpm exec changeset publish
 
