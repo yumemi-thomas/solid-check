@@ -12,11 +12,7 @@ describe("binding loader", () => {
     const existsSync = fs.existsSync;
     jest.spyOn(fs, "existsSync").mockImplementation(file => {
       const filename = String(file);
-      return (
-        !filename.endsWith(".node") &&
-        !filename.endsWith(".wasi.cjs") &&
-        existsSync(file)
-      );
+      return !filename.endsWith(".node") && !filename.endsWith(".wasi.cjs") && existsSync(file);
     });
 
     const nativePackage =
