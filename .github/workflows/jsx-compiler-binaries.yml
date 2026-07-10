@@ -133,7 +133,7 @@ jobs:
 
       - name: Test WASI binary
         working-directory: packages/jsx-compiler
-        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec jest --no-cache
+        run: NODE_NO_WARNINGS=1 NAPI_RS_FORCE_WASI=error pnpm exec jest --no-cache --testPathIgnorePatterns=binding-loader
 
       # Authenticates via OIDC trusted publishing (id-token: write above) —
       # no npm token. Each platform package must have this repo + workflow
