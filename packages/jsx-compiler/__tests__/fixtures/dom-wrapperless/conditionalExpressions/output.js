@@ -30,7 +30,9 @@ _$insert(_el$6, () => {
 });
 const template6 = _el$6;
 var _el$7 = _tmpl$();
-_$insert(_el$7, state.count > 5 ? state.dynamic ? best : good() : bad);
+_$insert(_el$7, () => {
+	return state.count > 5 ? state.dynamic ? best : good() : bad;
+});
 const template7 = _el$7;
 var _el$8 = _tmpl$();
 _$insert(_el$8, () => {
@@ -38,7 +40,9 @@ _$insert(_el$8, () => {
 });
 const template8 = _el$8;
 var _el$9 = _tmpl$();
-_$insert(_el$9, state.dynamic && good() || bad);
+_$insert(_el$9, () => {
+	return state.dynamic && good() || bad;
+});
 const template9 = _el$9;
 var _el$10 = _tmpl$();
 _$insert(_el$10, () => {
@@ -74,7 +78,7 @@ const template18 = _$createComponent(Comp, { get children() {
 	return state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
 } });
 var _el$12 = _tmpl$();
-_el$12.innerHTML = state.dynamic ? <Comp /> : <Comp />;
+_el$12.innerHTML = state.dynamic ? _$createComponent(Comp, {}) : _$createComponent(Comp, {});
 const template19 = _el$12;
 var _el$13 = _tmpl$();
 _$insert(_el$13, () => {
@@ -102,7 +106,7 @@ const template26 = _$createComponent(Comp, { get children() {
 	return state.dynamic ?? _$createComponent(Comp, {});
 } });
 var _el$16 = _tmpl$();
-_el$16.innerHTML = state.dynamic ?? <Comp />;
+_el$16.innerHTML = state.dynamic ?? _$createComponent(Comp, {});
 const template27 = _el$16;
 var _el$17 = _tmpl$();
 _$insert(_el$17, () => {
@@ -130,9 +134,7 @@ const template32 = _el$20;
 const template33 = _$createComponent(Comp, { get children() {
 	return something?.();
 } });
-const template34 = () => {
-	return simple ? good : bad;
-};
+const template34 = simple ? good : bad;
 const template35 = () => {
 	return simple ? good() : bad;
 };

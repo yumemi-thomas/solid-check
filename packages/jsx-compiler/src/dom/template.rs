@@ -1,11 +1,9 @@
 use napi::bindgen_prelude::*;
-use oxc_allocator::CloneIn;
 use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::{
     ast::{
-        ArrayExpressionElement, AssignmentTarget, Expression, FormalParameterKind, FunctionType,
-        ObjectPropertyKind, Program, PropertyKey, PropertyKind, Statement, TemplateElementValue,
-        VariableDeclarationKind,
+        ArrayExpressionElement, Expression, ObjectPropertyKind, Program, Statement,
+        TemplateElementValue, VariableDeclarationKind,
     },
     AstBuilder, NONE,
 };
@@ -17,8 +15,6 @@ use crate::shared::ast::{
     arrow_iife, arrow_return_expression, expression_to_argument, import_named,
     object_getter_property, object_getter_property_with_setup, object_property, variable_statement,
 };
-use crate::shared::utils::{is_identifier_key, template_id};
-
 pub(crate) struct DomTemplateState {
     pub(crate) templates: std::vec::Vec<DomTemplate>,
     pub(crate) uses_template: bool,
@@ -42,17 +38,53 @@ pub(crate) struct DomTemplateState {
     pub(crate) uses_effect: bool,
     pub(crate) uses_set_attribute: bool,
     pub(crate) uses_set_attribute_ns: bool,
+    pub(crate) uses_set_property: bool,
     pub(crate) uses_add_event_listener: bool,
     pub(crate) uses_delegate_events: bool,
     pub(crate) uses_run_hydration_events: bool,
     pub(crate) delegated_events: std::vec::Vec<String>,
     pub(crate) built_in_imports: std::vec::Vec<String>,
+    /// Last used 0-based `_tmpl$` index (collision skips advance it past the
+    /// registry length).
+    pub(crate) template_index: usize,
 }
 
 pub(crate) struct DomTemplate {
     pub(crate) html: String,
+    /// Babel's `templateWithClosingTags`: the same markup without attributes
+    /// and with every non-void tag closed — the `validate` input.
+    pub(crate) closed_html: String,
     /// `template()` second argument: 1 = importNode cloning, 2 = XML-wrapped.
     pub(crate) flag: Option<u8>,
+    /// Generated `_tmpl$N` local (collision-checked against source names).
+    pub(crate) name: String,
+}
+
+/// A template under construction: the emitted markup (`html`, with omitted
+/// closing tags and attributes) alongside Babel's `templateWithClosingTags`
+/// variant (`closed`, attribute-free and always closed) used by `validate`.
+pub(crate) struct TemplateHtml {
+    pub(crate) html: String,
+    pub(crate) closed: String,
+}
+
+impl TemplateHtml {
+    pub(crate) fn open_tag(tag_name: &str) -> Self {
+        Self {
+            html: format!("<{tag_name}"),
+            closed: format!("<{tag_name}"),
+        }
+    }
+
+    pub(crate) fn push_both(&mut self, text: &str) {
+        self.html.push_str(text);
+        self.closed.push_str(text);
+    }
+
+    pub(crate) fn append(&mut self, other: TemplateHtml) {
+        self.html.push_str(&other.html);
+        self.closed.push_str(&other.closed);
+    }
 }
 
 pub(crate) struct InsertMarker<'a> {
@@ -85,11 +117,13 @@ impl DomTemplateState {
             uses_effect: false,
             uses_set_attribute: false,
             uses_set_attribute_ns: false,
+            uses_set_property: false,
             uses_add_event_listener: false,
             uses_delegate_events: false,
             uses_run_hydration_events: false,
             delegated_events: std::vec::Vec::new(),
             built_in_imports: std::vec::Vec::new(),
+            template_index: 0,
         }
     }
 }
@@ -125,19 +159,20 @@ impl<'a> AstDomTransform<'a, '_> {
             statements.push(self.import_named("scope", "_$scope"));
         }
         if self.template_state.uses_memo {
-            statements.push(self.import_named("memo", "_$memo"));
+            let name = self.memo_wrapper.as_deref().unwrap_or("memo").to_string();
+            statements.push(self.import_wrapper_helper(&name, &format!("_${name}")));
         }
         if self.template_state.uses_create_component {
-            statements.push(self.import_named("createComponent", "_$createComponent"));
+            statements.push(self.import_wrapper_helper("createComponent", "_$createComponent"));
         }
         if self.template_state.uses_spread {
             statements.push(self.import_named("spread", "_$spread"));
         }
         if self.template_state.uses_merge_props {
-            statements.push(self.import_named("mergeProps", "_$mergeProps"));
+            statements.push(self.import_wrapper_helper("mergeProps", "_$mergeProps"));
         }
         if self.template_state.uses_apply_ref {
-            statements.push(self.import_named("applyRef", "_$applyRef"));
+            statements.push(self.import_wrapper_helper("applyRef", "_$applyRef"));
         }
         if self.template_state.uses_ref {
             statements.push(self.import_named("ref", "_$ref"));
@@ -152,13 +187,23 @@ impl<'a> AstDomTransform<'a, '_> {
             statements.push(self.import_named("className", "_$className"));
         }
         if self.template_state.uses_effect {
-            statements.push(self.import_named("effect", "_$effect"));
+            let name = self
+                .effect_wrapper
+                .as_deref()
+                .unwrap_or("effect")
+                .to_string();
+            statements.push(self.import_wrapper_helper(&name, &format!("_${name}")));
         }
         if self.template_state.uses_set_attribute {
             statements.push(self.import_named("setAttribute", "_$setAttribute"));
         }
         if self.template_state.uses_set_attribute_ns {
             statements.push(self.import_named("setAttributeNS", "_$setAttributeNS"));
+        }
+        if self.template_state.uses_set_property {
+            // Babel registers `setProperty` without a renderer config, so it
+            // resolves against the top-level module like the wrappers.
+            statements.push(self.import_wrapper_helper("setProperty", "_$setProperty"));
         }
         if self.template_state.uses_add_event_listener {
             statements.push(self.import_named("addEvent", "_$addEvent"));
@@ -170,10 +215,29 @@ impl<'a> AstDomTransform<'a, '_> {
             statements.push(self.import_named("runHydrationEvents", "_$runHydrationEvents"));
         }
         for built_in in &self.template_state.built_in_imports {
-            statements.push(self.import_named(built_in, &format!("_${built_in}")));
+            // Babel's `registerImportMethod(path, name)` resolves built-ins
+            // against the top-level module, not the renderer config.
+            statements.push(self.import_wrapper_helper(built_in, &format!("_${built_in}")));
         }
-        for (index, template) in self.template_state.templates.iter().enumerate() {
-            statements.push(self.template_declaration(index, template));
+        // Babel's postprocess `validate` pass: warn (stderr, like
+        // `console.warn`) when a browser would re-parse a template's markup
+        // differently. Only DOM templates carry the closing-tags variant —
+        // Babel skips SSR templates for the same reason (theirs are AST
+        // nodes, not strings).
+        if self.validate {
+            for template in &self.template_state.templates {
+                if let Some(result) =
+                    crate::shared::validate::is_invalid_markup(&template.closed_html)
+                {
+                    eprintln!("\nThe HTML provided is malformed and will yield unexpected output when evaluated by a browser.\n");
+                    eprintln!("User HTML:\n {}", result.html);
+                    eprintln!("Browser HTML:\n {}", result.browser);
+                    eprintln!("Original HTML:\n {}", template.closed_html);
+                }
+            }
+        }
+        for template in &self.template_state.templates {
+            statements.push(self.template_declaration(template));
         }
 
         statements.extend(program.body.drain(..));
@@ -188,25 +252,31 @@ impl<'a> AstDomTransform<'a, '_> {
 
     pub(crate) fn template_id_with_options(
         &mut self,
-        template: String,
+        template: TemplateHtml,
         flag: Option<u8>,
     ) -> String {
         self.template_state.uses_template = true;
         // Templates dedupe on markup alone (the first registration's flag
         // wins), matching the Babel plugin's template registry.
-        if let Some(index) = self
+        if let Some(existing) = self
             .template_state
             .templates
             .iter()
-            .position(|candidate| candidate.html == template)
+            .find(|candidate| candidate.html == template.html)
         {
-            template_id(index)
+            existing.name.clone()
         } else {
+            let name = crate::shared::utils::next_unique_template_id(
+                &mut self.template_state.template_index,
+                &self.bindings,
+            );
             self.template_state.templates.push(DomTemplate {
-                html: template,
+                html: template.html,
+                closed_html: template.closed,
                 flag,
+                name: name.clone(),
             });
-            template_id(self.template_state.templates.len() - 1)
+            name
         }
     }
 
@@ -258,66 +328,6 @@ impl<'a> AstDomTransform<'a, '_> {
         value: Expression<'a>,
     ) -> ObjectPropertyKind<'a> {
         object_getter_property_with_setup(self.allocator, span, name, setup, value)
-    }
-
-    pub(crate) fn object_method_property(
-        &self,
-        span: Span,
-        name: &str,
-        param_name: &str,
-        statements: oxc_allocator::Vec<'a, Statement<'a>>,
-    ) -> ObjectPropertyKind<'a> {
-        let key = if is_identifier_key(name) {
-            self.ast()
-                .property_key_static_identifier(span, self.ast().ident(name))
-        } else {
-            PropertyKey::StringLiteral(self.ast().alloc_string_literal(
-                span,
-                self.ast().atom(name),
-                None,
-            ))
-        };
-        let param = self.ast().formal_parameter(
-            span,
-            self.ast().vec(),
-            self.ast()
-                .binding_pattern_binding_identifier(span, self.ast().ident(param_name)),
-            NONE,
-            NONE,
-            false,
-            None,
-            false,
-            false,
-        );
-        let params = self.ast().formal_parameters(
-            span,
-            FormalParameterKind::FormalParameter,
-            self.ast().vec1(param),
-            NONE,
-        );
-        let body = self.ast().function_body(span, self.ast().vec(), statements);
-        let value = self.ast().expression_function(
-            span,
-            FunctionType::FunctionExpression,
-            None,
-            false,
-            false,
-            false,
-            NONE,
-            NONE,
-            params,
-            NONE,
-            Some(body),
-        );
-        self.ast().object_property_kind_object_property(
-            span,
-            PropertyKind::Init,
-            key,
-            value,
-            true,
-            false,
-            false,
-        )
     }
 
     pub(crate) fn call_identifier(
@@ -374,16 +384,6 @@ impl<'a> AstDomTransform<'a, '_> {
         ))
     }
 
-    pub(crate) fn assignment_target_from_static_member(
-        &self,
-        member: &oxc_ast::ast::StaticMemberExpression<'a>,
-    ) -> AssignmentTarget<'a> {
-        AssignmentTarget::StaticMemberExpression(oxc_allocator::Box::new_in(
-            member.clone_in(self.allocator),
-            self.allocator,
-        ))
-    }
-
     pub(crate) fn child_node_expression(
         &self,
         span: Span,
@@ -398,27 +398,35 @@ impl<'a> AstDomTransform<'a, '_> {
         expression
     }
 
-    /// Positional child lookup that chains from the current hydration marker
-    /// anchor when one is active (see `hydration_walk_anchor`); otherwise a
-    /// plain root-relative `firstChild.nextSibling…` walk.
+    /// Positional child lookup following Babel's `tempPath` accumulation:
+    /// chains `.nextSibling` hops off the most recently declared walk
+    /// variable when one precedes this position (essential when that walk is
+    /// a dev-hydration call like `getFirstChild` that a root-relative path
+    /// can't express), then off the hydration marker anchor, and only falls
+    /// back to a root-relative `firstChild.nextSibling…` walk at the start
+    /// of a parent.
     pub(crate) fn child_walk_expression(
         &self,
         span: Span,
         parent: &str,
         index: usize,
     ) -> Expression<'a> {
-        if let Some((anchor, anchor_index)) = &self.hydration_walk_anchor {
-            if *anchor_index < index {
-                let mut expression = self.identifier_expression(span, anchor);
-                for _ in *anchor_index..index {
-                    expression = self.static_member_expression_from_expression(
-                        span,
-                        expression,
-                        "nextSibling",
-                    );
+        let chain_base = match &self.last_child_walk {
+            Some((name, walk_index)) if *walk_index < index => Some((name, *walk_index)),
+            _ => match &self.hydration_walk_anchor {
+                Some((anchor, anchor_index)) if *anchor_index < index => {
+                    Some((anchor, *anchor_index))
                 }
-                return expression;
+                _ => None,
+            },
+        };
+        if let Some((name, base_index)) = chain_base {
+            let mut expression = self.identifier_expression(span, name);
+            for _ in base_index..index {
+                expression =
+                    self.static_member_expression_from_expression(span, expression, "nextSibling");
             }
+            return expression;
         }
         self.child_node_expression(span, parent, index)
     }
@@ -500,7 +508,17 @@ impl<'a> AstDomTransform<'a, '_> {
         import_named(self.allocator, self.module_name, imported, local)
     }
 
-    fn template_declaration(&self, index: usize, template: &DomTemplate) -> Statement<'a> {
+    /// `memo`/`effect` import from the wrapper module when configured (Babel
+    /// resolves the reactive wrappers against the top-level module).
+    fn import_wrapper_helper(&self, imported: &str, local: &str) -> Statement<'a> {
+        let module = self
+            .wrapper_module_name
+            .as_deref()
+            .unwrap_or(self.module_name);
+        import_named(self.allocator, module, imported, local)
+    }
+
+    fn template_declaration(&self, template: &DomTemplate) -> Statement<'a> {
         let span = Span::new(0, 0);
         let template_literal = self.template_literal_expression(span, &template.html);
         let mut args = vec![template_literal];
@@ -516,7 +534,7 @@ impl<'a> AstDomTransform<'a, '_> {
         if let Expression::CallExpression(call) = &mut init {
             call.pure = true;
         }
-        self.variable_statement(span, &template_id(index), init)
+        self.variable_statement(span, &template.name, init)
     }
 
     fn template_literal_expression(&self, span: Span, value: &str) -> Expression<'a> {

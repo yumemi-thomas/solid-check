@@ -20,11 +20,9 @@ var _el$2 = _$getNextElement(_tmpl$2);
 _$insert(_el$2, children);
 const template2 = _el$2;
 const template3 = _$getNextElement(_tmpl$3);
-const template4 = (() => {
-	var _el$4 = _$getNextElement(_tmpl$2);
-	_$insert(_el$4, _$createComponent(Hello, {}));
-	return _el$4;
-})();
+var _el$4 = _$getNextElement(_tmpl$2);
+_$insert(_el$4, _$createComponent(Hello, {}));
+const template4 = _el$4;
 var _el$5 = _$getNextElement(_tmpl$2);
 _$insert(_el$5, _$scope(() => {
 	return dynamic.children;
@@ -70,48 +68,51 @@ const template16 = _$createComponent(Module, { get children() {
 	return dynamic.children;
 } });
 var _el$12 = _$getNextElement(_tmpl$4);
-var [_el$13, _el$14] = _$getNextMarker(_el$12.firstChild.nextSibling.nextSibling);
-_$insert(_el$12, children, _el$13, _el$14);
+var _el$13 = _el$12.firstChild;
+var [_el$14, _el$15] = _$getNextMarker(_el$13.nextSibling);
+_$insert(_el$12, children, _el$14, _el$15);
 const template18 = _el$12;
 const template19 = _$createComponent(Module, { get children() {
 	return ["Hi ", children];
 } });
-var _el$15 = _$getNextElement(_tmpl$2);
-_$insert(_el$15, _$scope(() => {
+var _el$16 = _$getNextElement(_tmpl$2);
+_$insert(_el$16, _$scope(() => {
 	return children();
 }));
-const template20 = _el$15;
+const template20 = _el$16;
 const template21 = _$createComponent(Module, { get children() {
 	return children();
 } });
-var _el$16 = _$getNextElement(_tmpl$2);
-_$insert(_el$16, _$scope(() => {
+var _el$17 = _$getNextElement(_tmpl$2);
+_$insert(_el$17, _$scope(() => {
 	return state.children();
 }));
-const template22 = _el$16;
+const template22 = _el$17;
 const template23 = _$createComponent(Module, { get children() {
 	return state.children();
 } });
-var _el$17 = _$getNextElement(_tmpl$5);
-var [_el$18, _el$19] = _$getNextMarker(_el$17.firstChild.nextSibling.nextSibling);
-_$spread(_el$17, dynamic, true);
-_$insert(_el$17, _$scope(() => {
+var _el$18 = _$getNextElement(_tmpl$5);
+var _el$19 = _el$18.firstChild;
+var _el$20 = _el$19.nextSibling;
+var [_el$21, _el$22] = _$getNextMarker(_el$20.nextSibling);
+_$spread(_el$18, dynamic, true);
+_$insert(_el$18, _$scope(() => {
 	return dynamic.children;
-}), _el$18, _el$19);
+}), _el$21, _el$22);
 _$runHydrationEvents();
-const template24 = _el$17;
+const template24 = _el$18;
 const tiles = [];
 tiles.push(_$getNextElement(_tmpl$6));
-var _el$21 = _$getNextElement(_tmpl$);
-_$insert(_el$21, tiles);
-const template25 = _el$21;
-var _el$22 = _$getNextElement(_tmpl$);
-_$insert(_el$22, () => {
+var _el$24 = _$getNextElement(_tmpl$);
+_$insert(_el$24, tiles);
+const template25 = _el$24;
+var _el$25 = _$getNextElement(_tmpl$);
+_$insert(_el$25, () => {
 	return expression(), "static";
 });
-const comma = _el$22;
-var _el$23 = _$getNextElement(_tmpl$);
-_$insert(_el$23, _$scope(() => {
+const comma = _el$25;
+var _el$26 = _$getNextElement(_tmpl$);
+_$insert(_el$26, _$scope(() => {
 	return children()();
 }));
-const double = _el$23;
+const double = _el$26;

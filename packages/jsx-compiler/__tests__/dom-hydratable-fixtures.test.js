@@ -20,6 +20,7 @@ const fixtureParity = {
   flags: "subset",
   fragments: "subset",
   insertChildren: "subset",
+  jsxAttributeValues: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
 };
@@ -34,6 +35,7 @@ function transformDomHydratable(code, fixture) {
       filename: `${fixture}.jsx`,
       moduleName: "r-dom",
       hydratable: true,
+      contextToCustomElements: true,
       ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
     }).code.trimEnd() + "\n"
   );

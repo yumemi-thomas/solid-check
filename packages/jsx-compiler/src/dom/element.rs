@@ -6,6 +6,7 @@ use oxc_ast::ast::{
 
 use crate::dom::attrs::CloseTagContext;
 use crate::dom::template::DomTemplateState;
+use crate::shared::bindings::BindingTable;
 use crate::shared::component::lower_component_with_setup;
 use crate::shared::utils::{element_name, is_component_name, static_jsx_expression, StaticValue};
 
@@ -21,20 +22,37 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     pub(crate) omit_quotes: bool,
     pub(crate) omit_attribute_spacing: bool,
     pub(crate) inline_styles: bool,
-    pub(crate) effect_wrapper: bool,
+    /// The reactive wrapper import name (`effect` by default); `None`
+    /// disables effect wrapping (Babel's falsy `effectWrapper`).
+    pub(crate) effect_wrapper: Option<String>,
     pub(crate) wrap_conditionals: bool,
-    pub(crate) memo_wrapper: bool,
+    /// The memo wrapper import name (`memo` by default); `None` disables
+    /// memo wrapping (Babel's falsy `memoWrapper`).
+    pub(crate) memo_wrapper: Option<String>,
     pub(crate) static_marker: String,
     pub(crate) omit_nested_closing_tags: bool,
     pub(crate) omit_last_closing_tag: bool,
+    /// Babel's `validate` (default on): warn when a template's markup would
+    /// be restructured by the browser's HTML parser.
+    pub(crate) validate: bool,
     pub(crate) built_ins: std::vec::Vec<String>,
+    /// Where the reactive wrapper helpers (`memo`, `effect`) import from.
+    /// Babel resolves them against the top-level module — in dynamic
+    /// (universal + dom renderer) mode that's the base universal module, not
+    /// the dom renderer's module.
+    pub(crate) wrapper_module_name: Option<String>,
+    /// Dynamic mode: the tags this renderer owns. Native elements outside the
+    /// list are left as raw JSX for the driving universal transform to lower
+    /// (Babel dispatches per element through `transformElement`). `None`
+    /// (plain dom mode) claims every native tag.
+    pub(crate) renderer_elements: Option<std::vec::Vec<String>>,
     pub(crate) template_state: DomTemplateState,
     pub(crate) error: Option<String>,
-    pub(crate) static_bindings: std::vec::Vec<(String, StaticValue)>,
-    pub(crate) const_bindings: std::vec::Vec<String>,
-    pub(crate) function_bindings: std::vec::Vec<String>,
+    pub(crate) bindings: BindingTable,
     pub(crate) pending_this_capture: Option<String>,
     pub(crate) current_this_capture: Option<String>,
+    pub(crate) function_parent_stack: std::vec::Vec<crate::shared::transform::FunctionParentKind>,
+    pub(crate) next_function_class_method: bool,
     pub(crate) statement_depth: usize,
     pub(crate) skip_xmlns_attribute: bool,
     /// After a hydration `getNextMarker` destructure, positional child walks
@@ -43,6 +61,11 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// `firstChild.nextSibling…` paths would land inside the marker region.
     /// `(end node identifier, template index of the end node)`.
     pub(crate) hydration_walk_anchor: Option<(String, usize)>,
+    /// Babel's `tempPath`: the last declared positional walk variable of the
+    /// current parent and its template index. Dev-mode validated walks
+    /// (`getFirstChild`/`getNextSibling`) chain from it by name — the plain
+    /// member walks re-derive from the root instead (equalized by traversal).
+    pub(crate) last_child_walk: Option<(String, usize)>,
     /// Whether the current template root saw a delegated event handler or a
     /// spread (which may carry one); consumed at the root to emit a single
     /// `runHydrationEvents()` after setup.
@@ -51,6 +74,10 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     pub(crate) this_index: usize,
     pub(crate) ref_index: usize,
     pub(crate) condition_index: usize,
+    /// Span of the JSX root currently being lowered via the visitor entry.
+    /// Babel keeps a raw `this` in the tag callee of the root element of each
+    /// `transformJSX` call; only descendants use the `_self$` capture.
+    pub(crate) jsx_root_span: Option<oxc_span::Span>,
 }
 
 pub(crate) struct DomTransformConfig {
@@ -62,16 +89,29 @@ pub(crate) struct DomTransformConfig {
     pub(crate) omit_quotes: bool,
     pub(crate) omit_attribute_spacing: bool,
     pub(crate) inline_styles: bool,
-    pub(crate) effect_wrapper: bool,
+    pub(crate) effect_wrapper: Option<String>,
     pub(crate) wrap_conditionals: bool,
-    pub(crate) memo_wrapper: bool,
+    pub(crate) memo_wrapper: Option<String>,
     pub(crate) static_marker: String,
     pub(crate) omit_nested_closing_tags: bool,
     pub(crate) omit_last_closing_tag: bool,
+    pub(crate) validate: bool,
     pub(crate) built_ins: std::vec::Vec<String>,
+    pub(crate) wrapper_module_name: Option<String>,
+    pub(crate) renderer_elements: Option<std::vec::Vec<String>>,
 }
 
 impl<'a, 'source> AstDomTransform<'a, 'source> {
+    /// Local for the configured effect wrapper (Babel's `_$${name}` hint).
+    pub(crate) fn effect_wrapper_local(&self) -> String {
+        format!("_${}", self.effect_wrapper.as_deref().unwrap_or("effect"))
+    }
+
+    /// Local for the configured memo wrapper.
+    pub(crate) fn memo_wrapper_local(&self) -> String {
+        format!("_${}", self.memo_wrapper.as_deref().unwrap_or("memo"))
+    }
+
     pub(crate) fn new(
         allocator: &'a Allocator,
         source: &'source str,
@@ -96,22 +136,43 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             static_marker: config.static_marker,
             omit_nested_closing_tags: config.omit_nested_closing_tags,
             omit_last_closing_tag: config.omit_last_closing_tag,
+            validate: config.validate,
             built_ins: config.built_ins,
+            wrapper_module_name: config.wrapper_module_name,
+            renderer_elements: config.renderer_elements,
             template_state: DomTemplateState::new(),
             error: None,
-            static_bindings: std::vec::Vec::new(),
-            const_bindings: std::vec::Vec::new(),
-            function_bindings: std::vec::Vec::new(),
+            bindings: BindingTable::default(),
             pending_this_capture: None,
             current_this_capture: None,
+            function_parent_stack: std::vec::Vec::new(),
+            next_function_class_method: false,
             statement_depth: 0,
             skip_xmlns_attribute: false,
             hydration_walk_anchor: None,
+            last_child_walk: None,
             has_hydratable_event: false,
             element_index: 0,
             this_index: 0,
             ref_index: 0,
             condition_index: 0,
+            jsx_root_span: None,
+        }
+    }
+
+    /// Whether a native element belongs to a different renderer in dynamic
+    /// mode: the dom transform leaves it as raw JSX for the universal
+    /// transform to lower.
+    pub(crate) fn is_foreign_element(&self, element: &JSXElement<'a>) -> bool {
+        let Some(elements) = &self.renderer_elements else {
+            return false;
+        };
+        if is_component_name(&element.opening_element.name) {
+            return false;
+        }
+        match element_name(&element.opening_element.name) {
+            Ok(tag_name) => !elements.iter().any(|name| name == &tag_name),
+            Err(_) => false,
         }
     }
 
@@ -132,6 +193,17 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         &mut self,
         element: &JSXElement<'a>,
     ) -> Result<(Expression<'a>, std::vec::Vec<Statement<'a>>)> {
+        // Dynamic mode: another renderer's element stays raw JSX; the driving
+        // universal transform lowers it after this subtree returns.
+        if self.is_foreign_element(element) {
+            return Ok((
+                Expression::JSXElement(oxc_allocator::Box::new_in(
+                    oxc_allocator::CloneIn::clone_in(element, self.allocator),
+                    self.allocator,
+                )),
+                std::vec::Vec::new(),
+            ));
+        }
         if is_component_name(&element.opening_element.name) {
             return lower_component_with_setup(self, element);
         }
@@ -173,42 +245,87 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         let wrapper_tag = self.xml_wrapper_tag(element, &tag_name);
         let skip_xmlns = wrapper_tag.is_some() || tag_name == "svg" || tag_name == "math";
 
-        let mut template = format!("<{tag_name}");
+        let mut template = crate::dom::template::TemplateHtml::open_tag(&tag_name);
         let mut declarations = std::vec::Vec::new();
         let mut operations = std::vec::Vec::new();
+        let mut dynamics = std::vec::Vec::new();
         let element_id = self.next_element_id();
 
         let saved_skip_xmlns = self.skip_xmlns_attribute;
         self.skip_xmlns_attribute = skip_xmlns;
+        // Attributes only land in the emitted markup — Babel leaves
+        // `templateWithClosingTags` attribute-free (solidjs/solid#2338).
         let attribute_result = self.lower_template_attributes(
             &element.opening_element.attributes,
             &tag_name,
             &element_id,
             !element.children.is_empty(),
-            &mut template,
-            &mut operations,
-        );
-        self.skip_xmlns_attribute = saved_skip_xmlns;
-        attribute_result?;
-
-        template.push('>');
-        self.lower_dom_children(
-            element,
-            &tag_name,
-            &element_id,
-            &mut template,
+            &mut template.html,
             &mut declarations,
             &mut operations,
-        )?;
-        if self.should_close_tag(&tag_name, CloseTagContext::root()) {
-            template.push_str(&format!("</{tag_name}>"));
-        }
-        if let Some(wrapper) = wrapper_tag {
-            template = format!("<{wrapper}>{template}</{wrapper}>");
-        }
+            &mut dynamics,
+        );
+        self.skip_xmlns_attribute = saved_skip_xmlns;
+        let attrs_lowering = attribute_result?;
+        let needs_text_placeholder = attrs_lowering.needs_text_placeholder;
 
+        // Babel's textarea `value` fold replaces the element's children
+        // (`path.node.children = [child]`).
+        let element: &JSXElement<'a> = match attrs_lowering.children_replacement {
+            Some(child) => {
+                let mut clone = element.clone_in(self.allocator);
+                clone.children.clear();
+                clone.children.push(child);
+                self.allocator.alloc(clone)
+            }
+            None => element,
+        };
+
+        // Babel pushes the custom-element owner-context assignment right
+        // after the attribute expressions, before child inserts.
         let needs_custom_element_context =
             self.should_capture_custom_element_context(element, &tag_name);
+        if needs_custom_element_context {
+            let statement = self.custom_element_context_statement(element.span, &element_id);
+            operations.push(statement);
+        }
+
+        template.push_both(">");
+        if needs_text_placeholder && element.children.is_empty() {
+            // Dynamic `textContent` adds a single space text node the effect
+            // writes into — but only when the element has no children of its
+            // own (Babel's `!hasChildren` gate; with children the `firstChild`
+            // declaration still emits and the children compile normally).
+            // Attribute-driven, so like attributes it stays out of `closed`.
+            template.html.push(' ');
+        } else {
+            self.lower_dom_children(
+                element,
+                &tag_name,
+                &element_id,
+                CloseTagContext::root(),
+                &mut template,
+                &mut declarations,
+                &mut operations,
+                &mut dynamics,
+            )?;
+        }
+        // All dynamic attribute bindings collected across this template root
+        // batch into one effect, appended after the other expressions.
+        if let Some(statement) = self.wrap_dynamics_statement(dynamics) {
+            operations.push(statement);
+        }
+        if self.should_close_tag(&tag_name, CloseTagContext::root()) {
+            template.html.push_str(&format!("</{tag_name}>"));
+        }
+        if !crate::shared::utils::is_void_element(&tag_name) {
+            template.closed.push_str(&format!("</{tag_name}>"));
+        }
+        if let Some(wrapper) = wrapper_tag {
+            template.html = format!("<{wrapper}>{}</{wrapper}>", template.html);
+            template.closed = format!("<{wrapper}>{}</{wrapper}>", template.closed);
+        }
+
         let template_flag = if wrapper_tag.is_some() {
             Some(2)
         } else if self.template_subtree_is_import_node(element) {
@@ -230,11 +347,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
         let has_hydratable_event = self.has_hydratable_event;
         self.has_hydratable_event = saved_hydratable_event;
 
-        if declarations.is_empty()
-            && operations.is_empty()
-            && !needs_custom_element_context
-            && !has_hydratable_event
-        {
+        if declarations.is_empty() && operations.is_empty() && !has_hydratable_event {
             Ok((
                 self.template_call(element.span, template_id.as_deref()),
                 std::vec::Vec::new(),
@@ -248,9 +361,6 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             // resolved before inserts mutate sibling positions.
             setup.extend(declarations);
             setup.extend(operations);
-            if needs_custom_element_context {
-                setup.push(self.custom_element_context_statement(element.span, &element_id));
-            }
             if has_hydratable_event {
                 self.template_state.uses_run_hydration_events = true;
                 setup.push(self.ast().statement_expression(
@@ -275,8 +385,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             };
             self.call_identifier(span, "_$getNextElement", args)
         } else {
-            let template_id =
-                template_id.expect("non-hydratable templates are always registered");
+            let template_id = template_id.expect("non-hydratable templates are always registered");
             self.call_identifier(span, template_id, std::vec::Vec::new())
         }
     }
@@ -453,12 +562,26 @@ pub(crate) fn jsx_expression_to_expression<'a>(
     expression.clone_in(allocator).into_expression()
 }
 
+impl<'a> AstDomTransform<'a, '_> {
+    /// Clones an attribute's expression value and lowers any JSX nested
+    /// inside it (`innerHTML={cond ? <Comp/> : <Other/>}`) — Babel's generic
+    /// traversal transforms nested JSX everywhere, so ours must too.
+    pub(crate) fn attribute_value_expression(
+        &mut self,
+        container: &oxc_ast::ast::JSXExpressionContainer<'a>,
+    ) -> Expression<'a> {
+        // JSX inside stays raw for the deferred pass (Babel's outer
+        // traversal lowers it after the root completes).
+        jsx_expression_to_expression(&container.expression, self.allocator)
+    }
+}
+
 impl AstDomTransform<'_, '_> {
     pub(crate) fn static_jsx_expression_value(
         &self,
         expression: &JSXExpression<'_>,
     ) -> Option<String> {
-        static_jsx_expression(expression, &self.static_bindings)
+        static_jsx_expression(expression, &self.bindings.static_bindings)
             .map(StaticValue::into_template_value)
     }
 

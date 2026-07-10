@@ -13,12 +13,6 @@ function transform(code, options) {
   }
 
   const nativeOptions = validateOptions(code, options);
-  if (nativeOptions?.skip) {
-    return {
-      code,
-      map: null
-    };
-  }
   const result = native.transform(code, nativeOptions);
   return {
     code: result.code,
@@ -46,6 +40,8 @@ const nativeOptionKeys = new Set([
   "effectWrapper",
   "wrapConditionals",
   "memoWrapper",
+  "requireImportSource",
+  "validate",
   "staticMarker",
   "omitNestedClosingTags",
   "omitLastClosingTag",
@@ -63,63 +59,40 @@ function validateOptions(code, options) {
     );
   }
 
-  const wrapperless = options.wrapConditionals === false || options.memoWrapper === false;
-  if (wrapperless) {
-    if (options.wrapConditionals !== false || options.memoWrapper !== false) {
-      throw new Error(
-        "@dom-expressions/jsx-compiler only supports wrapperless mode when `wrapConditionals: false` and `memoWrapper: false` are used together"
-      );
-    }
-  }
-
   const nativeOptions = {};
   for (const [key, value] of Object.entries(options)) {
+    if (key === "effectWrapper" || key === "memoWrapper") {
+      if (typeof value !== "string" && typeof value !== "boolean") {
+        throw new TypeError(
+          `@dom-expressions/jsx-compiler \`${key}\` option must be a string import name or false`
+        );
+      }
+      nativeOptions[key] = value;
+      continue;
+    }
     if (key === "requireImportSource") {
-      if (value === false) continue;
-      if (typeof value !== "string") {
+      if (value !== false && typeof value !== "string") {
         throw new TypeError(
           "@dom-expressions/jsx-compiler `requireImportSource` option must be false or a string"
         );
       }
-      if (!hasJsxImportSource(code, value)) {
-        return { skip: true };
-      }
+      if (value !== false) nativeOptions.requireImportSource = value;
       continue;
     }
-    if (key === "effectWrapper") {
-      if (value === "effect") continue;
-      if (value === false) {
-        nativeOptions.effectWrapper = false;
-        continue;
-      }
-      throw new Error(
-        '@dom-expressions/jsx-compiler only supports `effectWrapper: false` or the default `"effect"`'
-      );
-    }
     if (key === "wrapConditionals") {
-      if (value === true) continue;
-      if (value === false) {
-        nativeOptions.wrapConditionals = false;
-        continue;
+      if (typeof value !== "boolean") {
+        throw new TypeError(
+          "@dom-expressions/jsx-compiler `wrapConditionals` option must be boolean"
+        );
       }
-      throw new TypeError(
-        "@dom-expressions/jsx-compiler `wrapConditionals` option must be boolean"
-      );
-    }
-    if (key === "memoWrapper") {
-      if (value === "memo") continue;
-      if (value === false) {
-        nativeOptions.memoWrapper = false;
-        continue;
-      }
-      throw new Error(
-        '@dom-expressions/jsx-compiler only supports `memoWrapper: false` or the default `"memo"`'
-      );
+      nativeOptions.wrapConditionals = value;
+      continue;
     }
     if (key === "validate") {
       if (typeof value !== "boolean") {
         throw new TypeError("@dom-expressions/jsx-compiler `validate` option must be boolean");
       }
+      nativeOptions.validate = value;
       continue;
     }
     if (nativeOptionKeys.has(key)) {
@@ -137,15 +110,6 @@ function validateOptions(code, options) {
     throw new Error(`@dom-expressions/jsx-compiler received unknown option \`${key}\``);
   }
   return nativeOptions;
-}
-
-function hasJsxImportSource(code, source) {
-  const pattern = /@jsxImportSource\s+([^\s*]+)/g;
-  let match;
-  while ((match = pattern.exec(code))) {
-    if (match[1] === source) return true;
-  }
-  return false;
 }
 
 function validateRenderers(renderers) {

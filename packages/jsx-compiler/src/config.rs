@@ -25,10 +25,23 @@ pub struct TransformOptions {
     pub omit_quotes: Option<bool>,
     pub omit_attribute_spacing: Option<bool>,
     pub inline_styles: Option<bool>,
-    pub effect_wrapper: Option<bool>,
+    /// The reactive wrapper import name (Babel's `effectWrapper: string`).
+    /// `false` or `""` disables wrapping; `true`/unset means the default
+    /// `"effect"`.
+    pub effect_wrapper: Option<Either<bool, String>>,
     pub wrap_conditionals: Option<bool>,
-    pub memo_wrapper: Option<bool>,
+    /// The memo wrapper import name (Babel's `memoWrapper: string`), with the
+    /// same boolean shorthand as `effect_wrapper`. Default `"memo"`.
+    pub memo_wrapper: Option<Either<bool, String>>,
     pub static_marker: Option<String>,
+    /// Babel's `requireImportSource`: when set, only files carrying a
+    /// `@jsxImportSource <value>` comment are transformed; other files are
+    /// returned untouched.
+    pub require_import_source: Option<String>,
+    /// Babel's `validate` (default `true`): warn on template HTML that a
+    /// browser would re-parse differently (implied end tags, foster
+    /// parenting, nested `<a>`/`<form>`, …).
+    pub validate: Option<bool>,
     pub omit_nested_closing_tags: Option<bool>,
     pub omit_last_closing_tag: Option<bool>,
     pub built_ins: Option<Vec<String>>,

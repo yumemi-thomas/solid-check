@@ -13,56 +13,38 @@ var _tmpl$4 = /* @__PURE__ */ _$template(`<svg><rect x=50 y=20 width=150 height=
 var _tmpl$5 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40"><a><text x=10 y=25>MDN Web Docs`);
 var _tmpl$6 = /* @__PURE__ */ _$template(`<svg viewBox="0 0 160 40"><text x=10 y=25>`);
 const template = _tmpl$();
-const template2 = (() => {
-	var _el$2 = _tmpl$2();
-	var _el$3 = _el$2.firstChild;
-	_$effect(() => {
-		return state.name;
-	}, (_v$, _$p) => {
-		_$className(_el$3, _v$, _$p);
-	});
-	_$effect(() => {
-		return state.width;
-	}, (_v$) => {
-		_$setAttribute(_el$3, "stroke-width", _v$);
-	});
-	_$effect(() => {
-		return state.x;
-	}, (_v$) => {
-		_$setAttribute(_el$3, "x", _v$);
-	});
-	_$effect(() => {
-		return state.y;
-	}, (_v$) => {
-		_$setAttribute(_el$3, "y", _v$);
-	});
-	_$effect(() => {
-		return props.stroke;
-	}, (_v$) => {
-		_$setStyleProperty(_el$3, "stroke-width", _v$);
-	});
-	return _el$2;
-})();
-const template3 = (() => {
-	var _el$4 = _tmpl$3();
-	var _el$5 = _el$4.firstChild;
-	_$spread(_el$5, props, false);
-	return _el$4;
-})();
+var _el$2 = _tmpl$2();
+var _el$3 = _el$2.firstChild;
+_$effect(() => {
+	return {
+		e: state.name,
+		t: state.width,
+		a: state.x,
+		o: state.y,
+		i: props.stroke
+	};
+}, ({ e, t, a, o, i }, _p$) => {
+	_$className(_el$3, e, _p$?.e);
+	t !== _p$?.t && _$setAttribute(_el$3, "stroke-width", t);
+	a !== _p$?.a && _$setAttribute(_el$3, "x", a);
+	o !== _p$?.o && _$setAttribute(_el$3, "y", o);
+	i !== _p$?.i && _$setStyleProperty(_el$3, "stroke-width", i);
+});
+const template2 = _el$2;
+var _el$4 = _tmpl$3();
+var _el$5 = _el$4.firstChild;
+_$spread(_el$5, props, false);
+const template3 = _el$4;
 const template4 = _tmpl$4();
 const template5 = _tmpl$4();
 const template6 = _$createComponent(Component, { get children() {
 	return _tmpl$4();
 } });
-const template7 = (() => {
-	var _el$9 = _tmpl$5();
-	var _el$10 = _el$9.firstChild;
-	_$setAttributeNS(_el$10, "http://www.w3.org/1999/xlink", "xlink:href", url);
-	return _el$9;
-})();
-const template8 = (() => {
-	var _el$11 = _tmpl$6();
-	var _el$12 = _el$11.firstChild;
-	_el$12.textContent = text;
-	return _el$11;
-})();
+var _el$9 = _tmpl$5();
+var _el$10 = _el$9.firstChild;
+_$setAttributeNS(_el$10, "http://www.w3.org/1999/xlink", "xlink:href", url);
+const template7 = _el$9;
+var _el$11 = _tmpl$6();
+var _el$12 = _el$11.firstChild;
+_el$12.textContent = text;
+const template8 = _el$11;

@@ -1,6 +1,7 @@
-import { createComponent as _$createComponent2 } from "r-custom";
 import { template as _$template } from "r-dom";
-import { effect as _$effect } from "r-dom";
+import { memo as _$memo } from "r-custom";
+import { createComponent as _$createComponent } from "r-custom";
+import { effect as _$effect } from "r-custom";
 import { setAttribute as _$setAttribute } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div>First`);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div>Last`);
@@ -18,19 +19,17 @@ const multiExpression = [
 const multiDynamic = [
 	(() => {
 		var _el$5 = _tmpl$();
-		_$effect(() => {
-			return state.first;
-		}, (_v$) => {
+		_$effect(() => state.first, (_v$) => {
 			_$setAttribute(_el$5, "id", _v$);
 		});
 		return _el$5;
 	})(),
-	state.inserted,
+	_$memo(() => {
+		return state.inserted;
+	}),
 	(() => {
 		var _el$6 = _tmpl$2();
-		_$effect(() => {
-			return state.last;
-		}, (_v$) => {
+		_$effect(() => state.last, (_v$) => {
 			_$setAttribute(_el$6, "id", _v$);
 		});
 		return _el$6;
@@ -38,15 +37,17 @@ const multiDynamic = [
 	"After"
 ];
 const singleExpression = inserted;
-const singleDynamic = inserted();
+const singleDynamic = _$memo(inserted);
 const greeting = (x) => "Hello " + x;
-const singleTemplateLiteral = greeting`world`;
+const singleTemplateLiteral = _$memo(() => {
+	return greeting`world`;
+});
 const firstStatic = [inserted, _tmpl$3()];
-const firstDynamic = [inserted(), _tmpl$3()];
-const firstComponent = [_$createComponent2(Component, {}), _tmpl$3()];
+const firstDynamic = [_$memo(inserted), _tmpl$3()];
+const firstComponent = [_$createComponent(Component, {}), _tmpl$3()];
 const lastStatic = [_tmpl$3(), inserted];
-const lastDynamic = [_tmpl$3(), inserted()];
-const lastComponent = [_tmpl$3(), _$createComponent2(Component, {})];
+const lastDynamic = [_tmpl$3(), _$memo(inserted)];
+const lastComponent = [_tmpl$3(), _$createComponent(Component, {})];
 const spaces = [
 	_tmpl$4(),
 	" ",

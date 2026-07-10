@@ -21,6 +21,7 @@ const fixtureParity = {
   eventExpressions: parityLevel.subset,
   fragments: parityLevel.subset,
   insertChildren: parityLevel.subset,
+  jsxAttributeValues: parityLevel.subset,
   multipleClassAttributes: parityLevel.subset,
   namespaceElements: parityLevel.subset,
   simpleElements: parityLevel.subset,
@@ -43,6 +44,7 @@ function transformDom(code, fixture) {
     transform(code, {
       filename: `${fixture}.jsx`,
       moduleName: "r-dom",
+      contextToCustomElements: true,
       ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
     }).code.trimEnd() + "\n"
   );
@@ -116,6 +118,8 @@ function supportedSubset(fixture) {
   const source = readFixture(fixture);
   switch (fixture) {
     case "adjacentSlots":
+      return source;
+    case "jsxAttributeValues":
       return source;
     case "simpleElements":
       return source;

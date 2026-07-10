@@ -1,16 +1,21 @@
-import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
+import { ssrClassName as _$ssrClassName } from "r-server";
+var _tmpl$ = "<div class=\"b\">static static</div>";
+var _tmpl$2 = ["<div class=\"", "\">static + dynamic</div>"];
+var _tmpl$3 = "<div class=\"on\">two dynamic</div>";
+var _tmpl$4 = ["<div class=\"", "\">string + object</div>"];
+var _tmpl$5 = "<div class=\"c\">three statics</div>";
 // Duplicate attributes on the same element resolve to the last value
 // (matching JSX spread semantics: later attributes override earlier ones).
 // This test keeps the `class=` case specifically since it used to be a
 // special compiler path.
 const dynamicClass = () => "dyn";
 const flag = true;
-const t1 = _$ssr("<div class=\"b\">static static</div>");
-const t2 = _$ssr(["<div class=\"", "\">static + dynamic</div>"], _$escape(dynamicClass(), true));
-const t3 = _$ssr(["<div class=\"", "\">two dynamic</div>"], _$escape(flag ? "on" : "off", true));
-const t4 = _$ssr(["<div class=\"", "\">string + object</div>"], _$escape({
-	active: flag,
-	dim: !flag
-}, true));
-const t5 = _$ssr("<div class=\"c\">three statics</div>");
+const t1 = _$ssr(_tmpl$);
+var _v$ = () => {
+	return _$ssrClassName(dynamicClass());
+};
+const t2 = _$ssr(_tmpl$2, _v$);
+const t3 = _$ssr(_tmpl$3);
+const t4 = _$ssr(_tmpl$4, "active ");
+const t5 = _$ssr(_tmpl$5);

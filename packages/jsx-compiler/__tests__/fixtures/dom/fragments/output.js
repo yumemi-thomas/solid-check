@@ -19,9 +19,7 @@ const multiExpression = [
 const multiDynamic = [
 	(() => {
 		var _el$5 = _tmpl$();
-		_$effect(() => {
-			return state.first;
-		}, (_v$) => {
+		_$effect(() => state.first, (_v$) => {
 			_$setAttribute(_el$5, "id", _v$);
 		});
 		return _el$5;
@@ -31,9 +29,7 @@ const multiDynamic = [
 	}),
 	(() => {
 		var _el$6 = _tmpl$2();
-		_$effect(() => {
-			return state.last;
-		}, (_v$) => {
+		_$effect(() => state.last, (_v$) => {
 			_$setAttribute(_el$6, "id", _v$);
 		});
 		return _el$6;

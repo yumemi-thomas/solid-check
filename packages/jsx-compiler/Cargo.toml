@@ -8,6 +8,9 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+html5ever = "0.39.0"
+htmlize = { version = "1", features = ["unescape"] }
+markup5ever_rcdom = "0.39.0"
 napi = { version = "3.8", default-features = false, features = ["napi4"] }
 napi-derive = "3.5"
 oxc_allocator = "0.118"

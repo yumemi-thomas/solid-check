@@ -1,12 +1,17 @@
 use napi::bindgen_prelude::*;
+use oxc_allocator::CloneIn;
 use oxc_ast::ast::{JSXAttributeItem, JSXAttributeValue, ObjectPropertyKind, Statement};
 use oxc_span::Span;
 
-use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
-use crate::shared::component_props::{component_spread_expression, flush_component_props};
-use crate::shared::utils::decode_html_entities;
+use crate::dom::element::AstDomTransform;
+use crate::shared::ast::arrow_return_expression;
+use crate::shared::condition::{
+    is_condition_shape, transform_condition_inline, zero_arg_call_thunk,
+};
+use crate::shared::utils::{decode_html_entities, is_dynamic_expression_deep, source_from_span};
 
 impl<'a> AstDomTransform<'a, '_> {
+    /// Port of Babel's `processSpreads` (dom/element.ts).
     pub(crate) fn spread_attribute_statement(
         &mut self,
         attributes: &[JSXAttributeItem<'a>],
@@ -21,32 +26,68 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         let mut prop_objects = std::vec::Vec::new();
         let mut running_props = std::vec::Vec::new();
+        let mut dynamic_spread = false;
         for attr in attributes {
             match attr {
                 JSXAttributeItem::SpreadAttribute(spread) => {
-                    flush_component_props(self, &mut running_props, &mut prop_objects, spread.span);
-                    prop_objects.push(
-                        component_spread_expression(self, &spread.argument, spread.span).value,
-                    );
+                    if !running_props.is_empty() {
+                        prop_objects.push(self.ast().expression_object(
+                            spread.span,
+                            self.ast().vec_from_iter(running_props.drain(..)),
+                        ));
+                    }
+                    let is_static =
+                        source_from_span(spread.span, self.source).contains(&self.static_marker);
+                    let dynamic = is_dynamic_expression_deep(&spread.argument, false);
+                    let value = spread.argument.clone_in(self.allocator);
+                    let value = if dynamic {
+                        dynamic_spread = true;
+                        // Babel's `inlineCallExpression`: `{...results()}`
+                        // passes `results` straight through to mergeProps.
+                        match zero_arg_call_thunk(&value, self.allocator) {
+                            Some(callee) => callee,
+                            None => arrow_return_expression(self.allocator, spread.span, value),
+                        }
+                    } else {
+                        value
+                    };
+                    let value = if is_static {
+                        let mut properties = self.ast().vec();
+                        properties.push(ObjectPropertyKind::SpreadProperty(
+                            self.ast().alloc_spread_element(spread.span, value),
+                        ));
+                        self.ast().expression_object(spread.span, properties)
+                    } else {
+                        value
+                    };
+                    prop_objects.push(value);
                 }
                 JSXAttributeItem::Attribute(attr) => {
+                    // Babel's `processSpreads` filters `ref` out of the props
+                    // (`key !== "ref"`); it runs through the ref protocol as a
+                    // regular attribute instead.
+                    if matches!(&attr.name, oxc_ast::ast::JSXAttributeName::Identifier(name) if name.name == "ref")
+                    {
+                        continue;
+                    }
                     running_props.push(self.spread_attribute_property(attr)?);
                 }
             }
         }
-        flush_component_props(self, &mut running_props, &mut prop_objects, Span::default());
+        if !running_props.is_empty() {
+            prop_objects.push(self.ast().expression_object(
+                Span::default(),
+                self.ast().vec_from_iter(running_props.drain(..)),
+            ));
+        }
 
-        let props = match prop_objects.len() {
-            0 => self
-                .ast()
-                .expression_object(Span::default(), self.ast().vec()),
-            1 => prop_objects
+        let props = if prop_objects.len() == 1 && !dynamic_spread {
+            prop_objects
                 .pop()
-                .expect("single spread props object exists"),
-            _ => {
-                self.template_state.uses_merge_props = true;
-                self.call_identifier(Span::default(), "_$mergeProps", prop_objects)
-            }
+                .expect("single spread props object exists")
+        } else {
+            self.template_state.uses_merge_props = true;
+            self.call_identifier(Span::default(), "_$mergeProps", prop_objects)
         };
 
         Ok(self.ast().statement_expression(
@@ -82,59 +123,72 @@ impl<'a> AstDomTransform<'a, '_> {
             }
         };
 
-        let (value, needs_getter) = match &attr.value {
-            None => (
+        // Babel's no-`inlineStyles` preprocess wraps style values in IIFEs at
+        // the JSX level, before spreads are processed — the wrap makes the
+        // value a call expression, so it always lands as a getter (and any
+        // `/*@static*/` marker is lost with the original node's comments).
+        if name == "style" && !self.inline_styles {
+            match &attr.value {
+                Some(JSXAttributeValue::StringLiteral(value)) => {
+                    let planner = self.attr_planner();
+                    let text = decode_html_entities(&value.value);
+                    let template = planner.style_string_template_literal(attr.span, &text);
+                    let wrapped = planner.style_no_inline_iife(attr.span, template);
+                    return Ok(self.object_getter_property(attr.span, &name, wrapped));
+                }
+                Some(JSXAttributeValue::ExpressionContainer(container))
+                    if container.expression.as_expression().is_some() =>
+                {
+                    let value = self.attribute_value_expression(container);
+                    let wrapped = self.attr_planner().style_no_inline_iife(attr.span, value);
+                    return Ok(self.object_getter_property(attr.span, &name, wrapped));
+                }
+                _ => {}
+            }
+        }
+
+        match &attr.value {
+            None => Ok(self.object_property(
+                attr.span,
+                &name,
                 self.ast().expression_boolean_literal(attr.span, true),
-                false,
-            ),
+            )),
             Some(JSXAttributeValue::StringLiteral(value)) => {
                 let value = decode_html_entities(&value.value);
-                (
+                Ok(self.object_property(
+                    attr.span,
+                    &name,
                     self.ast()
                         .expression_string_literal(attr.span, self.ast().atom(&value), None),
-                    false,
-                )
+                ))
             }
             Some(JSXAttributeValue::ExpressionContainer(container)) => {
-                let value = jsx_expression_to_expression(&container.expression, self.allocator);
-                (
-                    value,
-                    spread_attribute_requires_getter(self, &name, container),
-                )
+                let marked_static = source_from_span(container.span, self.source)
+                    .contains(&self.static_marker);
+                let dynamic = !marked_static
+                    && container
+                        .expression
+                        .as_expression()
+                        .is_some_and(|expression| is_dynamic_expression_deep(expression, false));
+                let value = self.attribute_value_expression(container);
+                if dynamic {
+                    // Babel: logical/conditional getter bodies flow through
+                    // `transformCondition(..., inline)`.
+                    let value = if self.wrap_conditionals && is_condition_shape(&value) {
+                        transform_condition_inline(self, container.span, value)
+                    } else {
+                        value
+                    };
+                    Ok(self.object_getter_property(attr.span, &name, value))
+                } else {
+                    Ok(self.object_property(attr.span, &name, value))
+                }
             }
             Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
-                return Err(Error::from_reason(
+                Err(Error::from_reason(
                     "JSX spread attribute object values are not implemented in the AST-native milestone yet",
-                ));
+                ))
             }
-        };
-
-        Ok(if needs_getter {
-            self.object_getter_property(attr.span, &name, value)
-        } else {
-            self.object_property(attr.span, &name, value)
-        })
+        }
     }
-}
-
-fn spread_attribute_requires_getter(
-    ctx: &AstDomTransform<'_, '_>,
-    name: &str,
-    container: &oxc_ast::ast::JSXExpressionContainer<'_>,
-) -> bool {
-    if crate::shared::utils::source_from_span(container.span, ctx.source)
-        .contains(&ctx.static_marker)
-    {
-        return false;
-    }
-    matches!(
-        container.expression,
-        oxc_ast::ast::JSXExpression::StaticMemberExpression(_)
-            | oxc_ast::ast::JSXExpression::ComputedMemberExpression(_)
-            | oxc_ast::ast::JSXExpression::CallExpression(_)
-            | oxc_ast::ast::JSXExpression::ObjectExpression(_)
-            | oxc_ast::ast::JSXExpression::ArrayExpression(_)
-    ) || name == "class"
-        || name == "className"
-        || name == "style"
 }

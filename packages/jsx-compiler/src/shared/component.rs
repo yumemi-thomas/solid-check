@@ -3,7 +3,6 @@ use oxc_ast::{
     ast::{Expression, JSXAttributeItem, JSXAttributeValue, JSXElement, JSXExpression, Statement},
     AstBuilder,
 };
-use oxc_ast_visit::{walk_mut, VisitMut};
 use oxc_span::{GetSpan, Span};
 
 use crate::dom::element::jsx_expression_to_expression;
@@ -15,14 +14,15 @@ use crate::shared::component_props::{
     flush_component_props,
 };
 use crate::shared::refs::component_ref_property;
-use crate::shared::utils::decode_html_entities;
+use crate::shared::utils::{decode_html_entities, is_dynamic_expression_deep};
 
 pub(crate) fn lower_component_with_setup<'a>(
     ctx: &mut AstDomTransform<'a, '_>,
     element: &JSXElement<'a>,
 ) -> Result<(Expression<'a>, std::vec::Vec<Statement<'a>>)> {
     ctx.template_state.uses_create_component = true;
-    let component = component_callee_expression(ctx, &element.opening_element.name)?;
+    let root_tag = ctx.jsx_root_span == Some(element.span);
+    let component = component_callee_expression(ctx, &element.opening_element.name, root_tag)?;
     let mut prop_objects = std::vec::Vec::new();
     let mut running_props = std::vec::Vec::new();
     let mut force_merge_props = false;
@@ -39,16 +39,20 @@ pub(crate) fn lower_component_with_setup<'a>(
                 continue;
             }
         };
+        // Namespaced attributes pass through as literal `ns:name` prop keys
+        // (Babel's `convertJSXIdentifier` string form).
         let name = match &attr.name {
             oxc_ast::ast::JSXAttributeName::Identifier(name) => name.name.to_string(),
-            _ => {
-                return Err(Error::from_reason(
-                    "Component namespace attributes are not implemented in the AST-native milestone yet",
-                ));
+            oxc_ast::ast::JSXAttributeName::NamespacedName(name) => {
+                format!("{}:{}", name.namespace.name, name.name.name)
             }
         };
-        let (value, needs_getter) = match &attr.value {
-            None => (ctx.ast().expression_boolean_literal(attr.span, true), false),
+        let (value, needs_getter, condition_inlined) = match &attr.value {
+            None => (
+                ctx.ast().expression_boolean_literal(attr.span, true),
+                false,
+                false,
+            ),
             Some(JSXAttributeValue::StringLiteral(value)) => {
                 let span = value.span;
                 let value = decode_html_entities(&value.value);
@@ -56,12 +60,26 @@ pub(crate) fn lower_component_with_setup<'a>(
                     ctx.ast()
                         .expression_string_literal(span, ctx.ast().atom(&value), None),
                     false,
+                    false,
                 )
             }
-            Some(JSXAttributeValue::ExpressionContainer(container)) => (
-                transform_component_expression(ctx, &container.expression),
-                component_prop_requires_getter(ctx, &name, container),
-            ),
+            Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                let dynamic = component_prop_is_dynamic(ctx, &name, container);
+                let mut value = transform_component_expression(ctx, &container.expression);
+                // Dynamic conditional/logical props collapse their memos
+                // inline within the getter, mirroring Babel's
+                // `transformCondition(..., true)`.
+                let mut condition_inlined = false;
+                if dynamic
+                    && ctx.wrap_conditionals
+                    && crate::shared::condition::is_condition_shape(&value)
+                {
+                    let span = value.span();
+                    value = ctx.inline_condition_expression(span, value);
+                    condition_inlined = true;
+                }
+                (value, dynamic, condition_inlined)
+            }
             _ => {
                 return Err(Error::from_reason(
                     "Component JSX attribute values are not implemented in the AST-native milestone yet",
@@ -71,6 +89,22 @@ pub(crate) fn lower_component_with_setup<'a>(
         if name == "ref" {
             if let Some(ref_property) = component_ref_property(ctx, attr.span, value, &mut setup) {
                 running_props.push(ref_property);
+            }
+        } else if needs_getter && !condition_inlined {
+            // Babel inlines a zero-arg arrow IIFE value's body straight into
+            // the getter (`when={(() => {...})()}` → `get when() {...}`).
+            match crate::shared::ast::zero_arg_iife_statements(ctx.allocator, attr.span, value) {
+                Ok(statements) => {
+                    running_props.push(crate::shared::ast::object_getter_property_with_statements(
+                        ctx.allocator,
+                        attr.span,
+                        &name,
+                        statements,
+                    ));
+                }
+                Err(value) => {
+                    running_props.push(component_property(ctx, attr.span, &name, value, true));
+                }
             }
         } else {
             running_props.push(component_property(
@@ -105,7 +139,10 @@ pub(crate) fn lower_component_with_setup<'a>(
     ))
 }
 
-fn component_prop_requires_getter(
+/// Babel gates component-prop getters on
+/// `isDynamic(value, { checkMember: true, checkTags: true })` — a deep
+/// traversal of the original (pre-lowered) expression.
+fn component_prop_is_dynamic(
     ctx: &AstDomTransform<'_, '_>,
     name: &str,
     container: &oxc_ast::ast::JSXExpressionContainer<'_>,
@@ -118,45 +155,21 @@ fn component_prop_requires_getter(
     {
         return false;
     }
-    matches!(
-        container.expression,
-        JSXExpression::StaticMemberExpression(_)
-            | JSXExpression::ComputedMemberExpression(_)
-            | JSXExpression::ChainExpression(_)
-            | JSXExpression::JSXElement(_)
-            | JSXExpression::CallExpression(_)
-            | JSXExpression::ConditionalExpression(_)
-            | JSXExpression::LogicalExpression(_)
-    )
+    container
+        .expression
+        .as_expression()
+        .is_some_and(|expression| is_dynamic_expression_deep(expression, true))
 }
 
 pub(crate) fn transform_component_expression<'a>(
     ctx: &mut AstDomTransform<'a, '_>,
     expression: &JSXExpression<'a>,
 ) -> Expression<'a> {
-    let mut expression = jsx_expression_to_expression(expression, ctx.allocator);
-    replace_this_expression(ctx, &mut expression);
-    ctx.visit_expression(&mut expression);
-    expression = ctx.condition_component_expression(expression.span(), expression);
-    expression
-}
-
-fn replace_this_expression<'a>(ctx: &mut AstDomTransform<'a, '_>, expression: &mut Expression<'a>) {
-    struct ThisReplacer<'ctx, 'a, 'source> {
-        ctx: &'ctx mut AstDomTransform<'a, 'source>,
-    }
-
-    impl<'a> VisitMut<'a> for ThisReplacer<'_, 'a, '_> {
-        fn visit_expression(&mut self, expression: &mut Expression<'a>) {
-            if let Expression::ThisExpression(this) = expression {
-                *expression = self.ctx.capture_this_expression(this.span);
-                return;
-            }
-            walk_mut::walk_expression(self, expression);
-        }
-    }
-
-    ThisReplacer { ctx }.visit_expression(expression);
+    // JSX inside the value stays raw: Babel builds prop getters around the
+    // untransformed expression and its outer traversal lowers the JSX later
+    // (statement-position inlining, container-end template registration).
+    // `this` was already rewritten by the root-level `transformThis` pass.
+    jsx_expression_to_expression(expression, ctx.allocator)
 }
 
 impl<'a> ComponentCalleeContext<'a> for AstDomTransform<'a, '_> {
@@ -166,6 +179,10 @@ impl<'a> ComponentCalleeContext<'a> for AstDomTransform<'a, '_> {
 
     fn is_built_in(&self, name: &str) -> bool {
         self.built_ins.iter().any(|built_in| built_in == name)
+    }
+
+    fn is_builtin_shadowed(&self, span: Span) -> bool {
+        self.bindings.is_builtin_shadowed(span)
     }
 
     fn register_built_in(&mut self, name: &str) {

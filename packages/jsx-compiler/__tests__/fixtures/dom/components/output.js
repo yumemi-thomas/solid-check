@@ -7,7 +7,6 @@ import { mergeProps as _$mergeProps } from "r-dom";
 import { applyRef as _$applyRef } from "r-dom";
 import { ref as _$ref } from "r-dom";
 import { For as _$For } from "r-dom";
-import { Show as _$Show } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div>Hello `);
 var _tmpl$2 = /* @__PURE__ */ _$template(`<div>`);
 var _tmpl$3 = /* @__PURE__ */ _$template(`<div>From Parent`);
@@ -25,70 +24,64 @@ const Child = (props) => {
 	const [s, set] = createSignal();
 	return [(() => {
 		var _el$ = _tmpl$();
-		{
-			var _ref$ = props.ref;
-			typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
-				return _ref$;
-			}, _el$) : props.ref = _el$;
-		}
+		var _el$2 = _el$.firstChild;
+		var _ref$ = props.ref;
+		typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
+			return _ref$;
+		}, _el$) : props.ref = _el$;
 		_$insert(_el$, () => {
 			return props.name;
 		}, null);
 		return _el$;
 	})(), (() => {
-		var _el$2 = _tmpl$2();
-		{
-			var _ref$2 = set;
-			typeof _ref$2 === "function" || Array.isArray(_ref$2) ? _$ref(() => {
-				return _ref$2;
-			}, _el$2) : set = _el$2;
-		}
-		_$insert(_el$2, () => {
+		var _el$3 = _tmpl$2();
+		_$ref(() => {
+			return set;
+		}, _el$3);
+		_$insert(_el$3, () => {
 			return props.children;
 		});
-		return _el$2;
+		return _el$3;
 	})()];
 };
 const template = (props) => {
 	let childRef;
 	const { content } = props;
-	var _el$3 = _tmpl$4();
-	var _el$5 = _el$3.firstChild;
-	var _el$7 = _el$3.firstChild.nextSibling;
-	var _el$8 = _el$3.firstChild.nextSibling.nextSibling;
-	_$insert(_el$3, _$createComponent(Child, _$mergeProps({ name: "John" }, props, {
+	var _el$4 = _tmpl$4();
+	var _el$6 = _el$4.firstChild;
+	var _el$8 = _el$6.nextSibling;
+	var _el$9 = _el$8.nextSibling;
+	_$insert(_el$4, _$createComponent(Child, _$mergeProps({ name: "John" }, props, {
 		ref(r$) {
-			var _ref$3 = childRef;
-			typeof _ref$3 === "function" || Array.isArray(_ref$3) ? _$applyRef(_ref$3, r$) : childRef = r$;
+			var _ref$2 = childRef;
+			typeof _ref$2 === "function" || Array.isArray(_ref$2) ? _$applyRef(_ref$2, r$) : childRef = r$;
 		},
 		booleanProperty: true,
 		get children() {
 			return _tmpl$3();
 		}
-	})), _el$5);
-	_$insert(_el$3, _$createComponent(Child, _$mergeProps({ name: "Jason" }, () => {
-		return dynamicSpread();
-	}, {
+	})), _el$6);
+	_$insert(_el$4, _$createComponent(Child, _$mergeProps({ name: "Jason" }, dynamicSpread, {
 		ref(r$) {
-			var _ref$4 = props.ref;
-			typeof _ref$4 === "function" || Array.isArray(_ref$4) ? _$applyRef(_ref$4, r$) : props.ref = r$;
+			var _ref$3 = props.ref;
+			typeof _ref$3 === "function" || Array.isArray(_ref$3) ? _$applyRef(_ref$3, r$) : props.ref = r$;
 		},
 		get children() {
-			var _el$6 = _tmpl$2();
-			_$insert(_el$6, content);
-			return _el$6;
+			var _el$7 = _tmpl$2();
+			_$insert(_el$7, content);
+			return _el$7;
 		}
-	})), _el$7);
-	_$insert(_el$3, (() => {
-		var _ref$5 = props.consumerRef();
+	})), _el$8);
+	_$insert(_el$4, (() => {
+		var _ref$4 = props.consumerRef();
 		return _$createComponent(Context.Consumer, {
 			ref(r$) {
-				(typeof _ref$5 === "function" || Array.isArray(_ref$5)) && _$applyRef(_ref$5, r$);
+				(typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
 			},
 			children: (context) => context
 		});
-	})(), _el$8);
-	return _el$3;
+	})(), _el$9);
+	return _el$4;
 };
 const template2 = _$createComponent(Child, {
 	name: "Jake",
@@ -97,7 +90,7 @@ const template2 = _$createComponent(Child, {
 	},
 	stale: state.data,
 	handleClick: clickHandler,
-	get "hyphen-ated"() {
+	get ["hyphen-ated"]() {
 		return state.data;
 	},
 	ref: (el) => e = el
@@ -133,7 +126,7 @@ const template6 = _$createComponent(_$For, {
 	get fallback() {
 		return _$createComponent(Loading, {});
 	},
-	children: (item) => _$createComponent(_$Show, {
+	children: (item) => _$createComponent(Show, {
 		get when() {
 			return state.condition;
 		},
@@ -149,44 +142,49 @@ const template8 = _$createComponent(Child, { get children() {
 	return [(item) => item, (item) => item];
 } });
 const template9 = _$createComponent(_garbage, { children: "Hi" });
-const template10 = (() => {
-	var _el$14 = _tmpl$5();
-	var _el$15 = _el$14.firstChild.nextSibling;
-	var _el$16 = _el$14.firstChild.nextSibling.nextSibling.nextSibling;
-	var _el$17 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	var _el$18 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	var _el$19 = _el$14.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$14, _$createComponent(Link, { children: "new" }), _el$14.firstChild);
-	_$insert(_el$14, _$createComponent(Link, { children: "comments" }), _el$15);
-	_$insert(_el$14, _$createComponent(Link, { children: "show" }), _el$16);
-	_$insert(_el$14, _$createComponent(Link, { children: "ask" }), _el$17);
-	_$insert(_el$14, _$createComponent(Link, { children: "jobs" }), _el$18);
-	_$insert(_el$14, _$createComponent(Link, { children: "submit" }), _el$19);
-	return _el$14;
-})();
-const template11 = (() => {
-	var _el$20 = _tmpl$6();
-	var _el$21 = _el$20.firstChild.nextSibling;
-	var _el$22 = _el$20.firstChild.nextSibling.nextSibling;
-	var _el$23 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling;
-	var _el$24 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	var _el$25 = _el$20.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$20, _$createComponent(Link, { children: "new" }), _el$20.firstChild);
-	_$insert(_el$20, _$createComponent(Link, { children: "comments" }), _el$21);
-	_$insert(_el$20, _$createComponent(Link, { children: "show" }), _el$22);
-	_$insert(_el$20, _$createComponent(Link, { children: "ask" }), _el$23);
-	_$insert(_el$20, _$createComponent(Link, { children: "jobs" }), _el$24);
-	_$insert(_el$20, _$createComponent(Link, { children: "submit" }), _el$25);
-	return _el$20;
-})();
-const template12 = (() => {
-	var _el$26 = _tmpl$7();
-	var _el$27 = _el$26.firstChild.nextSibling;
-	var _el$28 = _el$26.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling;
-	_$insert(_el$26, _$createComponent(Link, { children: "comments" }), _el$27);
-	_$insert(_el$26, _$createComponent(Link, { children: "show" }), _el$28);
-	return _el$26;
-})();
+var _el$15 = _tmpl$5();
+var _el$16 = _el$15.firstChild;
+var _el$17 = _el$16.nextSibling;
+var _el$18 = _el$17.nextSibling;
+var _el$19 = _el$18.nextSibling;
+var _el$20 = _el$19.nextSibling;
+var _el$21 = _el$20.nextSibling;
+var _el$22 = _el$21.nextSibling;
+var _el$23 = _el$22.nextSibling;
+var _el$24 = _el$23.nextSibling;
+var _el$25 = _el$24.nextSibling;
+_$insert(_el$15, _$createComponent(Link, { children: "new" }), _el$15.firstChild);
+_$insert(_el$15, _$createComponent(Link, { children: "comments" }), _el$17);
+_$insert(_el$15, _$createComponent(Link, { children: "show" }), _el$19);
+_$insert(_el$15, _$createComponent(Link, { children: "ask" }), _el$21);
+_$insert(_el$15, _$createComponent(Link, { children: "jobs" }), _el$23);
+_$insert(_el$15, _$createComponent(Link, { children: "submit" }), _el$25);
+const template10 = _el$15;
+var _el$26 = _tmpl$6();
+var _el$27 = _el$26.firstChild;
+var _el$28 = _el$27.nextSibling;
+var _el$29 = _el$28.nextSibling;
+var _el$30 = _el$29.nextSibling;
+var _el$31 = _el$30.nextSibling;
+var _el$32 = _el$31.nextSibling;
+var _el$33 = _el$32.nextSibling;
+var _el$34 = _el$33.nextSibling;
+_$insert(_el$26, _$createComponent(Link, { children: "new" }), _el$26.firstChild);
+_$insert(_el$26, _$createComponent(Link, { children: "comments" }), _el$28);
+_$insert(_el$26, _$createComponent(Link, { children: "show" }), _el$29);
+_$insert(_el$26, _$createComponent(Link, { children: "ask" }), _el$31);
+_$insert(_el$26, _$createComponent(Link, { children: "jobs" }), _el$32);
+_$insert(_el$26, _$createComponent(Link, { children: "submit" }), _el$34);
+const template11 = _el$26;
+var _el$35 = _tmpl$7();
+var _el$36 = _el$35.firstChild;
+var _el$37 = _el$36.nextSibling;
+var _el$38 = _el$37.nextSibling;
+var _el$39 = _el$38.nextSibling;
+var _el$40 = _el$39.nextSibling;
+_$insert(_el$35, _$createComponent(Link, { children: "comments" }), _el$37);
+_$insert(_el$35, _$createComponent(Link, { children: "show" }), _el$39);
+const template12 = _el$35;
 class Template13 {
 	render() {
 		const _self$ = this;
@@ -232,15 +230,21 @@ const Template18 = _$createComponent(Pre, { get children() {
 const Template19 = _$createComponent(Component, _$mergeProps(() => {
 	return s.dynamic();
 }));
-const Template20 = _$createComponent(Component, { get class() {
+const Template20 = _$createComponent(Component, { get ["class"]() {
 	return prop.red ? "red" : "green";
 } });
-const template21 = _$createComponent(Component, { get [key()]() {
-	return props.value;
+const template21 = _$createComponent(Component, _$mergeProps(() => {
+	return { get [key()]() {
+		return props.value;
+	} };
+}));
+const template22 = _$createComponent(Component, { get passObject() {
+	return { ...a };
 } });
-const template22 = _$createComponent(Component, { passObject: { ...a } });
 const template23 = _$createComponent(Component, {
-	disabled: "t" in test,
+	get disabled() {
+		return "t" in test;
+	},
 	get children() {
 		return "t" in test && "true";
 	}
@@ -252,30 +256,26 @@ const template25 = _$createComponent(Component, { get children() {
 	return _tmpl$2();
 } });
 const template26 = [_$createComponent(Component, { get when() {
-	return (() => {
-		const foo = test();
-		if ("t" in foo) {
-			return foo;
-		}
-	})();
+	const foo = test();
+	if ("t" in foo) {
+		return foo;
+	}
 } }), _$createComponent(Component, { get when() {
 	return ((val = 123) => {
 		return val * 2;
 	})();
 } })];
 const template27 = _$createComponent(Component, { get when() {
-	return (() => prop.red ? "red" : "green")();
+	return prop.red ? "red" : "green";
 } });
 class Template28 {
 	render() {
 		const _self$2 = this;
 		return _$createComponent(Component, { get when() {
-			return (() => {
-				const foo = _self$2.value;
-				if ("key" in foo) {
-					return foo;
-				}
-			})();
+			const foo = _self$2.value;
+			if ("key" in foo) {
+				return foo;
+			}
 		} });
 	}
 }
@@ -283,31 +283,31 @@ class Template29 extends ParentComponent {
 	constructor() {
 		super();
 		const _self$3 = this;
-		_$createComponent(_self$3.component, { get method() {
+		_$createComponent(this.component, { get method() {
 			return _self$3.method;
 		} });
 	}
 	get get() {
 		const _self$4 = this;
-		_$createComponent(_self$4.component, { get method() {
+		_$createComponent(this.component, { get method() {
 			return _self$4.method;
 		} });
 	}
 	set set(v) {
 		const _self$5 = this;
-		_$createComponent(_self$5.component, { get method() {
+		_$createComponent(this.component, { get method() {
 			return _self$5.method;
 		} });
 	}
 	method() {
 		const _self$6 = this;
-		_$createComponent(_self$6.component, { get method() {
+		_$createComponent(this.component, { get method() {
 			return _self$6.method;
 		} });
 	}
 	field = (() => {
 		const _self$7 = this;
-		return _$createComponent(_self$7.component, {
+		return _$createComponent(this.component, {
 			get method() {
 				return _self$7.method;
 			},
@@ -318,44 +318,48 @@ class Template29 extends ParentComponent {
 	})();
 	fieldArrow = () => {
 		const _self$8 = this;
-		return _$createComponent(_self$8.component, { get method() {
+		return _$createComponent(this.component, { get method() {
 			return _self$8.method;
 		} });
 	};
 	fieldFunction = function() {
 		const _self$9 = this;
-		_$createComponent(_self$9.component, { get method() {
+		_$createComponent(this.component, { get method() {
 			return _self$9.method;
 		} });
 	};
 }
 const template30 = _$createComponent(Comp, { ref: binding });
 const template31 = _$createComponent(Comp, { ref(r$) {
-	var _ref$6 = binding.prop;
-	typeof _ref$6 === "function" || Array.isArray(_ref$6) ? _$applyRef(_ref$6, r$) : binding.prop = r$;
+	var _ref$5 = binding.prop;
+	typeof _ref$5 === "function" || Array.isArray(_ref$5) ? _$applyRef(_ref$5, r$) : binding.prop = r$;
 } });
 const template32 = _$createComponent(Comp, { ref(r$) {
-	var _ref$7 = refFn;
-	typeof _ref$7 === "function" || Array.isArray(_ref$7) ? _$applyRef(_ref$7, r$) : refFn = r$;
+	var _ref$6 = refFn;
+	typeof _ref$6 === "function" || Array.isArray(_ref$6) ? _$applyRef(_ref$6, r$) : refFn = r$;
 } });
 const template33 = _$createComponent(Comp, { ref: refConst });
 const template34 = _$createComponent(Comp, { ref(r$) {
-	var _ref$8 = refUnknown;
-	typeof _ref$8 === "function" || Array.isArray(_ref$8) ? _$applyRef(_ref$8, r$) : refUnknown = r$;
+	var _ref$7 = refUnknown;
+	typeof _ref$7 === "function" || Array.isArray(_ref$7) ? _$applyRef(_ref$7, r$) : refUnknown = r$;
 } });
 const template35 = _$createComponent(Comp, { ref(r$) {
-	var _ref$9 = binding?.prop;
-	typeof _ref$9 === "function" || Array.isArray(_ref$9) ? _$applyRef(_ref$9, r$) : !!binding && (binding.prop = r$);
+	var _ref$8 = binding?.prop;
+	typeof _ref$8 === "function" || Array.isArray(_ref$8) ? _$applyRef(_ref$8, r$) : !!binding && (binding.prop = r$);
 } });
 const template36 = _$createComponent(Comp, {});
 const template37 = _$createComponent(Comp, {});
 function MyComponent(props) {
 	let el;
 	const others = omit(props, "children");
-	var _el$36 = _tmpl$2();
-	_$spread(_el$36, _$mergeProps({ ref: el }, others), true);
-	_$insert(_el$36, () => {
+	var _el$48 = _tmpl$2();
+	var _ref$9 = el;
+	typeof _ref$9 === "function" || Array.isArray(_ref$9) ? _$ref(() => {
+		return _ref$9;
+	}, _el$48) : el = _el$48;
+	_$spread(_el$48, others, true);
+	_$insert(_el$48, () => {
 		return props.children;
 	});
-	return _el$36;
+	return _el$48;
 }

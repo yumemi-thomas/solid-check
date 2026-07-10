@@ -340,7 +340,8 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain('import { style as _$style } from "r-dom";');
     expect(result.code).toContain('import { effect as _$effect } from "r-dom";');
     expect(result.code).toContain("_$template(`<div>`)");
-    expect(result.code).toContain('return "color: red";');
+    // Babel converts JSX string styles to template literals before wrapping.
+    expect(result.code).toContain("return `color: red`;");
     expect(result.code).toContain("_$style(_el$, _v$, _$p);");
   });
 
@@ -356,14 +357,22 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain("_$className(_el$, state.className);");
   });
 
-  it("rejects unsupported custom effect wrapper names", () => {
-    expect(() =>
-      transform("<div title={state.title} />", {
-        filename: "input.jsx",
-        moduleName: "r-dom",
-        effectWrapper: "customEffect"
-      })
-    ).toThrow(/only supports `effectWrapper: false`/);
+  it("supports custom effect and memo wrapper import names", () => {
+    const result = transform("<div title={state.title}>{state.cond ? good() : bad}</div>", {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      effectWrapper: "createRenderEffect",
+      memoWrapper: "createMemo"
+    });
+
+    expect(result.code).toContain(
+      'import { createRenderEffect as _$createRenderEffect } from "r-dom";'
+    );
+    expect(result.code).toContain('import { createMemo as _$createMemo } from "r-dom";');
+    expect(result.code).toContain("_$createRenderEffect(() =>");
+    expect(result.code).toContain("_$createMemo(() =>");
+    expect(result.code).not.toContain("_$effect");
+    expect(result.code).not.toContain("_$memo(");
   });
 
   it("supports wrapperless condition and memo options as a pair", () => {
@@ -388,28 +397,63 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(fragment.code).not.toContain("_$memo");
   });
 
-  it("rejects unpaired wrapperless condition and memo options", () => {
-    expect(() =>
-      transform("<div>{state.dynamic ? good() : bad}</div>", {
-        filename: "input.jsx",
-        moduleName: "r-dom",
-        wrapConditionals: false
-      })
-    ).toThrow(/only supports wrapperless mode/);
+  it("supports unpaired wrapperless condition and memo options", () => {
+    // `wrapConditionals: false` alone matches Babel (memo still wraps
+    // fragment children).
+    const conditional = transform("<div>{state.dynamic ? good() : bad}</div>", {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      wrapConditionals: false
+    });
+    expect(conditional.code).toContain("return state.dynamic ? good() : bad;");
 
-    expect(() =>
-      transform("<>{state.dynamic}</>", {
-        filename: "input.jsx",
-        moduleName: "r-dom",
-        memoWrapper: false
-      })
-    ).toThrow(/only supports wrapperless mode/);
+    // `memoWrapper: false` alone crashes Babel (its `transformCondition`
+    // registers an import with the falsy wrapper name); Oxc just skips the
+    // memo wrap.
+    const fragment = transform("const v = <>{state.dynamic ? good() : bad}</>;", {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      memoWrapper: false
+    });
+    expect(fragment.code).not.toContain("_$memo");
   });
 
-  it("captures owner context for custom elements by default", () => {
+  it("skips files without the requireImportSource pragma, verbatim", () => {
+    const source = "const view = <div>{x()}</div>;";
+    const result = transform(source, {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      requireImportSource: "my-lib"
+    });
+
+    expect(result.code).toBe(source);
+    expect(result.map).toBeNull();
+  });
+
+  it("transforms files carrying the requireImportSource pragma", () => {
+    const source = "/* @jsxImportSource my-lib */\nconst view = <div>{x()}</div>;";
+    const result = transform(source, {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      requireImportSource: "my-lib"
+    });
+
+    expect(result.code).toContain("_$template");
+
+    // A different source in the pragma doesn't match.
+    const other = transform(source, {
+      filename: "input.jsx",
+      moduleName: "r-dom",
+      requireImportSource: "other-lib"
+    });
+    expect(other.code).toBe(source);
+  });
+
+  it("captures owner context for custom elements when opted in", () => {
     const result = transform("const view = <my-element />;", {
       filename: "input.jsx",
-      moduleName: "r-dom"
+      moduleName: "r-dom",
+      contextToCustomElements: true
     });
 
     expect(result.code).toContain('import { getOwner as _$getOwner } from "r-dom";');
@@ -417,11 +461,10 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain("_el$._$owner = _$getOwner();");
   });
 
-  it("can opt out of custom element owner context", () => {
+  it("skips custom element owner context by default (Babel parity)", () => {
     const result = transform("const view = <my-element />;", {
       filename: "input.jsx",
-      moduleName: "r-dom",
-      contextToCustomElements: false
+      moduleName: "r-dom"
     });
 
     expect(result.code).not.toContain("_$getOwner");
@@ -467,7 +510,9 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     });
 
     expect(result.code).toContain('import { ssr as _$ssr } from "r-server";');
-    expect(result.code).toContain('const view = _$ssr("<div id=\\"main\\"><h1>Hello</h1></div>");');
+    // Templates hoist to module scope like Babel's SSR output.
+    expect(result.code).toContain('var _tmpl$ = "<div id=\\"main\\"><h1>Hello</h1></div>";');
+    expect(result.code).toContain("const view = _$ssr(_tmpl$);");
   });
 
   it("scope-wraps deferred hydratable SSR child slots and keeps siblings eager", () => {
@@ -489,13 +534,13 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
       }
     );
 
-    expect(result.code).toContain("return _$ssr(");
+    expect(result.code).toContain("return _$ssr(_tmpl$, _v$, _v$2, _v$3);");
     // The deferred id-allocating hole evaluates under its own owner scope so
     // retry timing can't skew sibling ids...
     expect(result.code).toContain("_$scope(() => {");
     expect(result.code).toContain("return _$escape(props.children);");
     // ...while component siblings stay eager (no orderedInsert thunking).
-    expect(result.code).toContain("}), OrderedSibling({}));");
+    expect(result.code).toContain("_$escape(OrderedSibling({}));");
   });
 
   it("lowers dynamic children in SSR mode through escape", () => {
@@ -507,7 +552,8 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
 
     expect(result.code).toContain('import { escape as _$escape } from "r-server";');
     expect(result.code).toContain('import { ssr as _$ssr } from "r-server";');
-    expect(result.code).toContain("_$ssr([");
+    expect(result.code).toContain('var _tmpl$ = ["<div>Hello ", "</div>"];');
+    expect(result.code).toContain("_$ssr(_tmpl$, _v$)");
     expect(result.code).toContain("_$escape(name)");
   });
 
@@ -534,7 +580,7 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).toContain('import { effect as _$effect } from "r-dom";');
     expect(result.code).toContain('import { setAttribute as _$setAttribute } from "r-dom";');
     expect(result.code).toContain("_$template(`<div>`)");
-    expect(result.code).toContain("return title();");
+    expect(result.code).toContain("_$effect(() => title(),");
     expect(result.code).toContain('_$setAttribute(_el$, "title", _v$);');
   });
 
@@ -587,13 +633,16 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     expect(result.code).not.toContain("_$delegateEvents");
   });
 
-  it("rejects namespaced event attributes after the Babel event update", () => {
-    expect(() =>
-      transform("<button on:click={() => increment()} />", {
-        filename: "input.jsx",
-        moduleName: "r-dom"
-      })
-    ).toThrow(/Namespaced attributes are not implemented/);
+  it("treats namespaced event attributes like Babel after the event update", () => {
+    // The `on:`/`oncapture:` namespaces were removed on this branch; Babel's
+    // `key.startsWith("on")` branch now sees the raw namespaced key.
+    const result = transform("<button on:click={() => increment()} />", {
+      filename: "input.jsx",
+      moduleName: "r-dom"
+    });
+
+    expect(result.code).toContain('_el$.addEventListener(":click",');
+    expect(result.code).not.toContain("_$delegateEvents");
   });
 
   it("lowers known namespaced DOM attributes through setAttributeNS", () => {
@@ -608,13 +657,13 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     );
   });
 
-  it("rejects unknown namespaced DOM attributes in the current milestone", () => {
-    expect(() =>
-      transform("<div foo:bar={value()} />", {
-        filename: "input.jsx",
-        moduleName: "r-dom"
-      })
-    ).toThrow(/Namespaced attributes are not implemented/);
+  it("lowers unknown namespaced DOM attributes through setAttribute", () => {
+    const result = transform("<div foo:bar={value()} />", {
+      filename: "input.jsx",
+      moduleName: "r-dom"
+    });
+
+    expect(result.code).toContain('_$setAttribute(_el$, "foo:bar", _v$);');
   });
 
   it("lowers prop:* DOM attributes as property assignments", () => {
@@ -674,8 +723,12 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
       moduleName: "r-dom"
     });
 
+    // Dynamic textContent writes to a dedicated placeholder text node's
+    // `data` (Babel parity), not the element's textContent.
     expect(result.code).toContain('import { effect as _$effect } from "r-dom";');
-    expect(result.code).toContain("_el$.textContent = _v$;");
+    expect(result.code).toContain("_$template(`<div> `)");
+    expect(result.code).toContain("var _el$2 = _el$.firstChild;");
+    expect(result.code).toContain("_el$2.data = _v$;");
   });
 
   it("lowers dynamic style attributes through the style helper", () => {

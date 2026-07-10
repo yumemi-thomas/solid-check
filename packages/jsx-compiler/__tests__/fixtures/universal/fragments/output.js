@@ -1,4 +1,6 @@
 import { createTextNode as _$createTextNode } from "r-custom";
+import { memo as _$memo } from "r-custom";
+import { effect as _$effect } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
 import { setProp as _$setProp } from "r-custom";
@@ -29,45 +31,33 @@ const multiExpression = [
 const multiDynamic = [
 	(() => {
 		var _el$5 = _$createElement("div");
-		_$setProp(_el$5, "id", state.first);
 		_$insertNode(_el$5, _$createTextNode("First"));
+		_$effect(() => state.first, (_v$, _$p) => {
+			_$setProp(_el$5, "id", _v$, _$p);
+		});
 		return _el$5;
 	})(),
-	state.inserted,
+	_$memo(() => {
+		return state.inserted;
+	}),
 	(() => {
 		var _el$6 = _$createElement("div");
-		_$setProp(_el$6, "id", state.last);
 		_$insertNode(_el$6, _$createTextNode("Last"));
+		_$effect(() => state.last, (_v$, _$p) => {
+			_$setProp(_el$6, "id", _v$, _$p);
+		});
 		return _el$6;
 	})(),
 	"After"
 ];
 const singleExpression = inserted;
-const singleDynamic = inserted();
-const firstStatic = [inserted, (() => {
-	var _el$7 = _$createElement("div");
-	return _el$7;
-})()];
-const firstDynamic = [inserted(), (() => {
-	var _el$8 = _$createElement("div");
-	return _el$8;
-})()];
-const firstComponent = [_$createComponent(Component, {}), (() => {
-	var _el$9 = _$createElement("div");
-	return _el$9;
-})()];
-const lastStatic = [(() => {
-	var _el$10 = _$createElement("div");
-	return _el$10;
-})(), inserted];
-const lastDynamic = [(() => {
-	var _el$11 = _$createElement("div");
-	return _el$11;
-})(), inserted()];
-const lastComponent = [(() => {
-	var _el$12 = _$createElement("div");
-	return _el$12;
-})(), _$createComponent(Component, {})];
+const singleDynamic = _$memo(inserted);
+const firstStatic = [inserted, _$createElement("div")];
+const firstDynamic = [_$memo(inserted), _$createElement("div")];
+const firstComponent = [_$createComponent(Component, {}), _$createElement("div")];
+const lastStatic = [_$createElement("div"), inserted];
+const lastDynamic = [_$createElement("div"), _$memo(inserted)];
+const lastComponent = [_$createElement("div"), _$createComponent(Component, {})];
 const spaces = [
 	(() => {
 		var _el$13 = _$createElement("span");

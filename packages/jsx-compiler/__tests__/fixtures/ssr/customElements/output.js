@@ -1,17 +1,25 @@
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
-const template = _$ssr([
-	"<my-element some-attr=\"",
-	"\" notProp=\"",
-	"\" my-attr=\"",
-	"\"></my-element>"
-], _$escape(name, true), _$escape(data, true), _$escape(data, true));
-const template2 = _$ssr([
-	"<my-element some-attr=\"",
-	"\" notProp=\"",
-	"\" my-attr=\"",
-	"\"></my-element>"
-], _$escape(state.name, true), _$escape(state.data, true), _$escape(state.data, true));
-const template3 = _$ssr("<my-element><header slot=\"head\">Title</header></my-element>");
-const template4 = _$ssr("<slot name=\"head\"></slot>");
-const template5 = _$ssr("<a is=\"my-element\"></a>");
+import { ssrAttribute as _$ssrAttribute } from "r-server";
+import { ssrGroup as _$ssrGroup } from "r-server";
+var _tmpl$ = [
+	"<my-element",
+	"",
+	"",
+	"></my-element>"
+];
+var _tmpl$2 = "<my-element><header slot=\"head\">Title</header></my-element>";
+var _tmpl$3 = "<slot name=\"head\"></slot>";
+var _tmpl$4 = "<a is=\"my-element\"></a>";
+const template = _$ssr(_tmpl$, _$ssrAttribute("some-attr", _$escape(name, true)), _$ssrAttribute("notProp", _$escape(data, true)), _$ssrAttribute("my-attr", _$escape(data, true)));
+var _g$ = _$ssrGroup(() => {
+	return [
+		_$ssrAttribute("some-attr", _$escape(state.name, true)),
+		_$ssrAttribute("notProp", _$escape(state.data, true)),
+		_$ssrAttribute("my-attr", _$escape(state.data, true))
+	];
+}, 3);
+const template2 = _$ssr(_tmpl$, _g$, _g$, _g$);
+const template3 = _$ssr(_tmpl$2);
+const template4 = _$ssr(_tmpl$3);
+const template5 = _$ssr(_tmpl$4);

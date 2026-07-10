@@ -4,7 +4,7 @@ import { effect as _$effect } from "r-dom";
 var _tmpl$ = /* @__PURE__ */ _$template(`<div>`);
 var _el$ = _tmpl$();
 _$effect(() => {
-	return "color: red";
+	return `color: red`;
 }, (_v$, _$p) => {
 	_$style(_el$, _v$, _$p);
 });

@@ -35,12 +35,14 @@ pub(crate) fn element_name(name: &JSXElementName<'_>) -> Result<String> {
     }
 }
 
-/// Mirrors the Babel plugin's `isDynamic(expr, { checkMember: true })` for
-/// attribute values: any (optional) call, tagged template, member access,
-/// spread, or `in` binary expression anywhere in the value makes it dynamic,
-/// but function bodies are not descended into and functions themselves are
-/// never dynamic.
-pub(crate) fn is_dynamic_attribute_expression(value: &Expression<'_>) -> bool {
+/// Deep port of the Babel plugin's `isDynamic(expr, { checkMember: true,
+/// checkTags })`: traverses the whole expression (skipping function bodies —
+/// functions themselves are never dynamic) and reports any call, tagged
+/// template, member access, spread, or `in` binary expression. With
+/// `check_tags`, JSX elements and non-empty JSX fragments count as dynamic;
+/// without it their subtrees are skipped entirely, exactly like Babel's
+/// `p.skip()`.
+pub(crate) fn is_dynamic_expression_deep(value: &Expression<'_>, check_tags: bool) -> bool {
     use oxc_ast_visit::Visit;
 
     if matches!(
@@ -52,6 +54,7 @@ pub(crate) fn is_dynamic_attribute_expression(value: &Expression<'_>) -> bool {
 
     struct DynamicDetector {
         dynamic: bool,
+        check_tags: bool,
     }
 
     impl<'b> Visit<'b> for DynamicDetector {
@@ -92,6 +95,16 @@ pub(crate) fn is_dynamic_attribute_expression(value: &Expression<'_>) -> bool {
             }
             oxc_ast_visit::walk::walk_binary_expression(self, it);
         }
+        fn visit_jsx_element(&mut self, _it: &oxc_ast::ast::JSXElement<'b>) {
+            if self.check_tags {
+                self.dynamic = true;
+            }
+        }
+        fn visit_jsx_fragment(&mut self, it: &oxc_ast::ast::JSXFragment<'b>) {
+            if self.check_tags && !it.children.is_empty() {
+                self.dynamic = true;
+            }
+        }
         fn visit_function(
             &mut self,
             _it: &oxc_ast::ast::Function<'b>,
@@ -105,9 +118,61 @@ pub(crate) fn is_dynamic_attribute_expression(value: &Expression<'_>) -> bool {
         }
     }
 
-    let mut detector = DynamicDetector { dynamic: false };
-    detector.visit_expression(value);
+    let mut detector = DynamicDetector {
+        dynamic: false,
+        check_tags,
+    };
+    // Babel's `path.traverse` starts below the root: a JSX element in root
+    // position has its own attributes and children scanned (nested elements
+    // still skip) even when tags themselves don't count. With `checkTags` the
+    // root check fires first, as in Babel.
+    match value {
+        Expression::JSXElement(element) => {
+            if check_tags {
+                return true;
+            }
+            oxc_ast_visit::walk::walk_jsx_element(&mut detector, element);
+        }
+        Expression::JSXFragment(fragment) => {
+            if check_tags && !fragment.children.is_empty() {
+                return true;
+            }
+            oxc_ast_visit::walk::walk_jsx_fragment(&mut detector, fragment);
+        }
+        _ => detector.visit_expression(value),
+    }
     detector.dynamic
+}
+
+/// Babel's `isDynamic` namespace carve-out: a member expression whose object
+/// is an `import * as ns` local is not dynamic (top-level expression only —
+/// nested occurrences inside a larger expression still count as dynamic,
+/// matching Babel's pre-traversal check).
+pub(crate) fn is_dynamic_expression_with_namespaces(
+    value: &Expression<'_>,
+    check_tags: bool,
+    bindings: &crate::shared::bindings::BindingTable,
+) -> bool {
+    match value {
+        Expression::StaticMemberExpression(member) => {
+            if let Expression::Identifier(object) = &member.object {
+                if bindings.is_namespace_import(&object.name) {
+                    return false;
+                }
+            }
+        }
+        Expression::ComputedMemberExpression(member) => {
+            if let Expression::Identifier(object) = &member.object {
+                if bindings.is_namespace_import(&object.name)
+                    && !is_dynamic_expression_deep(&member.expression, check_tags)
+                {
+                    return false;
+                }
+            }
+        }
+        _ => {}
+    }
+    is_dynamic_expression_deep(value, check_tags)
 }
 
 /// Resolves duplicate attributes the way the Babel plugin does when no spread
@@ -169,6 +234,9 @@ pub(crate) fn static_jsx_expression_value(expression: &JSXExpression<'_>) -> Opt
     static_jsx_expression(expression, &[]).map(StaticValue::into_template_value)
 }
 
+/// Mirror of Babel's `getStaticExpression` filter: only confident *string or
+/// number* values count as static — booleans, `null`, and `undefined` fail
+/// the `typeof` check and stay dynamic child inserts.
 pub(crate) fn static_jsx_expression(
     expression: &JSXExpression<'_>,
     bindings: &[(String, StaticValue)],
@@ -176,12 +244,13 @@ pub(crate) fn static_jsx_expression(
     match expression {
         JSXExpression::StringLiteral(value) => Some(StaticValue::String(value.value.to_string())),
         JSXExpression::NumericLiteral(value) => Some(StaticValue::Number(value.value)),
-        JSXExpression::BooleanLiteral(value) => Some(StaticValue::String(value.value.to_string())),
-        JSXExpression::NullLiteral(_) => Some(StaticValue::String("null".to_string())),
-        JSXExpression::Identifier(identifier) => bindings
-            .iter()
-            .find(|(name, _)| name == identifier.name.as_str())
-            .map(|(_, value)| value.clone()),
+        JSXExpression::Identifier(identifier) => {
+            static_identifier(identifier.name.as_str(), bindings)
+        }
+        JSXExpression::UnaryExpression(unary) => {
+            static_unary_expression(unary.operator, &unary.argument, bindings)
+        }
+        JSXExpression::TemplateLiteral(template) => static_template_literal(template, bindings),
         JSXExpression::BinaryExpression(binary) => {
             static_binary_expression(&binary.left, binary.operator, &binary.right, bindings)
         }
@@ -196,15 +265,97 @@ pub(crate) fn static_expression(
     match expression {
         Expression::StringLiteral(value) => Some(StaticValue::String(value.value.to_string())),
         Expression::NumericLiteral(value) => Some(StaticValue::Number(value.value)),
-        Expression::Identifier(identifier) => bindings
-            .iter()
-            .find(|(name, _)| name == identifier.name.as_str())
-            .map(|(_, value)| value.clone()),
+        Expression::Identifier(identifier) => static_identifier(identifier.name.as_str(), bindings),
+        Expression::UnaryExpression(unary) => {
+            static_unary_expression(unary.operator, &unary.argument, bindings)
+        }
+        Expression::TemplateLiteral(template) => static_template_literal(template, bindings),
         Expression::BinaryExpression(binary) => {
             static_binary_expression(&binary.left, binary.operator, &binary.right, bindings)
         }
         _ => None,
     }
+}
+
+fn static_identifier(name: &str, bindings: &[(String, StaticValue)]) -> Option<StaticValue> {
+    // `path.evaluate()` resolves the global number constants confidently;
+    // `undefined` evaluates confidently too but fails the string/number check.
+    match name {
+        "NaN" => Some(StaticValue::Number(f64::NAN)),
+        "Infinity" => Some(StaticValue::Number(f64::INFINITY)),
+        _ => bindings
+            .iter()
+            .find(|(binding, _)| binding == name)
+            .map(|(_, value)| value.clone()),
+    }
+}
+
+fn static_unary_expression(
+    operator: oxc_ast::ast::UnaryOperator,
+    argument: &Expression<'_>,
+    bindings: &[(String, StaticValue)],
+) -> Option<StaticValue> {
+    use oxc_ast::ast::UnaryOperator;
+    if operator == UnaryOperator::Typeof {
+        return static_typeof(argument, bindings)
+            .map(|type_name| StaticValue::String(type_name.to_string()));
+    }
+    let value = static_expression(argument, bindings)?;
+    match (operator, value) {
+        (UnaryOperator::UnaryNegation, StaticValue::Number(value)) => {
+            Some(StaticValue::Number(-value))
+        }
+        (UnaryOperator::UnaryPlus, StaticValue::Number(value)) => Some(StaticValue::Number(value)),
+        _ => None,
+    }
+}
+
+/// Babel's `path.evaluate()` folds `typeof <confident value>` to the type
+/// name string, which then passes `getStaticExpression`'s string check. The
+/// operand set here covers the literal shapes evaluate resolves confidently
+/// even though they aren't static child values themselves (booleans, null).
+fn static_typeof(
+    argument: &Expression<'_>,
+    bindings: &[(String, StaticValue)],
+) -> Option<&'static str> {
+    match argument {
+        Expression::BooleanLiteral(_) => Some("boolean"),
+        Expression::NullLiteral(_) => Some("object"),
+        Expression::Identifier(identifier) if identifier.name == "undefined" => Some("undefined"),
+        Expression::UnaryExpression(unary)
+            if unary.operator == oxc_ast::ast::UnaryOperator::Void
+                && matches!(unary.argument, Expression::NumericLiteral(_)) =>
+        {
+            Some("undefined")
+        }
+        _ => match static_expression(argument, bindings)? {
+            StaticValue::String(_) => Some("string"),
+            StaticValue::Number(_) => Some("number"),
+        },
+    }
+}
+
+fn static_template_literal(
+    template: &oxc_ast::ast::TemplateLiteral<'_>,
+    bindings: &[(String, StaticValue)],
+) -> Option<StaticValue> {
+    let mut result = String::new();
+    let mut expressions = template.expressions.iter();
+    for (index, quasi) in template.quasis.iter().enumerate() {
+        result.push_str(
+            quasi
+                .value
+                .cooked
+                .as_ref()
+                .map(|cooked| cooked.as_str())
+                .unwrap_or(quasi.value.raw.as_str()),
+        );
+        if index < template.quasis.len() - 1 {
+            let value = static_expression(expressions.next()?, bindings)?;
+            result.push_str(&value.into_template_value());
+        }
+    }
+    Some(StaticValue::String(result))
 }
 
 fn static_binary_expression(
@@ -234,26 +385,42 @@ pub(crate) fn source_from_span(span: Span, source: &str) -> &str {
     &source[span.start as usize..span.end as usize]
 }
 
+/// Exact port of Babel's `trimWhitespace`: strip `\r`; for multiline text,
+/// drop each continuation line's indentation and all-whitespace lines, then
+/// join with spaces (the first line keeps its leading, and the last line its
+/// trailing, whitespace); finally collapse whitespace runs to single spaces.
 pub(crate) fn trim_jsx_text(value: &str) -> String {
-    let collapsed = value
-        .split_whitespace()
-        .collect::<std::vec::Vec<_>>()
-        .join(" ");
-    if collapsed.is_empty() && !value.contains('\n') && value.chars().any(char::is_whitespace) {
-        return " ".to_string();
+    let text = value.replace('\r', "");
+    let text = if text.contains('\n') {
+        text.split('\n')
+            .enumerate()
+            .map(|(index, line)| {
+                if index > 0 {
+                    line.trim_start_matches(char::is_whitespace)
+                } else {
+                    line
+                }
+            })
+            .filter(|line| !line.chars().all(char::is_whitespace))
+            .collect::<std::vec::Vec<_>>()
+            .join(" ")
+    } else {
+        text
+    };
+    let mut collapsed = String::with_capacity(text.len());
+    let mut in_whitespace = false;
+    for character in text.chars() {
+        if character.is_whitespace() {
+            if !in_whitespace {
+                collapsed.push(' ');
+                in_whitespace = true;
+            }
+        } else {
+            collapsed.push(character);
+            in_whitespace = false;
+        }
     }
-    if collapsed.is_empty() || value.contains('\n') {
-        return collapsed;
-    }
-
-    let leading = value.chars().next().is_some_and(char::is_whitespace);
-    let trailing = value.chars().last().is_some_and(char::is_whitespace);
-    format!(
-        "{}{}{}",
-        if leading { " " } else { "" },
-        collapsed,
-        if trailing { " " } else { "" }
-    )
+    collapsed
 }
 
 pub(crate) fn escape_html_text(value: &str) -> String {
@@ -270,13 +437,10 @@ pub(crate) fn escape_html_attribute(value: &str) -> String {
     value.replace('&', "&amp;").replace('"', "&quot;")
 }
 
+/// Full WHATWG entity decoding (named + numeric, including semicolon-less
+/// legacy forms), matching the Babel plugin's `html-entities` `decode()`.
 pub(crate) fn decode_html_entities(value: &str) -> String {
-    value
-        .replace("&nbsp;", "\u{a0}")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&hellip;", "…")
-        .replace("&amp;", "&")
+    htmlize::unescape(value).into_owned()
 }
 
 pub(crate) fn format_attribute_value_with_quotes(value: &str, omit_quotes: bool) -> String {
@@ -301,6 +465,14 @@ fn can_omit_attribute_quotes(value: &str) -> bool {
 }
 
 pub(crate) fn format_number(value: f64) -> String {
+    // JS `String(number)` spellings for the non-finite values (Rust would
+    // print `NaN`/`inf`).
+    if value.is_nan() {
+        return "NaN".to_string();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
     if value.fract() == 0.0 {
         format!("{}", value as i64)
     } else {
@@ -310,6 +482,35 @@ pub(crate) fn format_number(value: f64) -> String {
 
 pub(crate) fn is_void_element(tag_name: &str) -> bool {
     void_elements(tag_name)
+}
+
+/// Static `class`/`style` attribute values collapse whitespace (and styles
+/// drop the space after `;`/`:`), mirroring Babel's static-branch
+/// `trimWhitespace` treatment. Other attributes serialize as-is.
+pub(crate) fn normalize_static_attribute_value(name: &str, value: &str) -> String {
+    if name != "style" && name != "class" {
+        return value.to_string();
+    }
+
+    let mut normalized = String::new();
+    let mut previous_was_whitespace = false;
+    for char in value.chars().filter(|char| *char != '\r') {
+        if char.is_whitespace() {
+            if !previous_was_whitespace {
+                normalized.push(' ');
+                previous_was_whitespace = true;
+            }
+        } else {
+            normalized.push(char);
+            previous_was_whitespace = false;
+        }
+    }
+
+    if name == "style" {
+        normalized.replace("; ", ";").replace(": ", ":")
+    } else {
+        normalized
+    }
 }
 
 pub(crate) fn is_identifier_key(name: &str) -> bool {
@@ -324,6 +525,100 @@ pub(crate) fn is_identifier_key(name: &str) -> bool {
 /// Builds a 1-based generated local name such as `_el$`, `_el$2`, `_ref$`,
 /// `_c$`, or `_self$`. The first occurrence omits the numeric suffix to match
 /// the Babel plugin's naming.
+/// Port of the Babel plugin's `getNumberedId`: short identifiers for keyed
+/// multi-dynamic effect objects, skipping encodings that collide with
+/// reserved words (they're used as shorthand destructuring bindings).
+const RESERVED_WORDS: &[&str] = &[
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "import",
+    "in",
+    "instanceof",
+    "new",
+    "null",
+    "return",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+    "with",
+    "yield",
+    "let",
+    "static",
+    "implements",
+    "interface",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "await",
+];
+
+/// Mirror of Babel's `t.isValidIdentifier`: identifier syntax AND not a
+/// reserved word.
+pub(crate) fn is_valid_babel_identifier(name: &str) -> bool {
+    is_identifier_key(name) && !RESERVED_WORDS.contains(&name)
+}
+
+pub(crate) fn get_numbered_id(mut num: usize) -> String {
+    const CHARS: &[u8] = b"etaoinshrdlucwmfygpbTAOISWCBvkxjqzPHFMDRELNGUKVYJQZX_$";
+    static RESERVED_INDICES: std::sync::OnceLock<std::vec::Vec<usize>> = std::sync::OnceLock::new();
+    let reserved = RESERVED_INDICES.get_or_init(|| {
+        let mut indices: std::vec::Vec<usize> = RESERVED_WORDS
+            .iter()
+            .filter_map(|word| {
+                let mut value = 0usize;
+                for ch in word.bytes() {
+                    let index = CHARS.iter().position(|candidate| *candidate == ch)?;
+                    value = value * CHARS.len() + index;
+                }
+                Some(value)
+            })
+            .collect();
+        indices.sort_unstable();
+        indices
+    });
+    for index in reserved {
+        if *index <= num {
+            num += 1;
+        } else {
+            break;
+        }
+    }
+    let mut out = std::vec::Vec::new();
+    loop {
+        out.insert(0, CHARS[num % CHARS.len()]);
+        num /= CHARS.len();
+        if num == 0 {
+            break;
+        }
+    }
+    String::from_utf8(out).expect("numbered id is ascii")
+}
+
 pub(crate) fn indexed_local(prefix: &str, index: usize) -> String {
     if index == 1 {
         format!("{prefix}$")
@@ -332,11 +627,42 @@ pub(crate) fn indexed_local(prefix: &str, index: usize) -> String {
     }
 }
 
+/// Advances `index` to the next candidate whose name isn't already used in
+/// the source program (Babel's `generateUid` collision loop) and returns it.
+pub(crate) fn next_unique_local(
+    prefix: &str,
+    index: &mut usize,
+    bindings: &crate::shared::bindings::BindingTable,
+) -> String {
+    loop {
+        *index += 1;
+        let name = indexed_local(prefix, *index);
+        if !bindings.is_taken(&name) {
+            return name;
+        }
+    }
+}
+
 pub(crate) fn template_id(index: usize) -> String {
     if index == 0 {
         "_tmpl$".to_string()
     } else {
         format!("_tmpl${}", index + 1)
+    }
+}
+
+/// `_tmpl$`-family variant of [`next_unique_local`] (1-based external index;
+/// the counter stores the last used 0-based value internally).
+pub(crate) fn next_unique_template_id(
+    index: &mut usize,
+    bindings: &crate::shared::bindings::BindingTable,
+) -> String {
+    loop {
+        let name = template_id(*index);
+        *index += 1;
+        if !bindings.is_taken(&name) {
+            return name;
+        }
     }
 }
 
@@ -376,7 +702,7 @@ fn jsx_expression_can_return_hydratable_child(expression: &JSXExpression<'_>) ->
     }
 }
 
-fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
+pub(crate) fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
     match expression {
         Expression::JSXElement(_) | Expression::JSXFragment(_) | Expression::CallExpression(_) => {
             true
@@ -405,48 +731,11 @@ fn expression_can_return_hydratable_child(expression: &Expression<'_>) -> bool {
 /// generates classify the same source identically.
 pub(crate) fn is_dynamic_child_slot(child: &JSXChild<'_>) -> bool {
     match child {
-        JSXChild::ExpressionContainer(container) => {
-            is_dynamic_jsx_expression(&container.expression)
-        }
-        JSXChild::Spread(spread) => is_dynamic_child_expression(&spread.expression),
-        _ => false,
-    }
-}
-
-fn is_dynamic_jsx_expression(expression: &JSXExpression<'_>) -> bool {
-    match expression {
-        JSXExpression::CallExpression(_)
-        | JSXExpression::StaticMemberExpression(_)
-        | JSXExpression::ComputedMemberExpression(_)
-        | JSXExpression::ChainExpression(_) => true,
-        JSXExpression::ConditionalExpression(conditional) => {
-            is_dynamic_child_expression(&conditional.test)
-                || is_dynamic_child_expression(&conditional.consequent)
-                || is_dynamic_child_expression(&conditional.alternate)
-        }
-        JSXExpression::LogicalExpression(logical) => {
-            is_dynamic_child_expression(&logical.left)
-                || is_dynamic_child_expression(&logical.right)
-        }
-        _ => false,
-    }
-}
-
-fn is_dynamic_child_expression(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::CallExpression(_)
-        | Expression::StaticMemberExpression(_)
-        | Expression::ComputedMemberExpression(_)
-        | Expression::ChainExpression(_) => true,
-        Expression::ConditionalExpression(conditional) => {
-            is_dynamic_child_expression(&conditional.test)
-                || is_dynamic_child_expression(&conditional.consequent)
-                || is_dynamic_child_expression(&conditional.alternate)
-        }
-        Expression::LogicalExpression(logical) => {
-            is_dynamic_child_expression(&logical.left)
-                || is_dynamic_child_expression(&logical.right)
-        }
+        JSXChild::ExpressionContainer(container) => container
+            .expression
+            .as_expression()
+            .is_some_and(|expression| is_dynamic_expression_deep(expression, false)),
+        JSXChild::Spread(spread) => is_dynamic_expression_deep(&spread.expression, false),
         _ => false,
     }
 }

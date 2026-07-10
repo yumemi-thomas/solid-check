@@ -7,22 +7,18 @@ function hoistedCustomEvent1() {
 	console.log("hoisted");
 }
 const hoistedcustomevent2 = () => console.log("hoisted");
-const template = (() => {
-	var _el$ = _$getNextElement(_tmpl$);
-	var _el$2 = _el$.firstChild;
-	var _el$3 = _el$.firstChild.nextSibling;
-	var _el$4 = _el$.firstChild.nextSibling.nextSibling;
-	var _el$5 = _el$.firstChild.nextSibling.nextSibling.nextSibling;
-	_el$2.addEventListener("change", () => console.log("bound"));
-	_el$3.addEventListener("change", (e) => {
-		return ((id) => console.log("bound", id))(id, e);
-	});
-	_el$4.$$click = () => console.log("delegated");
-	{
-		_el$5.$$click = (id) => console.log("delegated", id);
-		_el$5.$$clickData = rowId;
-	}
-	_$runHydrationEvents();
-	return _el$;
-})();
+var _el$ = _$getNextElement(_tmpl$);
+var _el$2 = _el$.firstChild;
+var _el$3 = _el$2.nextSibling;
+var _el$4 = _el$3.nextSibling;
+var _el$5 = _el$4.nextSibling;
+_el$2.addEventListener("change", () => console.log("bound"));
+_el$3.addEventListener("change", (e) => {
+	return ((id) => console.log("bound", id))(id, e);
+});
+_el$4.$$click = () => console.log("delegated");
+_el$5.$$click = (id) => console.log("delegated", id);
+_el$5.$$clickData = rowId;
+_$runHydrationEvents();
+const template = _el$;
 _$delegateEvents(["click"]);

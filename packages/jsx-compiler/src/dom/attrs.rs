@@ -1,29 +1,24 @@
 use napi::bindgen_prelude::*;
-use oxc_allocator::{CloneIn, Vec as ArenaVec};
+use oxc_allocator::CloneIn;
 use oxc_ast::{
-    ast::{Expression, FormalParameterKind, JSXAttributeItem, JSXAttributeValue, Statement},
+    ast::{Expression, FormalParameterKind, JSXAttributeItem, Statement},
     NONE,
 };
 use oxc_span::Span;
 
-use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
-use crate::dom::style::static_style_object_value;
+use crate::dom::dynamics::DynamicSlot;
+use crate::dom::element::AstDomTransform;
+use crate::dom::set_attr::SetAttrOptions;
+use crate::shared::attr_plan::{AttrPlan, AttrPlanOutcome, AttrPlanner, ConfidentValue, PlanValue};
 use crate::shared::bindings::push_unique;
 use crate::shared::constants::{
-    child_properties, dom_with_state, has_namespace, inline_elements, namespaces,
-    ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS,
+    child_properties, inline_elements, ALWAYS_CLOSE_ELEMENTS, BLOCK_ELEMENTS,
 };
-use crate::shared::refs::{ref_assignment_fallback, ref_callable_test};
+use crate::shared::refs::{callable_test, ref_assignment_fallback};
 use crate::shared::utils::{
-    decode_html_entities, dedupe_attributes, format_attribute_value_with_quotes,
-    is_dynamic_attribute_expression, is_void_element, static_jsx_expression_value,
+    format_attribute_value_with_quotes, format_number, is_dynamic_expression_deep, is_void_element,
+    normalize_static_attribute_value,
 };
-
-pub(crate) enum StaticAttributeResult {
-    Appended,
-    Dynamic,
-    Spread,
-}
 
 #[derive(Clone, Default)]
 pub(crate) struct CloseTagContext {
@@ -40,301 +35,378 @@ impl CloseTagContext {
     }
 }
 
+/// What one planned attribute contributes, decided by the pure classifier so
+/// the static-template fast path and the full emission agree exactly.
+enum PlanDisposition {
+    /// No output at all (`attr={false}`, empty `prop:`, hydratable-only
+    /// directives, ...).
+    Skip,
+    /// Inline on the template: bare attribute (`None`) or `key=value`.
+    Inline(Option<String>),
+    /// Requires runtime statements (setters, refs, events, or dynamics).
+    Runtime,
+}
+
+/// Outcome of lowering an element's attributes.
+pub(crate) struct AttrsLowering<'a> {
+    /// Dynamic `textContent` needs the single-space placeholder child
+    /// appended to the template.
+    pub(crate) needs_text_placeholder: bool,
+    /// Babel's textarea `value` fold replaced the element's children with
+    /// this single synthesized child.
+    pub(crate) children_replacement: Option<oxc_ast::ast::JSXChild<'a>>,
+}
+
 impl<'a> AstDomTransform<'a, '_> {
+    /// The shared attribute preprocessing context for this transform's
+    /// current state (the dom generate is never SSR).
+    pub(crate) fn attr_planner(&self) -> AttrPlanner<'a, '_> {
+        AttrPlanner {
+            allocator: self.allocator,
+            source: self.source,
+            static_marker: &self.static_marker,
+            bindings: &self.bindings,
+            inline_styles: self.inline_styles,
+            skip_xmlns_attribute: self.skip_xmlns_attribute,
+            is_ssr: false,
+        }
+    }
+
+    pub(crate) fn plan_attributes(
+        &self,
+        attributes: &[JSXAttributeItem<'a>],
+        tag_name: &str,
+    ) -> Result<AttrPlanOutcome<'a>> {
+        self.attr_planner().plan_attributes(attributes, tag_name)
+    }
+
+    pub(crate) fn evaluate_confident(&self, expression: &Expression<'a>) -> Option<ConfidentValue> {
+        self.attr_planner().evaluate_confident(expression)
+    }
+
+    /// Lowers an element's attributes, mirroring Babel's
+    /// `transformAttributes`: preprocessing passes, then a single emission
+    /// loop that routes each attribute to the template, static setters,
+    /// unshifted refs/events, or the deferred dynamics batch.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_template_attributes(
         &mut self,
         attributes: &[JSXAttributeItem<'a>],
         tag_name: &str,
         element_id: &str,
-        skip_children: bool,
+        has_children: bool,
         template: &mut String,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
         operations: &mut std::vec::Vec<Statement<'a>>,
-    ) -> Result<()> {
+        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+    ) -> Result<AttrsLowering<'a>> {
         if attributes
             .iter()
             .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)))
         {
+            // Babel filters `ref` attributes out of the spread props and
+            // processes them as regular (unshifted) attributes.
+            let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> =
+                std::vec::Vec::new();
+            for attr in attributes {
+                let JSXAttributeItem::Attribute(attr) = attr else {
+                    continue;
+                };
+                let oxc_ast::ast::JSXAttributeName::Identifier(name) = &attr.name else {
+                    continue;
+                };
+                if name.name != "ref" {
+                    continue;
+                }
+                if let Some(oxc_ast::ast::JSXAttributeValue::ExpressionContainer(container)) =
+                    &attr.value
+                {
+                    if let Some(expression) = container.expression.as_expression() {
+                        let value = expression.clone_in(self.allocator);
+                        front_groups.push(self.dom_ref_statements(attr.span, element_id, value));
+                    }
+                }
+            }
+            for group in front_groups.into_iter().rev() {
+                operations.extend(group);
+            }
             operations.push(self.spread_attribute_statement(
                 attributes,
                 element_id,
-                skip_children,
+                has_children,
             )?);
-            return Ok(());
+            return Ok(AttrsLowering {
+                needs_text_placeholder: false,
+                children_replacement: None,
+            });
         }
 
-        for attr in dedupe_attributes(attributes) {
-            // The static marker comment (`/*@static*/` by default) opts an
-            // attribute value out of effect wrapping entirely, mirroring the
-            // Babel plugin's isDynamic short-circuit.
-            let marker_static = matches!(
-                attr,
-                JSXAttributeItem::Attribute(attribute)
-                    if matches!(
-                        &attribute.value,
-                        Some(JSXAttributeValue::ExpressionContainer(container))
-                            if self.has_static_marker(container.span)
-                    )
-            );
-            let saved_effect_wrapper = self.effect_wrapper;
-            if marker_static {
-                self.effect_wrapper = false;
+        let AttrPlanOutcome {
+            plans,
+            children_replacement,
+        } = self.plan_attributes(attributes, tag_name)?;
+        let mut exprs: std::vec::Vec<Statement<'a>> = std::vec::Vec::new();
+        let mut front_groups: std::vec::Vec<std::vec::Vec<Statement<'a>>> = std::vec::Vec::new();
+        let mut needs_placeholder = false;
+
+        for plan in plans {
+            match self.classify_plan(&plan) {
+                PlanDisposition::Skip => {}
+                PlanDisposition::Inline(value) => match value {
+                    None => append_bare_attribute(template, &plan.key, self.omit_attribute_spacing),
+                    Some(value) => self.append_static_attribute_value(template, &plan.key, &value),
+                },
+                PlanDisposition::Runtime => {
+                    self.lower_runtime_attribute(
+                        plan,
+                        tag_name,
+                        element_id,
+                        declarations,
+                        &mut exprs,
+                        &mut front_groups,
+                        dynamics,
+                        &mut needs_placeholder,
+                    )?;
+                }
             }
-            let result = self.lower_single_attribute(attr, tag_name, element_id, template, operations);
-            self.effect_wrapper = saved_effect_wrapper;
-            result?;
         }
-        Ok(())
+
+        // Babel unshifts each ref/event group as encountered, so the last
+        // group ends up first; groups keep their internal order.
+        for group in front_groups {
+            exprs.splice(0..0, group);
+        }
+        operations.extend(exprs);
+        Ok(AttrsLowering {
+            needs_text_placeholder: needs_placeholder,
+            children_replacement,
+        })
     }
 
-    fn lower_single_attribute(
+    /// Pure classification of one planned attribute, mirroring Babel's
+    /// static-vs-expression branch in the attribute loop.
+    fn classify_plan(&self, plan: &AttrPlan<'a>) -> PlanDisposition {
+        if self.hydratable && plan.key == "$ServerOnly" {
+            return PlanDisposition::Skip;
+        }
+        let reserved = plan.style_property || plan.class_property || plan.key.starts_with("prop:");
+        match &plan.value {
+            PlanValue::None => {
+                if reserved {
+                    // Babel wraps valueless namespaced attributes into empty
+                    // expression containers, which are then skipped.
+                    PlanDisposition::Skip
+                } else {
+                    PlanDisposition::Inline(None)
+                }
+            }
+            PlanValue::Literal(value) => {
+                if reserved || child_properties(&plan.key) {
+                    PlanDisposition::Runtime
+                } else {
+                    PlanDisposition::Inline(Some(value.clone()))
+                }
+            }
+            PlanValue::Expr(expression) => {
+                if reserved {
+                    return PlanDisposition::Runtime;
+                }
+                match expression {
+                    Expression::BooleanLiteral(literal) => {
+                        // `<el attr={true}/>` becomes `<el attr/>`;
+                        // `<el attr={false}/>` becomes `<el/>`.
+                        if literal.value {
+                            PlanDisposition::Inline(None)
+                        } else {
+                            PlanDisposition::Skip
+                        }
+                    }
+                    Expression::StringLiteral(literal) => {
+                        if child_properties(&plan.key) {
+                            PlanDisposition::Runtime
+                        } else {
+                            PlanDisposition::Inline(Some(literal.value.to_string()))
+                        }
+                    }
+                    Expression::NumericLiteral(literal) => {
+                        if child_properties(&plan.key) {
+                            PlanDisposition::Runtime
+                        } else {
+                            PlanDisposition::Inline(Some(format_number(literal.value)))
+                        }
+                    }
+                    _ => PlanDisposition::Runtime,
+                }
+            }
+        }
+    }
+
+    /// The expression branch of Babel's attribute loop: refs and events
+    /// unshift, dynamics defer into the shared batch, everything else emits
+    /// a static `setAttr` statement.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_runtime_attribute(
         &mut self,
-        attr: &JSXAttributeItem<'a>,
+        plan: AttrPlan<'a>,
         tag_name: &str,
         element_id: &str,
-        template: &mut String,
-        operations: &mut std::vec::Vec<Statement<'a>>,
+        declarations: &mut std::vec::Vec<Statement<'a>>,
+        exprs: &mut std::vec::Vec<Statement<'a>>,
+        front_groups: &mut std::vec::Vec<std::vec::Vec<Statement<'a>>>,
+        dynamics: &mut std::vec::Vec<DynamicSlot<'a>>,
+        needs_placeholder: &mut bool,
     ) -> Result<()> {
+        let span = plan.span;
+        let raw = match plan.value {
+            PlanValue::Expr(expression) => expression,
+            PlanValue::Literal(value) => {
+                self.ast()
+                    .expression_string_literal(span, self.ast().atom(&value), None)
+            }
+            PlanValue::None => return Ok(()),
+        };
+
         // Non-literal `children` attributes are consumed by child insertion
-        // (see `lower_element_with_setup`), never emitted as attributes.
-        if crate::dom::element::children_attribute_container_from_item(attr).is_some() {
-            return Ok(());
-        }
-        // `$ServerOnly` is a directive (handled at the element level in
-        // hydratable mode), not a real attribute.
-        if self.hydratable
-            && matches!(
-                attr,
-                JSXAttributeItem::Attribute(attribute)
-                    if matches!(
-                        &attribute.name,
-                        oxc_ast::ast::JSXAttributeName::Identifier(name)
-                            if name.name == "$ServerOnly"
-                    )
+        // (see `lower_element_with_setup`), never emitted as attributes;
+        // literal ones fall through to a `children` property write.
+        if plan.key == "children"
+            && !matches!(
+                raw,
+                Expression::StringLiteral(_) | Expression::NumericLiteral(_)
             )
         {
             return Ok(());
         }
-        // The `xmlns` attribute on template-root XML elements only signals
-        // the namespace; it is dropped from the serialized template.
-        if self.skip_xmlns_attribute
-            && matches!(
-                attr,
-                JSXAttributeItem::Attribute(attribute)
-                    if matches!(
-                        &attribute.name,
-                        oxc_ast::ast::JSXAttributeName::Identifier(name) if name.name == "xmlns"
-                    )
-            )
-        {
+
+        if plan.key == "ref" {
+            front_groups.push(self.dom_ref_statements(span, element_id, raw));
             return Ok(());
         }
-        if let Some(statement) = self.attribute_operation_statement(attr, element_id)? {
-            operations.push(statement);
+
+        if plan.key.starts_with("on") {
+            front_groups.push(self.dom_event_statements(span, element_id, &plan.key, raw));
             return Ok(());
         }
-        if self.class_array_attribute_operations(attr, element_id, template, operations)?
-            || self.style_object_attribute_operations(attr, element_id, template, operations)?
-        {
+
+        let dynamic = self.effect_wrapper.is_some()
+            && !plan.marker_static
+            && (is_dynamic_expression_deep(&raw, false)
+                || ((plan.key == "class" || plan.key == "style")
+                    && self.evaluate_confident(&raw).is_none()));
+
+        // Babel stores the raw expression — JSX inside an attribute value
+        // (static or dynamic) is only transformed by the outer traversal
+        // after the root's own template registers (see `lower_deferred_jsx`),
+        // which also keeps `wrapForEffect` from unwrapping the lowered IIFE.
+        let value = raw;
+
+        if dynamic {
+            let elem = if plan.key == "textContent" {
+                // Dynamic textContent targets a dedicated text node: the
+                // template gets a single-space placeholder child and updates
+                // write to its `data`.
+                let text_id = self.next_element_id();
+                let first_child = self.static_member_expression(span, element_id, "firstChild");
+                declarations.push(self.variable_statement(span, &text_id, first_child));
+                *needs_placeholder = true;
+                text_id
+            } else {
+                element_id.to_string()
+            };
+            dynamics.push(DynamicSlot {
+                span,
+                elem,
+                key: plan.key,
+                value,
+                tag_name: tag_name.to_string(),
+                style_property: plan.style_property,
+                class_property: plan.class_property,
+            });
             return Ok(());
         }
-        match append_static_template_attribute(Some(self), attr, template)? {
-            StaticAttributeResult::Appended => {}
-            StaticAttributeResult::Spread => {
-                return Err(Error::from_reason(
-                    "Spread attributes are not implemented in the AST-native milestone yet",
-                ));
-            }
-            StaticAttributeResult::Dynamic => {
-                operations.push(self.dynamic_attribute_statement(attr, tag_name, element_id)?);
-            }
-        }
+
+        let elem = self.identifier_expression(span, element_id);
+        let set_attr = self.set_attr_expression(
+            span,
+            elem,
+            &plan.key,
+            value,
+            SetAttrOptions {
+                dynamic: false,
+                prev_id: None,
+                tag_name: tag_name.to_string(),
+                style_property: plan.style_property,
+                class_property: plan.class_property,
+            },
+        );
+        exprs.push(self.ast().statement_expression(span, set_attr));
         Ok(())
     }
 
-    fn attribute_operation_statement(
-        &mut self,
-        attr: &JSXAttributeItem<'a>,
-        element_id: &str,
-    ) -> Result<Option<Statement<'a>>> {
-        if let Some(statement) = self.no_inline_style_attribute_statement(attr, element_id)? {
-            return Ok(Some(statement));
-        }
-        if let Some(statement) = self.prop_attribute_statement(attr, element_id)? {
-            return Ok(Some(statement));
-        }
-        self.child_property_attribute_statement(attr, element_id)
-    }
-
-    fn dynamic_attribute_statement(
-        &mut self,
-        attr: &JSXAttributeItem<'a>,
-        tag_name: &str,
-        element_id: &str,
-    ) -> Result<Statement<'a>> {
-        let JSXAttributeItem::Attribute(attr) = attr else {
-            return Err(Error::from_reason(
-                "Spread attributes are not implemented in the AST-native milestone yet",
-            ));
-        };
-        let oxc_ast::ast::JSXAttributeName::Identifier(name) = &attr.name else {
-            if let Some(statement) = self.namespaced_attribute_statement(attr, element_id)? {
-                return Ok(statement);
-            }
-            return Err(Error::from_reason(
-                "Namespaced attributes are not implemented in the AST-native milestone yet",
-            ));
-        };
-        let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value else {
-            return Err(Error::from_reason(
-                "Only expression dynamic DOM attributes are implemented in the AST-native milestone",
-            ));
-        };
-        if name.name.starts_with("on") {
-            return Ok(self.event_statement(
-                attr.span,
-                element_id,
-                &name.name,
-                &container.expression,
-            ));
-        }
-        if name.name == "style" {
-            let value = jsx_expression_to_expression(&container.expression, self.allocator);
-            return Ok(self.dynamic_style_statement(attr.span, element_id, value));
-        }
-        if name.name == "class" || name.name == "className" {
-            if let Some(statement) =
-                self.class_object_statement(attr.span, element_id, &container.expression)
-            {
-                return Ok(statement);
-            }
-            let value = jsx_expression_to_expression(&container.expression, self.allocator);
-            return Ok(self.dynamic_class_statement(attr.span, element_id, value));
-        }
-        if name.name == "ref" {
-            let value = jsx_expression_to_expression(&container.expression, self.allocator);
-            return Ok(self.dom_ref_statement(attr.span, element_id, value));
-        }
-        if child_properties(&name.name) {
-            let value = jsx_expression_to_expression(&container.expression, self.allocator);
-            return Ok(self.dynamic_property_statement(attr.span, element_id, &name.name, value));
-        }
-        if dom_with_state(tag_name, &name.name).is_some() {
-            let value = jsx_expression_to_expression(&container.expression, self.allocator);
-            return Ok(self.dynamic_property_statement(attr.span, element_id, &name.name, value));
-        }
-        if is_special_dynamic_attribute(tag_name, &name.name) {
-            return Err(Error::from_reason(
-                "Special dynamic DOM attributes are not implemented in the AST-native milestone yet",
-            ));
-        }
-
-        self.template_state.uses_set_attribute = true;
-
-        let value = jsx_expression_to_expression(&container.expression, self.allocator);
-        if !self.effect_wrapper || !is_dynamic_attribute_expression(&value) {
-            return Ok(self.ast().statement_expression(
-                attr.span,
-                self.call_identifier(
-                    attr.span,
-                    "_$setAttribute",
-                    vec![
-                        self.identifier_expression(attr.span, element_id),
-                        self.ast().expression_string_literal(
-                            attr.span,
-                            self.ast().atom(&name.name),
-                            None,
-                        ),
-                        value,
-                    ],
-                ),
-            ));
-        }
-
-        self.template_state.uses_effect = true;
-        let getter = self.arrow_with_return(attr.span, std::vec::Vec::new(), value);
-        let setter = self.dynamic_set_attribute_callback(attr.span, element_id, &name.name);
-
-        Ok(self.ast().statement_expression(
-            attr.span,
-            self.call_identifier(attr.span, "_$effect", vec![getter, setter]),
-        ))
-    }
-
-    fn namespaced_attribute_statement(
-        &mut self,
-        attr: &oxc_ast::ast::JSXAttribute<'a>,
-        element_id: &str,
-    ) -> Result<Option<Statement<'a>>> {
-        let oxc_ast::ast::JSXAttributeName::NamespacedName(name) = &attr.name else {
-            return Ok(None);
-        };
-        let Some(namespace) = namespaces(&name.namespace.name) else {
-            return Ok(None);
-        };
-        let Some(JSXAttributeValue::ExpressionContainer(container)) = &attr.value else {
-            return Err(Error::from_reason(
-                "Only expression namespaced DOM attributes are implemented in the AST-native milestone",
-            ));
-        };
-
-        self.template_state.uses_set_attribute_ns = true;
-        let local_name = format!("{}:{}", name.namespace.name, name.name.name);
-        Ok(Some(self.ast().statement_expression(
-            attr.span,
-            self.call_identifier(
-                attr.span,
-                "_$setAttributeNS",
-                vec![
-                    self.identifier_expression(attr.span, element_id),
-                    self.ast().expression_string_literal(
-                        attr.span,
-                        self.ast().atom(namespace),
-                        None,
-                    ),
-                    self.ast().expression_string_literal(
-                        attr.span,
-                        self.ast().atom(&local_name),
-                        None,
-                    ),
-                    jsx_expression_to_expression(&container.expression, self.allocator),
-                ],
-            ),
-        )))
-    }
-
-    fn dom_ref_statement(
+    /// Port of Babel's `key === "ref"` branch: emitted as a flat group of
+    /// statements unshifted ahead of the element's other expressions.
+    fn dom_ref_statements(
         &mut self,
         span: Span,
         element_id: &str,
-        value: Expression<'a>,
-    ) -> Statement<'a> {
-        if matches!(
-            value,
-            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-        ) {
+        mut value: Expression<'a>,
+    ) -> std::vec::Vec<Statement<'a>> {
+        // Normalize expressions for non-null and type-as.
+        loop {
+            match value {
+                Expression::TSNonNullExpression(inner) => {
+                    value = inner.clone_in(self.allocator).unbox().expression;
+                }
+                Expression::TSAsExpression(inner) => {
+                    value = inner.clone_in(self.allocator).unbox().expression;
+                }
+                _ => break,
+            }
+        }
+
+        let is_constant = matches!(
+            &value,
+            Expression::Identifier(identifier)
+                if self.bindings.is_const(identifier.name.as_str())
+        );
+        let is_lval = matches!(
+            &value,
+            Expression::Identifier(_)
+                | Expression::StaticMemberExpression(_)
+                | Expression::ComputedMemberExpression(_)
+        );
+
+        if is_constant
+            || matches!(
+                value,
+                Expression::ArrowFunctionExpression(_)
+                    | Expression::FunctionExpression(_)
+                    | Expression::ArrayExpression(_)
+            )
+        {
             self.template_state.uses_ref = true;
             let getter = self.arrow_with_return(span, std::vec::Vec::new(), value);
-            return self.ast().statement_expression(
+            let call = self.call_identifier(
                 span,
-                self.call_identifier(
-                    span,
-                    "_$ref",
-                    vec![getter, self.identifier_expression(span, element_id)],
-                ),
+                "_$ref",
+                vec![getter, self.identifier_expression(span, element_id)],
             );
+            return vec![self.ast().statement_expression(span, call)];
         }
 
         let ref_id = self.next_ref_id();
-        let ref_identifier = self.identifier_expression(span, &ref_id);
-        let mut statements = self.ast().vec();
-        statements.push(self.variable_statement(span, &ref_id, value.clone_in(self.allocator)));
-        let callable = ref_callable_test(self, span, ref_identifier.clone_in(self.allocator));
+        let declaration = self.variable_statement(span, &ref_id, value.clone_in(self.allocator));
+        let callable = callable_test(
+            self.allocator,
+            span,
+            self.identifier_expression(span, &ref_id),
+        );
+        self.template_state.uses_ref = true;
         let ref_call = {
-            self.template_state.uses_ref = true;
             let getter = self.arrow_with_return(
                 span,
                 std::vec::Vec::new(),
-                ref_identifier.clone_in(self.allocator),
+                self.identifier_expression(span, &ref_id),
             );
             self.call_identifier(
                 span,
@@ -342,20 +414,22 @@ impl<'a> AstDomTransform<'a, '_> {
                 vec![getter, self.identifier_expression(span, element_id)],
             )
         };
-        let fallback = ref_assignment_fallback(
-            self,
-            span,
-            &value,
-            self.identifier_expression(span, element_id),
-        );
 
-        let statement = match fallback {
-            Some(fallback) => self.ast().statement_expression(
+        let statement = if is_lval {
+            let fallback = ref_assignment_fallback(
+                self,
+                span,
+                &value,
+                self.identifier_expression(span, element_id),
+            )
+            .expect("lvalue refs always have an assignment fallback");
+            self.ast().statement_expression(
                 span,
                 self.ast()
                     .expression_conditional(span, callable, ref_call, fallback),
-            ),
-            None => self.ast().statement_expression(
+            )
+        } else {
+            self.ast().statement_expression(
                 span,
                 self.ast().expression_logical(
                     span,
@@ -363,33 +437,21 @@ impl<'a> AstDomTransform<'a, '_> {
                     oxc_ast::ast::LogicalOperator::And,
                     ref_call,
                 ),
-            ),
+            )
         };
-        statements.push(statement);
-        self.ast().statement_block(span, statements)
+        vec![declaration, statement]
     }
 
-    fn dynamic_set_attribute_callback(
-        &self,
+    /// Event attributes as a statement group (delegated handlers with data
+    /// produce two assignments).
+    fn dom_event_statements(
+        &mut self,
         span: Span,
         element_id: &str,
-        name: &str,
-    ) -> Expression<'a> {
-        let value_id = "_v$";
-        let statement = self.ast().statement_expression(
-            span,
-            self.call_identifier(
-                span,
-                "_$setAttribute",
-                vec![
-                    self.identifier_expression(span, element_id),
-                    self.ast()
-                        .expression_string_literal(span, self.ast().atom(name), None),
-                    self.identifier_expression(span, value_id),
-                ],
-            ),
-        );
-        self.arrow_with_statements(span, vec![value_id], self.ast().vec1(statement))
+        key: &str,
+        value: Expression<'a>,
+    ) -> std::vec::Vec<Statement<'a>> {
+        self.event_statements(span, element_id, key, value)
     }
 
     pub(crate) fn arrow_with_return(
@@ -408,7 +470,7 @@ impl<'a> AstDomTransform<'a, '_> {
         &self,
         span: Span,
         param_names: std::vec::Vec<&str>,
-        statements: ArenaVec<'a, Statement<'a>>,
+        statements: oxc_allocator::Vec<'a, Statement<'a>>,
     ) -> Expression<'a> {
         let params = self
             .ast()
@@ -487,6 +549,43 @@ impl<'a> AstDomTransform<'a, '_> {
         }
         Some(to_be_closed)
     }
+
+    /// Static-template fast path: appends the element's attributes to the
+    /// template when every planned attribute inlines statically, mirroring
+    /// the classification used by the full emission. Returns the planning
+    /// outcome's children replacement (textarea `value` fold) on success.
+    pub(crate) fn try_append_planned_static_attributes(
+        &self,
+        attributes: &[JSXAttributeItem<'a>],
+        tag_name: &str,
+        template: &mut String,
+    ) -> Result<Option<Option<oxc_ast::ast::JSXChild<'a>>>> {
+        if attributes
+            .iter()
+            .any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_)))
+        {
+            return Ok(None);
+        }
+        let AttrPlanOutcome {
+            plans,
+            children_replacement,
+        } = self.plan_attributes(attributes, tag_name)?;
+        let mut pending: std::vec::Vec<(String, Option<String>)> = std::vec::Vec::new();
+        for plan in &plans {
+            match self.classify_plan(plan) {
+                PlanDisposition::Skip => {}
+                PlanDisposition::Inline(value) => pending.push((plan.key.clone(), value)),
+                PlanDisposition::Runtime => return Ok(None),
+            }
+        }
+        for (key, value) in pending {
+            match value {
+                None => append_bare_attribute(template, &key, self.omit_attribute_spacing),
+                Some(value) => self.append_static_attribute_value(template, &key, &value),
+            }
+        }
+        Ok(Some(children_replacement))
+    }
 }
 
 fn attribute_prefix(template: &str, omit_attribute_spacing: bool) -> &'static str {
@@ -523,152 +622,4 @@ fn append_static_attribute_value(
         "{prefix}{name}={}",
         format_attribute_value_with_quotes(&value, omit_quotes)
     ));
-}
-
-fn normalize_static_attribute_value(name: &str, value: &str) -> String {
-    if name != "style" && name != "class" {
-        return value.to_string();
-    }
-
-    let mut normalized = String::new();
-    let mut previous_was_whitespace = false;
-    for char in value.chars().filter(|char| *char != '\r') {
-        if char.is_whitespace() {
-            if !previous_was_whitespace {
-                normalized.push(' ');
-                previous_was_whitespace = true;
-            }
-        } else {
-            normalized.push(char);
-            previous_was_whitespace = false;
-        }
-    }
-
-    if name == "style" {
-        normalized.replace("; ", ";").replace(": ", ":")
-    } else {
-        normalized
-    }
-}
-
-pub(crate) fn try_append_static_template_attributes(
-    ctx: Option<&AstDomTransform<'_, '_>>,
-    attributes: &[JSXAttributeItem<'_>],
-    template: &mut String,
-) -> Result<bool> {
-    for attr in dedupe_attributes(attributes) {
-        match append_static_template_attribute(ctx, attr, template)? {
-            StaticAttributeResult::Appended => {}
-            StaticAttributeResult::Dynamic | StaticAttributeResult::Spread => return Ok(false),
-        }
-    }
-    Ok(true)
-}
-
-fn append_static_template_attribute(
-    ctx: Option<&AstDomTransform<'_, '_>>,
-    attr: &JSXAttributeItem<'_>,
-    template: &mut String,
-) -> Result<StaticAttributeResult> {
-    let JSXAttributeItem::Attribute(attr) = attr else {
-        return Ok(StaticAttributeResult::Spread);
-    };
-    let name = match &attr.name {
-        oxc_ast::ast::JSXAttributeName::Identifier(name) => name,
-        oxc_ast::ast::JSXAttributeName::NamespacedName(name) if name.namespace.name == "prop" => {
-            return Ok(StaticAttributeResult::Dynamic);
-        }
-        oxc_ast::ast::JSXAttributeName::NamespacedName(name)
-            if namespaces(&name.namespace.name).is_some() =>
-        {
-            return Ok(StaticAttributeResult::Dynamic);
-        }
-        oxc_ast::ast::JSXAttributeName::NamespacedName(_) => {
-            return Err(Error::from_reason(
-                "Namespaced attributes are not implemented in the AST-native milestone yet",
-            ));
-        }
-    };
-
-    // Child properties (innerHTML/textContent/...) are runtime property
-    // assignments, never template markup.
-    if child_properties(&name.name) {
-        return Ok(StaticAttributeResult::Dynamic);
-    }
-
-    // `_hk` is the internal hydration-key attribute; the Babel plugin warns
-    // and strips it (usually pasted-in SSR output). Match by dropping it.
-    if name.name == "_hk" {
-        return Ok(StaticAttributeResult::Appended);
-    }
-
-    let omit_attribute_spacing = ctx.is_none_or(|ctx| ctx.omit_attribute_spacing);
-    match &attr.value {
-        None => append_bare_attribute(template, &name.name, omit_attribute_spacing),
-        Some(JSXAttributeValue::StringLiteral(value)) => {
-            let value = decode_html_entities(&value.value);
-            if let Some(ctx) = ctx {
-                ctx.append_static_attribute_value(template, &name.name, &value);
-            } else {
-                append_static_attribute_value(template, &name.name, &value, true, true);
-            }
-        }
-        Some(JSXAttributeValue::ExpressionContainer(container)) => {
-            // Boolean literals control attribute presence rather than being
-            // serialized: `attr={true}` -> bare attr, `attr={false}` -> omitted.
-            // Null routes to the runtime setter, all mirroring the Babel plugin.
-            match &container.expression {
-                oxc_ast::ast::JSXExpression::BooleanLiteral(literal) => {
-                    if literal.value {
-                        append_bare_attribute(template, &name.name, omit_attribute_spacing);
-                    }
-                    return Ok(StaticAttributeResult::Appended);
-                }
-                oxc_ast::ast::JSXExpression::NullLiteral(_) => {
-                    return Ok(StaticAttributeResult::Dynamic);
-                }
-                _ => {}
-            }
-            if name.name == "style" {
-                if let Some(value) = static_style_object_value(&container.expression) {
-                    if !value.is_empty() {
-                        if let Some(ctx) = ctx {
-                            ctx.append_static_attribute_value(template, "style", &value);
-                        } else {
-                            append_static_attribute_value(template, "style", &value, true, true);
-                        }
-                    }
-                    return Ok(StaticAttributeResult::Appended);
-                }
-            }
-            let value = ctx
-                .and_then(|ctx| ctx.static_jsx_expression_value(&container.expression))
-                .or_else(|| static_jsx_expression_value(&container.expression));
-            let Some(value) = value else {
-                return Ok(StaticAttributeResult::Dynamic);
-            };
-            if let Some(ctx) = ctx {
-                ctx.append_static_attribute_value(template, &name.name, &value);
-            } else {
-                append_static_attribute_value(template, &name.name, &value, true, true);
-            }
-        }
-        Some(JSXAttributeValue::Element(_) | JSXAttributeValue::Fragment(_)) => {
-            return Err(Error::from_reason(
-                "JSX attribute element values are not implemented in the AST-native milestone yet",
-            ));
-        }
-    }
-
-    Ok(StaticAttributeResult::Appended)
-}
-
-fn is_special_dynamic_attribute(tag_name: &str, name: &str) -> bool {
-    name == "ref"
-        || name == "class"
-        || name == "className"
-        || name == "style"
-        || has_namespace(name)
-        || child_properties(name)
-        || dom_with_state(tag_name, name).is_some()
 }

@@ -24,6 +24,7 @@ function transformDomHydratableDev(code, fixture) {
       moduleName: "r-dom",
       hydratable: true,
       dev: true,
+      contextToCustomElements: true,
       ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
     }).code.trimEnd() + "\n"
   );

@@ -21,6 +21,7 @@ function transformDomNoInlineStyles(code, fixture) {
     transform(code, {
       filename: `${fixture}.jsx`,
       moduleName: "r-dom",
+      contextToCustomElements: true,
       inlineStyles: false
     }).code.trimEnd() + "\n"
   );

@@ -70,6 +70,7 @@ function transformDynamic(code, fixture) {
       moduleName: "r-custom",
       generate: "dynamic",
       builtIns: ["For", "Show"],
+      contextToCustomElements: true,
       renderers: [
         {
           name: "dom",

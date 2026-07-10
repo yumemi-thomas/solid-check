@@ -10,6 +10,7 @@ use crate::dom::element::AstDomTransform;
 pub(crate) trait ComponentPropContext<'a> {
     fn allocator(&self) -> &'a Allocator;
     fn ast(&self) -> AstBuilder<'a>;
+    fn binding_table(&self) -> &crate::shared::bindings::BindingTable;
     fn mark_merge_props(&mut self);
     fn call_identifier(
         &self,
@@ -39,6 +40,10 @@ impl<'a> ComponentPropContext<'a> for AstDomTransform<'a, '_> {
 
     fn ast(&self) -> AstBuilder<'a> {
         self.ast()
+    }
+
+    fn binding_table(&self) -> &crate::shared::bindings::BindingTable {
+        &self.bindings
     }
 
     fn mark_merge_props(&mut self) {
@@ -114,22 +119,31 @@ pub(crate) fn component_props_expression<'a>(
     }
 }
 
+/// Babel's component spread handling: a dynamic spread argument
+/// (`isDynamic(..., { checkMember: true })`) defers behind a thunk — a bare
+/// zero-arg call unwraps to its callee — and forces the `mergeProps` wrap;
+/// static spreads pass through untouched.
 pub(crate) fn component_spread_expression<'a>(
     ctx: &impl ComponentPropContext<'a>,
     expression: &Expression<'a>,
     span: Span,
 ) -> ComponentSpread<'a> {
-    let expression = expression.clone_in(ctx.allocator());
-    if matches!(expression, Expression::CallExpression(_)) {
-        ComponentSpread {
-            value: ctx.arrow_return_expression(span, expression),
-            force_merge: true,
-        }
-    } else {
-        ComponentSpread {
-            value: expression,
+    let cloned = expression.clone_in(ctx.allocator());
+    if !crate::shared::utils::is_dynamic_expression_with_namespaces(
+        expression,
+        false,
+        ctx.binding_table(),
+    ) {
+        return ComponentSpread {
+            value: cloned,
             force_merge: false,
-        }
+        };
+    }
+    let value = crate::shared::condition::zero_arg_call_thunk(&cloned, ctx.allocator())
+        .unwrap_or_else(|| ctx.arrow_return_expression(span, cloned));
+    ComponentSpread {
+        value,
+        force_merge: true,
     }
 }
 

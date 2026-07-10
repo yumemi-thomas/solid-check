@@ -32,7 +32,6 @@ impl<'a> AstDomTransform<'a, '_> {
     }
 
     fn next_this_id(&mut self) -> String {
-        self.this_index += 1;
-        crate::shared::utils::indexed_local("_self", self.this_index)
+        crate::shared::utils::next_unique_local("_self", &mut self.this_index, &self.bindings)
     }
 }

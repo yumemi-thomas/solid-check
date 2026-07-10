@@ -1,60 +1,71 @@
 import { createTextNode as _$createTextNode } from "r-custom";
+import { memo as _$memo } from "r-custom";
 import { createComponent as _$createComponent } from "r-custom";
 import { mergeProps as _$mergeProps } from "r-custom";
 import { insert as _$insert } from "r-custom";
 import { insertNode as _$insertNode } from "r-custom";
-import { setProp as _$setProp } from "r-custom";
+import { ref as _$ref } from "r-custom";
+import { applyRef as _$applyRef } from "r-custom";
 import { createElement as _$createElement } from "r-custom";
 import { Show, binding } from "somewhere";
 function refFn() {}
 const refConst = null;
 const Child = (props) => [(() => {
 	var _el$ = _$createElement("div");
-	_$setProp(_el$, "ref", props.ref);
-	_$insertNode(_el$, _$createTextNode("Hello "));
-	_$insert(_el$, props.name);
+	var _el$2 = _$createTextNode("Hello ");
+	_$insertNode(_el$, _el$2);
+	var _ref$ = props.ref;
+	typeof _ref$ === "function" || Array.isArray(_ref$) ? _$ref(() => {
+		return _ref$;
+	}, _el$) : props.ref = _el$;
+	_$insert(_el$, () => {
+		return props.name;
+	}, null);
 	return _el$;
 })(), (() => {
-	var _el$2 = _$createElement("div");
-	_$insert(_el$2, props.children);
-	return _el$2;
+	var _el$3 = _$createElement("div");
+	_$insert(_el$3, () => {
+		return props.children;
+	});
+	return _el$3;
 })()];
 const template = (props) => {
 	let childRef;
 	const { content } = props;
-	return (() => {
-		var _el$3 = _$createElement("div");
-		_$insertNode(_el$3, _$createComponent(Child, _$mergeProps({ name: "John" }, props, {
-			ref: childRef,
-			booleanProperty: true,
-			get children() {
-				return (() => {
-					var _el$4 = _$createElement("div");
-					_$insertNode(_el$4, _$createTextNode("From Parent"));
-					return _el$4;
-				})();
-			}
-		})));
-		_$insertNode(_el$3, _$createComponent(Child, _$mergeProps({ name: "Jason" }, () => {
-			return dynamicSpread();
-		}, {
-			ref: props.ref,
-			get children() {
-				return (() => {
-					var _el$5 = _$createElement("div");
-					_$insert(_el$5, content);
-					return _el$5;
-				})();
-			}
-		})));
-		_$insertNode(_el$3, _$createComponent(Context.Consumer, {
-			ref: props.consumerRef(),
-			get children() {
-				return (context) => context;
-			}
-		}));
-		return _el$3;
-	})();
+	var _el$4 = _$createElement("div");
+	_$insert(_el$4, _$createComponent(Child, _$mergeProps({ name: "John" }, props, {
+		ref(r$) {
+			var _ref$2 = childRef;
+			typeof _ref$2 === "function" || Array.isArray(_ref$2) ? _$applyRef(_ref$2, r$) : childRef = r$;
+		},
+		booleanProperty: true,
+		get children() {
+			var _el$5 = _$createElement("div");
+			_$insertNode(_el$5, _$createTextNode("From Parent"));
+			return _el$5;
+		}
+	})), null);
+	_$insert(_el$4, _$createComponent(Child, _$mergeProps({ name: "Jason" }, dynamicSpread, {
+		ref(r$) {
+			var _ref$3 = props.ref;
+			typeof _ref$3 === "function" || Array.isArray(_ref$3) ? _$applyRef(_ref$3, r$) : props.ref = r$;
+		},
+		get children() {
+			var _el$6 = _$createElement("div");
+			_$insert(_el$6, content);
+			return _el$6;
+		}
+	})), null);
+	_$insert(_el$4, (() => {
+		var _ref$4 = props.consumerRef();
+		return _$createComponent(Context.Consumer, {
+			ref(r$) {
+				(typeof _ref$4 === "function" || Array.isArray(_ref$4)) && _$applyRef(_ref$4, r$);
+			},
+			children: (context) => context
+		});
+	})(), null);
+	return _el$4;
 };
 const template2 = _$createComponent(Child, {
 	name: "Jake",
@@ -63,33 +74,21 @@ const template2 = _$createComponent(Child, {
 	},
 	stale: state.data,
 	handleClick: clickHandler,
-	get "hyphen-ated"() {
+	get ["hyphen-ated"]() {
 		return state.data;
 	},
 	ref: (el) => e = el
 });
 const template3 = _$createComponent(Child, { get children() {
 	return [
-		(() => {
-			var _el$6 = _$createElement("div");
-			return _el$6;
-		})(),
-		(() => {
-			var _el$7 = _$createElement("div");
-			return _el$7;
-		})(),
-		(() => {
-			var _el$8 = _$createElement("div");
-			return _el$8;
-		})(),
+		_$createElement("div"),
+		_$createElement("div"),
+		_$createElement("div"),
 		"After"
 	];
 } });
 const template4 = _$createComponent(Child, { get children() {
-	return (() => {
-		var _el$9 = _$createElement("div");
-		return _el$9;
-	})();
+	return _$createElement("div");
 } });
 const template5 = _$createComponent(Child, {
 	get dynamic() {
@@ -107,74 +106,79 @@ const template6 = _$createComponent(For, {
 	get fallback() {
 		return _$createComponent(Loading, {});
 	},
-	get children() {
-		return (item) => _$createComponent(Show, {
-			get when() {
-				return state.condition;
-			},
-			get children() {
-				return item;
-			}
-		});
-	}
+	children: (item) => _$createComponent(Show, {
+		get when() {
+			return state.condition;
+		},
+		children: item
+	})
 });
 const template7 = _$createComponent(Child, { get children() {
-	return [(() => {
-		var _el$10 = _$createElement("div");
-		return _el$10;
-	})(), state.dynamic];
+	return [_$createElement("div"), _$memo(() => {
+		return state.dynamic;
+	})];
 } });
 const template8 = _$createComponent(Child, { get children() {
 	return [(item) => item, (item) => item];
 } });
 const template9 = _$createComponent(_garbage, { children: "Hi" });
-var _el$11 = _$createElement("div");
-_$insertNode(_el$11, _$createComponent(Link, { children: "new" }));
-_$insertNode(_el$11, _$createTextNode(" | "));
-_$insertNode(_el$11, _$createComponent(Link, { children: "comments" }));
-_$insertNode(_el$11, _$createTextNode(" | "));
-_$insertNode(_el$11, _$createComponent(Link, { children: "show" }));
-_$insertNode(_el$11, _$createTextNode(" | "));
-_$insertNode(_el$11, _$createComponent(Link, { children: "ask" }));
-_$insertNode(_el$11, _$createTextNode(" | "));
-_$insertNode(_el$11, _$createComponent(Link, { children: "jobs" }));
-_$insertNode(_el$11, _$createTextNode(" | "));
-_$insertNode(_el$11, _$createComponent(Link, { children: "submit" }));
-const template10 = _el$11;
 var _el$12 = _$createElement("div");
-_$insertNode(_el$12, _$createComponent(Link, { children: "new" }));
-_$insertNode(_el$12, _$createTextNode(" | "));
-_$insertNode(_el$12, _$createComponent(Link, { children: "comments" }));
-_$insertNode(_el$12, _$createComponent(Link, { children: "show" }));
-_$insertNode(_el$12, _$createTextNode(" | "));
-_$insertNode(_el$12, _$createComponent(Link, { children: "ask" }));
-_$insertNode(_el$12, _$createComponent(Link, { children: "jobs" }));
-_$insertNode(_el$12, _$createTextNode(" | "));
-_$insertNode(_el$12, _$createComponent(Link, { children: "submit" }));
-const template11 = _el$12;
-var _el$13 = _$createElement("div");
-_$insertNode(_el$13, _$createTextNode(" | "));
-_$insertNode(_el$13, _$createComponent(Link, { children: "comments" }));
-_$insertNode(_el$13, _$createTextNode(" | "));
-_$insertNode(_el$13, _$createTextNode(" | "));
-_$insertNode(_el$13, _$createTextNode(" | "));
-_$insertNode(_el$13, _$createComponent(Link, { children: "show" }));
-_$insertNode(_el$13, _$createTextNode(" | "));
-const template12 = _el$13;
+var _el$13 = _$createTextNode(" | ");
+var _el$14 = _$createTextNode(" | ");
+var _el$15 = _$createTextNode(" | ");
+var _el$16 = _$createTextNode(" | ");
+var _el$17 = _$createTextNode(" | ");
+_$insertNode(_el$12, _el$13);
+_$insertNode(_el$12, _el$14);
+_$insertNode(_el$12, _el$15);
+_$insertNode(_el$12, _el$16);
+_$insertNode(_el$12, _el$17);
+_$insert(_el$12, _$createComponent(Link, { children: "new" }), _el$13);
+_$insert(_el$12, _$createComponent(Link, { children: "comments" }), _el$14);
+_$insert(_el$12, _$createComponent(Link, { children: "show" }), _el$15);
+_$insert(_el$12, _$createComponent(Link, { children: "ask" }), _el$16);
+_$insert(_el$12, _$createComponent(Link, { children: "jobs" }), _el$17);
+_$insert(_el$12, _$createComponent(Link, { children: "submit" }), null);
+const template10 = _el$12;
+var _el$18 = _$createElement("div");
+var _el$19 = _$createTextNode(" | ");
+var _el$20 = _$createTextNode(" | ");
+var _el$21 = _$createTextNode(" | ");
+_$insertNode(_el$18, _el$19);
+_$insertNode(_el$18, _el$20);
+_$insertNode(_el$18, _el$21);
+_$insert(_el$18, _$createComponent(Link, { children: "new" }), _el$19);
+_$insert(_el$18, _$createComponent(Link, { children: "comments" }), _el$20);
+_$insert(_el$18, _$createComponent(Link, { children: "show" }), _el$20);
+_$insert(_el$18, _$createComponent(Link, { children: "ask" }), _el$21);
+_$insert(_el$18, _$createComponent(Link, { children: "jobs" }), _el$21);
+_$insert(_el$18, _$createComponent(Link, { children: "submit" }), null);
+const template11 = _el$18;
+var _el$22 = _$createElement("div");
+var _el$23 = _$createTextNode(" | ");
+var _el$24 = _$createTextNode(" |  |  | ");
+var _el$25 = _$createTextNode(" | ");
+_$insertNode(_el$22, _el$23);
+_$insertNode(_el$22, _el$24);
+_$insertNode(_el$22, _el$25);
+_$insert(_el$22, _$createComponent(Link, { children: "comments" }), _el$24);
+_$insert(_el$22, _$createComponent(Link, { children: "show" }), _el$25);
+const template12 = _el$22;
 class Template13 {
 	render() {
+		const _self$ = this;
 		_$createComponent(Component, {
 			get prop() {
-				return this.something;
+				return _self$.something;
 			},
-			onClick: () => this.shouldStay,
+			onClick: () => _self$.shouldStay,
 			get children() {
 				return _$createComponent(Nested, {
 					get prop() {
-						return this.data;
+						return _self$.data;
 					},
 					get children() {
-						return this.content;
+						return _self$.content;
 					}
 				});
 			}
@@ -189,56 +193,74 @@ const Template16 = _$createComponent(Component, _$mergeProps({ something }, prop
 const Template17 = _$createComponent(Pre, { get children() {
 	return [
 		(() => {
-			var _el$14 = _$createElement("span");
-			_$insertNode(_el$14, _$createTextNode("1"));
-			return _el$14;
+			var _el$26 = _$createElement("span");
+			_$insertNode(_el$26, _$createTextNode("1"));
+			return _el$26;
 		})(),
 		" ",
 		(() => {
-			var _el$15 = _$createElement("span");
-			_$insertNode(_el$15, _$createTextNode("2"));
-			return _el$15;
+			var _el$27 = _$createElement("span");
+			_$insertNode(_el$27, _$createTextNode("2"));
+			return _el$27;
 		})(),
 		" ",
 		(() => {
-			var _el$16 = _$createElement("span");
-			_$insertNode(_el$16, _$createTextNode("3"));
-			return _el$16;
+			var _el$28 = _$createElement("span");
+			_$insertNode(_el$28, _$createTextNode("3"));
+			return _el$28;
 		})()
 	];
 } });
 const Template18 = _$createComponent(Pre, { get children() {
 	return [
 		(() => {
-			var _el$17 = _$createElement("span");
-			_$insertNode(_el$17, _$createTextNode("1"));
-			return _el$17;
+			var _el$29 = _$createElement("span");
+			_$insertNode(_el$29, _$createTextNode("1"));
+			return _el$29;
 		})(),
 		(() => {
-			var _el$18 = _$createElement("span");
-			_$insertNode(_el$18, _$createTextNode("2"));
-			return _el$18;
+			var _el$30 = _$createElement("span");
+			_$insertNode(_el$30, _$createTextNode("2"));
+			return _el$30;
 		})(),
 		(() => {
-			var _el$19 = _$createElement("span");
-			_$insertNode(_el$19, _$createTextNode("3"));
-			return _el$19;
+			var _el$31 = _$createElement("span");
+			_$insertNode(_el$31, _$createTextNode("3"));
+			return _el$31;
 		})()
 	];
 } });
 const Template19 = _$createComponent(Component, _$mergeProps(() => {
 	return s.dynamic();
 }));
-const Template20 = _$createComponent(Component, { class: prop.red ? "red" : "green" });
-const template21 = _$createComponent(Component, { get [key()]() {
-	return props.value;
+const Template20 = _$createComponent(Component, { get ["class"]() {
+	return prop.red ? "red" : "green";
 } });
-const template22 = _$createComponent(Component, { passObject: { ...a } });
+const template21 = _$createComponent(Component, _$mergeProps(() => {
+	return { get [key()]() {
+		return props.value;
+	} };
+}));
+const template22 = _$createComponent(Component, { get passObject() {
+	return { ...a };
+} });
 const template23 = _$createComponent(Component, { ref: binding });
-const template24 = _$createComponent(Component, { ref: binding.prop });
-const template25 = _$createComponent(Component, { ref: refFn });
+const template24 = _$createComponent(Component, { ref(r$) {
+	var _ref$5 = binding.prop;
+	typeof _ref$5 === "function" || Array.isArray(_ref$5) ? _$applyRef(_ref$5, r$) : binding.prop = r$;
+} });
+const template25 = _$createComponent(Component, { ref(r$) {
+	var _ref$6 = refFn;
+	typeof _ref$6 === "function" || Array.isArray(_ref$6) ? _$applyRef(_ref$6, r$) : refFn = r$;
+} });
 const template26 = _$createComponent(Component, { ref: refConst });
-const template27 = _$createComponent(Component, { ref: refUnknown });
-const template28 = _$createComponent(Component, { ref: binding?.prop });
-const template29 = _$createComponent(Component, { ref: binding?.[prop] });
-const template30 = _$createComponent(Component, { ref: binding.nested?.prop });
+const template27 = _$createComponent(Component, { ref(r$) {
+	var _ref$7 = refUnknown;
+	typeof _ref$7 === "function" || Array.isArray(_ref$7) ? _$applyRef(_ref$7, r$) : refUnknown = r$;
+} });
+const template28 = _$createComponent(Component, { ref(r$) {
+	var _ref$8 = binding?.prop;
+	typeof _ref$8 === "function" || Array.isArray(_ref$8) ? _$applyRef(_ref$8, r$) : !!binding && (binding.prop = r$);
+} });
+const template29 = _$createComponent(Component, {});
+const template30 = _$createComponent(Component, {});

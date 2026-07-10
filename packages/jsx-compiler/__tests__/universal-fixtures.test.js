@@ -14,6 +14,7 @@ const fixtureParity = {
   conditionalExpressions: "subset",
   fragments: "subset",
   insertChildren: "subset",
+  jsxAttributeValues: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
 };
@@ -53,6 +54,7 @@ describe("AST-native Babel universal fixture reuse", () => {
       "conditionalExpressions",
       "fragments",
       "insertChildren",
+      "jsxAttributeValues",
       "simpleElements",
       "textInterpolation"
     ]);
@@ -74,6 +76,8 @@ function supportedSubset(fixture) {
   const source = readFixture(fixture);
   switch (fixture) {
     case "simpleElements":
+      return source;
+    case "jsxAttributeValues":
       return source;
     case "attributeExpressions":
       return source;

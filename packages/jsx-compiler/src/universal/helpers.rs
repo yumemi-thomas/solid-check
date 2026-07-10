@@ -19,8 +19,13 @@ impl<'a> AstUniversalTransform<'a, '_> {
     }
 
     pub(super) fn next_element_id(&mut self) -> String {
-        self.element_index += 1;
-        crate::shared::utils::indexed_local("_el", self.element_index)
+        // In dynamic mode the dom renderer's transform mints `_el$N` ids too;
+        // Babel shares one uid namespace per program, so route through its
+        // counter to keep names unique.
+        if let Some(dom) = &mut self.dynamic_dom {
+            return dom.next_element_id();
+        }
+        crate::shared::utils::next_unique_local("_el", &mut self.element_index, &self.bindings)
     }
 
     pub(super) fn variable_statement(

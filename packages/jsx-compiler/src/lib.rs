@@ -9,24 +9,52 @@ use napi_derive::napi;
 use oxc_allocator::Allocator;
 use oxc_ast_visit::VisitMut;
 use oxc_codegen::{Codegen, CodegenOptions};
-use oxc_parser::Parser;
+use oxc_parser::{ParseOptions, Parser};
 
 use config::source_type_for_filename;
 use config::RendererOption;
 pub use config::{TransformOptions, TransformResult};
 use dom::element::{AstDomTransform, DomTransformConfig};
 use ssr::transform::AstSsrTransform;
-use universal::transform::{AstUniversalTransform, DynamicDomConfig};
+use universal::transform::{AstUniversalTransform, DynamicDomConfig, UniversalWrapperConfig};
 
 #[napi]
 pub fn transform(code: String, options: Option<TransformOptions>) -> Result<TransformResult> {
     let options = options.unwrap_or_default();
     let source_type = source_type_for_filename(options.filename.as_deref())?;
     let allocator = Allocator::default();
-    let parsed = Parser::new(&allocator, &code, source_type).parse();
+    // Babel has no ParenthesizedExpression node (parens are trivia), so the
+    // transform's expression matchers must never see one either — with the oxc
+    // default (`preserve_parens: true`), `(a && b()) || c` hides the logical
+    // from the conditional-wrapping logic and the generates desync.
+    let parsed = Parser::new(&allocator, &code, source_type)
+        .with_options(ParseOptions {
+            preserve_parens: false,
+            ..ParseOptions::default()
+        })
+        .parse();
 
     if let Some(error) = parsed.errors.into_iter().next() {
         return Err(Error::from_reason(error.to_string()));
+    }
+
+    // Babel's `requireImportSource` preprocess: skip files without a
+    // `@jsxImportSource <lib>` comment, returning the source untouched.
+    if let Some(lib) = options.require_import_source.as_deref() {
+        let has_pragma = parsed.program.comments.iter().any(|comment| {
+            let text = comment.content_span().source_text(&code);
+            let mut pieces = text.split("@jsxImportSource");
+            // Babel: exactly one occurrence, and the comment's remainder
+            // (trimmed) must equal the configured source.
+            pieces.next();
+            match (pieces.next(), pieces.next()) {
+                (Some(rest), None) => rest.trim() == lib,
+                _ => false,
+            }
+        });
+        if !has_pragma {
+            return Ok(TransformResult { code, map: None });
+        }
     }
 
     let module_name = options
@@ -73,6 +101,7 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
                     module_name,
                     built_ins(&options),
                     static_marker(&options),
+                    universal_wrapper_config(&options),
                 );
                 transform.visit_program(&mut program);
                 if let Some(error) = transform.error {
@@ -87,6 +116,8 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
                 &code,
                 module_name,
                 options.hydratable.unwrap_or(false),
+                options.wrap_conditionals.unwrap_or(true),
+                wrapper_name(&options.memo_wrapper, "memo"),
                 static_marker(&options),
                 built_ins(&options),
             );
@@ -103,6 +134,7 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
                 module_name,
                 built_ins(&options),
                 static_marker(&options),
+                universal_wrapper_config(&options),
             );
             transform.visit_program(&mut program);
             if let Some(error) = transform.error {
@@ -136,19 +168,22 @@ fn dom_transform_config(options: &TransformOptions, built_ins: Vec<String>) -> D
     DomTransformConfig {
         hydratable: options.hydratable.unwrap_or(false),
         dev: options.dev.unwrap_or(false),
-        context_to_custom_elements: options.context_to_custom_elements.unwrap_or(true),
+        context_to_custom_elements: options.context_to_custom_elements.unwrap_or(false),
         delegate_events: options.delegate_events.unwrap_or(true),
         delegated_events: options.delegated_events.clone().unwrap_or_default(),
         omit_quotes: options.omit_quotes.unwrap_or(true),
         omit_attribute_spacing: options.omit_attribute_spacing.unwrap_or(true),
         inline_styles: options.inline_styles.unwrap_or(true),
-        effect_wrapper: options.effect_wrapper.unwrap_or(true),
+        effect_wrapper: wrapper_name(&options.effect_wrapper, "effect"),
         wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
-        memo_wrapper: options.memo_wrapper.unwrap_or(true),
+        memo_wrapper: wrapper_name(&options.memo_wrapper, "memo"),
         static_marker: static_marker(options),
         omit_nested_closing_tags: options.omit_nested_closing_tags.unwrap_or(false),
         omit_last_closing_tag: options.omit_last_closing_tag.unwrap_or(true),
+        validate: options.validate.unwrap_or(true),
         built_ins,
+        wrapper_module_name: None,
+        renderer_elements: None,
     }
 }
 
@@ -178,6 +213,27 @@ fn dynamic_dom_config<'source>(
         static_marker: dom.static_marker,
         omit_nested_closing_tags: dom.omit_nested_closing_tags,
         omit_last_closing_tag: dom.omit_last_closing_tag,
+        validate: dom.validate,
+    }
+}
+
+fn universal_wrapper_config(options: &TransformOptions) -> UniversalWrapperConfig {
+    UniversalWrapperConfig {
+        effect_wrapper: wrapper_name(&options.effect_wrapper, "effect"),
+        wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
+        memo_wrapper: wrapper_name(&options.memo_wrapper, "memo"),
+    }
+}
+
+/// Babel's wrapper options are import-name strings with falsy disabling the
+/// wrap (`effectWrapper: "createRenderEffect"`); `true` selects the default
+/// name so boolean shorthand keeps working.
+fn wrapper_name(option: &Option<Either<bool, String>>, default: &str) -> Option<String> {
+    match option {
+        None | Some(Either::A(true)) => Some(default.to_string()),
+        Some(Either::A(false)) => None,
+        Some(Either::B(name)) if name.is_empty() => None,
+        Some(Either::B(name)) => Some(name.clone()),
     }
 }
 

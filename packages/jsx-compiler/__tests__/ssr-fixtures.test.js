@@ -14,6 +14,7 @@ const fixtureParity = {
   duplicateAttributes: "subset",
   fragments: "subset",
   insertChildren: "subset",
+  jsxAttributeValues: "subset",
   multipleClassAttributes: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
@@ -28,7 +29,8 @@ function transformSsr(code, fixture) {
     transform(code, {
       filename: `${fixture}.jsx`,
       moduleName: "r-server",
-      generate: "ssr"
+      generate: "ssr",
+      contextToCustomElements: true
     }).code.trimEnd() + "\n"
   );
 }
@@ -57,6 +59,7 @@ describe("AST-native Babel SSR fixture reuse", () => {
       "duplicateAttributes",
       "fragments",
       "insertChildren",
+      "jsxAttributeValues",
       "multipleClassAttributes",
       "simpleElements",
       "textInterpolation"
@@ -79,6 +82,8 @@ function supportedSubset(fixture) {
   const source = readFixture(fixture);
   switch (fixture) {
     case "simpleElements":
+      return source;
+    case "jsxAttributeValues":
       return source;
     case "SVG":
       return source;

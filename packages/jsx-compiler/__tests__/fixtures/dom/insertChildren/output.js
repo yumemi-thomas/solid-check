@@ -16,11 +16,9 @@ var _el$2 = _tmpl$2();
 _$insert(_el$2, children);
 const template2 = _el$2;
 const template3 = _tmpl$3();
-const template4 = (() => {
-	var _el$4 = _tmpl$2();
-	_$insert(_el$4, _$createComponent(Hello, {}));
-	return _el$4;
-})();
+var _el$4 = _tmpl$2();
+_$insert(_el$4, _$createComponent(Hello, {}));
+const template4 = _el$4;
 var _el$5 = _tmpl$2();
 _$insert(_el$5, () => {
 	return dynamic.children;
@@ -83,6 +81,7 @@ const template23 = _$createComponent(Module, { get children() {
 	return state.children();
 } });
 var _el$15 = _tmpl$5();
+var _el$16 = _el$15.firstChild;
 _$spread(_el$15, dynamic, true);
 _$insert(_el$15, () => {
 	return dynamic.children;
@@ -90,16 +89,16 @@ _$insert(_el$15, () => {
 const template24 = _el$15;
 const tiles = [];
 tiles.push(_tmpl$6());
-var _el$17 = _tmpl$();
-_$insert(_el$17, tiles);
-const template25 = _el$17;
 var _el$18 = _tmpl$();
-_$insert(_el$18, () => {
-	return expression(), "static";
-});
-const comma = _el$18;
+_$insert(_el$18, tiles);
+const template25 = _el$18;
 var _el$19 = _tmpl$();
 _$insert(_el$19, () => {
+	return expression(), "static";
+});
+const comma = _el$19;
+var _el$20 = _tmpl$();
+_$insert(_el$20, () => {
 	return children()();
 });
-const double = _el$19;
+const double = _el$20;

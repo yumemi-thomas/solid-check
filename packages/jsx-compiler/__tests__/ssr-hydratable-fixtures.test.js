@@ -19,6 +19,7 @@ const fixtureParity = {
   flags: "subset",
   fragments: "subset",
   insertChildren: "subset",
+  jsxAttributeValues: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
 };
@@ -34,6 +35,7 @@ function transformSsrHydratable(code, fixture) {
       moduleName: "r-server",
       generate: "ssr",
       hydratable: true,
+      contextToCustomElements: true,
       ...(fixture === "components" ? { builtIns: ["For", "Show"] } : null)
     }).code.trimEnd() + "\n"
   );

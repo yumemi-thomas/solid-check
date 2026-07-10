@@ -14,6 +14,10 @@ impl<'a> ComponentCalleeContext<'a> for AstUniversalTransform<'a, '_> {
         self.built_ins.iter().any(|built_in| built_in == name)
     }
 
+    fn is_builtin_shadowed(&self, span: Span) -> bool {
+        self.bindings.is_builtin_shadowed(span)
+    }
+
     fn register_built_in(&mut self, name: &str) {
         if !self
             .built_in_imports
@@ -24,9 +28,7 @@ impl<'a> ComponentCalleeContext<'a> for AstUniversalTransform<'a, '_> {
         }
     }
 
-    fn capture_this_callee(&mut self, _span: Span) -> Result<Expression<'a>> {
-        Err(Error::from_reason(
-            "Universal this-component callees are not implemented in the AST-native milestone yet",
-        ))
+    fn capture_this_callee(&mut self, span: Span) -> Result<Expression<'a>> {
+        Ok(self.capture_this_expression(span))
     }
 }

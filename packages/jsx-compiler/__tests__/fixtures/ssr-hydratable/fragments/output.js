@@ -1,44 +1,67 @@
+import { memo as _$memo } from "r-server";
 import { escape as _$escape } from "r-server";
 import { ssr as _$ssr } from "r-server";
 import { ssrHydrationKey as _$ssrHydrationKey } from "r-server";
-const multiStatic = [_$ssr(["<div", ">First</div>"], _$ssrHydrationKey()), _$ssr(["<div", ">Last</div>"], _$ssrHydrationKey())];
+import { ssrAttribute as _$ssrAttribute } from "r-server";
+var _v$, _v$2, _v$3, _v$4, _v$5, _v$6, _v$7, _v$8, _v$9, _v$10, _v$11, _v$12, _v$13, _v$14, _v$15, _v$16, _v$17, _v$18, _v$19, _v$20;
+var _tmpl$ = ["<div", ">First</div>"];
+var _tmpl$2 = ["<div", ">Last</div>"];
+var _tmpl$3 = [
+	"<div",
+	"",
+	">First</div>"
+];
+var _tmpl$4 = [
+	"<div",
+	"",
+	">Last</div>"
+];
+var _tmpl$5 = ["<div", "></div>"];
+var _tmpl$6 = ["<span", ">1</span>"];
+var _tmpl$7 = ["<span", ">2</span>"];
+var _tmpl$8 = ["<span", ">3</span>"];
+const multiStatic = [(_v$ = _$ssrHydrationKey(), _$ssr(_tmpl$, _v$)), (_v$2 = _$ssrHydrationKey(), _$ssr(_tmpl$2, _v$2))];
 const multiExpression = [
-	_$ssr(["<div", ">First</div>"], _$ssrHydrationKey()),
+	(_v$3 = _$ssrHydrationKey(), _$ssr(_tmpl$, _v$3)),
 	inserted,
-	_$ssr(["<div", ">Last</div>"], _$ssrHydrationKey()),
+	(_v$4 = _$ssrHydrationKey(), _$ssr(_tmpl$2, _v$4)),
 	"After"
 ];
 const multiDynamic = [
-	_$ssr([
-		"<div",
-		" id=\"",
-		"\">First</div>"
-	], _$ssrHydrationKey(), _$escape(state.first, true)),
-	state.inserted,
-	_$ssr([
-		"<div",
-		" id=\"",
-		"\">Last</div>"
-	], _$ssrHydrationKey(), _$escape(state.last, true)),
+	(_v$5 = _$ssrHydrationKey(), _v$6 = () => {
+		return _$ssrAttribute("id", _$escape(state.first, true));
+	}, _$ssr(_tmpl$3, _v$5, _v$6)),
+	_$memo(() => {
+		return _$escape(state.inserted);
+	}),
+	(_v$7 = _$ssrHydrationKey(), _v$8 = () => {
+		return _$ssrAttribute("id", _$escape(state.last, true));
+	}, _$ssr(_tmpl$4, _v$7, _v$8)),
 	"After"
 ];
 const singleExpression = inserted;
-const singleDynamic = inserted();
-const firstStatic = [inserted, _$ssr(["<div", "></div>"], _$ssrHydrationKey())];
-const firstDynamic = [inserted(), _$ssr(["<div", "></div>"], _$ssrHydrationKey())];
-const firstComponent = [Component({}), _$ssr(["<div", "></div>"], _$ssrHydrationKey())];
-const lastStatic = [_$ssr(["<div", "></div>"], _$ssrHydrationKey()), inserted];
-const lastDynamic = [_$ssr(["<div", "></div>"], _$ssrHydrationKey()), inserted()];
-const lastComponent = [_$ssr(["<div", "></div>"], _$ssrHydrationKey()), Component({})];
+const singleDynamic = _$memo(() => {
+	return _$escape(inserted());
+});
+const firstStatic = [inserted, (_v$9 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$9))];
+const firstDynamic = [_$memo(() => {
+	return _$escape(inserted());
+}), (_v$10 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$10))];
+const firstComponent = [Component({}), (_v$11 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$11))];
+const lastStatic = [(_v$12 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$12)), inserted];
+const lastDynamic = [(_v$13 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$13)), _$memo(() => {
+	return _$escape(inserted());
+})];
+const lastComponent = [(_v$14 = _$ssrHydrationKey(), _$ssr(_tmpl$5, _v$14)), Component({})];
 const spaces = [
-	_$ssr(["<span", ">1</span>"], _$ssrHydrationKey()),
+	(_v$15 = _$ssrHydrationKey(), _$ssr(_tmpl$6, _v$15)),
 	" ",
-	_$ssr(["<span", ">2</span>"], _$ssrHydrationKey()),
+	(_v$16 = _$ssrHydrationKey(), _$ssr(_tmpl$7, _v$16)),
 	" ",
-	_$ssr(["<span", ">3</span>"], _$ssrHydrationKey())
+	(_v$17 = _$ssrHydrationKey(), _$ssr(_tmpl$8, _v$17))
 ];
 const multiLineTrailing = [
-	_$ssr(["<span", ">1</span>"], _$ssrHydrationKey()),
-	_$ssr(["<span", ">2</span>"], _$ssrHydrationKey()),
-	_$ssr(["<span", ">3</span>"], _$ssrHydrationKey())
+	(_v$18 = _$ssrHydrationKey(), _$ssr(_tmpl$6, _v$18)),
+	(_v$19 = _$ssrHydrationKey(), _$ssr(_tmpl$7, _v$19)),
+	(_v$20 = _$ssrHydrationKey(), _$ssr(_tmpl$8, _v$20))
 ];

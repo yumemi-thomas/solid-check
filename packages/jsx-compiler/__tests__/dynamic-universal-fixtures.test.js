@@ -14,6 +14,7 @@ const fixtureParity = {
   conditionalExpressions: "subset",
   fragments: "subset",
   insertChildren: "subset",
+  jsxAttributeValues: "subset",
   simpleElements: "subset",
   textInterpolation: "subset"
 };
@@ -54,6 +55,7 @@ describe("AST-native Babel dynamic-universal fixture reuse", () => {
       "conditionalExpressions",
       "fragments",
       "insertChildren",
+      "jsxAttributeValues",
       "simpleElements",
       "textInterpolation"
     ]);
