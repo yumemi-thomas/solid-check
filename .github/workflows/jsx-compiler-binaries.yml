@@ -63,6 +63,12 @@ jobs:
         working-directory: packages/jsx-compiler
         run: pnpm exec napi build --platform --no-js --release --strip --target ${{ matrix.settings.target }} --manifest-path ./Cargo.toml
 
+      # The parity suites compile every fixture through the babel plugin for
+      # comparison, and its entry point is a rollup artifact.
+      - name: Build babel plugin (needed by parity suites)
+        if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
+        run: pnpm --filter @dom-expressions/babel-plugin-jsx run build
+
       - name: Test binary (native targets)
         if: matrix.settings.target == 'aarch64-apple-darwin' || matrix.settings.target == 'x86_64-unknown-linux-gnu' || matrix.settings.target == 'aarch64-unknown-linux-gnu' || matrix.settings.target == 'x86_64-pc-windows-msvc'
         working-directory: packages/jsx-compiler
