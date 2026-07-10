@@ -43,9 +43,10 @@ export function createTemplate(
       const inner = result.wontEscape
         ? (result.exprs[0] as t.Expression)
         : wrapFragmentChildWithEscape(path, result.exprs[0] as t.Expression);
-      return t.callExpression(registerImportMethod(path, getConfig(path).memoWrapper, undefined), [
-        inner
-      ]);
+      return t.callExpression(
+        registerImportMethod(path, getConfig(path).memoWrapper as string, undefined),
+        [inner]
+      );
     }
     return result.exprs[0] as t.Expression;
   }

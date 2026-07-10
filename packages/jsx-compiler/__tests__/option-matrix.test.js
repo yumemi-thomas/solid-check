@@ -24,6 +24,7 @@ const variants = {
   "omitLastClosingTag:false": { omitLastClosingTag: false },
   "wrapConditionals:false": { wrapConditionals: false },
   "effectWrapper:false": { effectWrapper: false },
+  "memoWrapper:false": { memoWrapper: false },
   customWrappers: { effectWrapper: "createRenderEffect", memoWrapper: "createMemo" },
   "staticMarker:@once": { staticMarker: "@once" },
   "delegatedEvents:custom": { delegatedEvents: ["custom", "keyup"] },
@@ -35,18 +36,6 @@ const variants = {
   "validate:false": { validate: false }
 };
 
-// Known Babel bug, not replicated: with `inlineStyles: false`, a static
-// `style` on a non-root element whose position doesn't trigger
-// `detectExpressions` is silently dropped — Babel's style-to-IIFE preprocess
-// runs after the child id-allocation decision, so the element gets no id and
-// the style write is discarded (repro: `<svg><rect style="fill:red"/><g/>
-// </svg>` loses the style entirely). Oxc emits the style effect.
-const knownBabelBugs = new Set([
-  "dom/inlineStyles:false/SVG",
-  "dom-hydratable/inlineStyles:false/SVG",
-  "dynamic/inlineStyles:false/SVG"
-]);
-
 describe("option-matrix parity", () => {
   for (const [modeName, mode] of Object.entries(modes)) {
     describe(modeName, () => {
@@ -57,7 +46,6 @@ describe("option-matrix parity", () => {
         test(variantName, () => {
           const failures = [];
           for (const fixture of fixtureNames(modeName)) {
-            if (knownBabelBugs.has(`${modeName}/${variantName}/${fixture}`)) continue;
             const source = readFixtureSource(modeName, fixture);
             let babelRaw, oxcRaw, babelErr, oxcErr;
             try {

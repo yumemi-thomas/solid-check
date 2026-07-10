@@ -407,9 +407,8 @@ describe("jsx-dom-expressions-compiler AST-native milestone", () => {
     });
     expect(conditional.code).toContain("return state.dynamic ? good() : bad;");
 
-    // `memoWrapper: false` alone crashes Babel (its `transformCondition`
-    // registers an import with the falsy wrapper name); Oxc just skips the
-    // memo wrap.
+    // `memoWrapper: false` alone compiles memo-less in both compilers —
+    // conditions keep their hoisted thunk without the memo wrap.
     const fragment = transform("const v = <>{state.dynamic ? good() : bad}</>;", {
       filename: "input.jsx",
       moduleName: "r-dom",

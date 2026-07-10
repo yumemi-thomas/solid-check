@@ -25,7 +25,8 @@ use crate::shared::component_props::{
     flush_component_props, ComponentPropContext,
 };
 use crate::shared::condition::{
-    is_condition_shape, transform_condition, zero_arg_call_thunk, ConditionBuilder,
+    is_condition_shape, transform_condition, transform_condition_inline, zero_arg_call_thunk,
+    ConditionBuilder,
 };
 use crate::shared::constants::{
     child_properties, dom_with_state, reserved_namespace, DomPropertyState,
@@ -1072,16 +1073,23 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                     // Component children never use the zero-arg call unwrap
                     // (Babel's `!info.componentChild` gate); conditionals
                     // inline their memos (`transformCondition(..., true)`).
-                    let thunk = if self.wrap_conditionals && is_condition_shape(&expression) {
-                        transform_condition(self, container.span, expression, true)
-                            .into_expression(self.allocator, container.span)
+                    let inner = if self.wrap_conditionals && is_condition_shape(&expression) {
+                        transform_condition_inline(self, container.span, expression)
                     } else {
-                        self.arrow_return_expression(container.span, expression)
+                        expression
                     };
-                    let value = if wrap {
-                        self.memo_wrap_fragment_child(container.span, thunk)
+                    // memoWrapper: false + multiple children: Babel's
+                    // `transformComponentChildren` strips the thunk down to
+                    // its body before createTemplate sees it.
+                    let value = if wrap && self.memo_wrapper.is_none() {
+                        inner
                     } else {
-                        thunk
+                        let thunk = self.arrow_return_expression(container.span, inner);
+                        if wrap {
+                            self.memo_wrap_fragment_child(container.span, thunk)
+                        } else {
+                            thunk
+                        }
                     };
                     values.push(ChildValue {
                         value,
@@ -1101,11 +1109,15 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
                         });
                         continue;
                     }
-                    let thunk = self.arrow_return_expression(spread.span, expression);
-                    let value = if wrap {
-                        self.memo_wrap_fragment_child(spread.span, thunk)
+                    let value = if wrap && self.memo_wrapper.is_none() {
+                        expression
                     } else {
-                        thunk
+                        let thunk = self.arrow_return_expression(spread.span, expression);
+                        if wrap {
+                            self.memo_wrap_fragment_child(spread.span, thunk)
+                        } else {
+                            thunk
+                        }
                     };
                     values.push(ChildValue {
                         value,

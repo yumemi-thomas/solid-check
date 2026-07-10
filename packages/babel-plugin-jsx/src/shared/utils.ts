@@ -350,7 +350,11 @@ export function transformCondition(
 ): TransformConditionResult {
   const config = getConfig(path);
   let expr = path.node as t.Expression;
-  const memo = registerImportMethod(path, config.memoWrapper, undefined);
+  // memoWrapper: false compiles memo-less — inline memos collapse to plain
+  // thunks and the hoisted declaration keeps its bare arrow.
+  const memo = config.memoWrapper
+    ? registerImportMethod(path, config.memoWrapper, undefined)
+    : undefined;
   let dTest: boolean | undefined,
     cond: t.Expression | undefined,
     id: t.Expression | t.Identifier | undefined;
@@ -368,7 +372,9 @@ export function transformCondition(
       if (!isBooleanExpression(cond))
         cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
       id = inline
-        ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
+        ? memo
+          ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
+          : t.arrowFunctionExpression([], cond)
         : path.scope.generateUidIdentifier("_c$");
       expr.test = t.callExpression(id, []);
       if (t.isConditionalExpression(expr.consequent) || t.isLogicalExpression(expr.consequent)) {
@@ -402,7 +408,9 @@ export function transformCondition(
       const boolLeft = isBooleanExpression(cond);
       if (!boolLeft) cond = t.unaryExpression("!", t.unaryExpression("!", cond, true), true);
       id = inline
-        ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
+        ? memo
+          ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
+          : t.arrowFunctionExpression([], cond)
         : path.scope.generateUidIdentifier("_c$");
       if (boolLeft) {
         nextPath.node.left = t.callExpression(id, []);
@@ -422,7 +430,7 @@ export function transformCondition(
       t.variableDeclaration("var", [
         t.variableDeclarator(
           id as t.LVal,
-          config.memoWrapper
+          memo
             ? t.callExpression(memo, [t.arrowFunctionExpression([], cond)])
             : t.arrowFunctionExpression([], cond)
         )

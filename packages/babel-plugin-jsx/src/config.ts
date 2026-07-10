@@ -22,8 +22,8 @@ export interface JSXDOMExpressionsConfig {
   omitAttributeSpacing: boolean;
   contextToCustomElements: boolean;
   staticMarker: string;
-  effectWrapper: string;
-  memoWrapper: string;
+  effectWrapper: string | false;
+  memoWrapper: string | false;
   validate: boolean;
   inlineStyles: boolean;
   renderers?: RendererConfig[];

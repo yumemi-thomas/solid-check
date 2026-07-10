@@ -1479,6 +1479,15 @@ function detectExpressions(
             t.isJSXSpreadAttribute(attr) ||
             (t.isJSXIdentifier(attr.name) &&
               ["textContent", "innerHTML", "innerText"].includes(attr.name.name)) ||
+            // inlineStyles: false rewrites every style value into an IIFE
+            // expression, so even literal styles compile to dynamic
+            // bindings that need an element reference.
+            (!config.inlineStyles &&
+              t.isJSXIdentifier(attr.name) &&
+              attr.name.name === "style" &&
+              (t.isStringLiteral(attr.value) ||
+                (t.isJSXExpressionContainer(attr.value) &&
+                  !t.isJSXEmptyExpression(attr.value.expression)))) ||
             (t.isJSXNamespacedName(attr.name) && attr.name.namespace.name === "prop") ||
             (t.isJSXExpressionContainer(attr.value) &&
               !(

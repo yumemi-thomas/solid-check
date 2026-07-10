@@ -143,7 +143,9 @@ function wrapDynamics(path: NodePath, dynamics: DynamicBinding[]) {
   if (!dynamics.length) return;
   const config = getConfig(path);
 
-  const effectWrapperId = registerImportMethod(path, config.effectWrapper, undefined);
+  // dynamics are only queued when effectWrapper is configured (element.ts
+  // guards every push), so the name is always a string here
+  const effectWrapperId = registerImportMethod(path, config.effectWrapper as string, undefined);
 
   if (dynamics.length === 1) {
     const prevValue =
