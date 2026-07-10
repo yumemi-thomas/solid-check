@@ -9,6 +9,8 @@ describe("binding loader", () => {
   });
 
   test("falls back to WASI when native addons cannot load", () => {
+    const forceWasi = process.env.NAPI_RS_FORCE_WASI;
+    delete process.env.NAPI_RS_FORCE_WASI;
     const existsSync = fs.existsSync;
     jest.spyOn(fs, "existsSync").mockImplementation(file => {
       const filename = String(file);
@@ -39,7 +41,12 @@ describe("binding loader", () => {
       { virtual: true }
     );
 
-    const compiler = require("..");
-    expect(compiler.transform("const value = 1")).toEqual({ code: "wasm", map: null });
+    try {
+      const compiler = require("..");
+      expect(compiler.transform("const value = 1")).toEqual({ code: "wasm", map: null });
+    } finally {
+      if (forceWasi === undefined) delete process.env.NAPI_RS_FORCE_WASI;
+      else process.env.NAPI_RS_FORCE_WASI = forceWasi;
+    }
   });
 });
