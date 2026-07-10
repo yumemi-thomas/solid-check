@@ -27,6 +27,7 @@
   "scripts": {
     "build": "napi build --release --strip --manifest-path ./Cargo.toml",
     "build:debug": "napi build --manifest-path ./Cargo.toml",
+    "bench": "pnpm run build && node scripts/bench.mjs",
     "lint": "cargo clippy --manifest-path ./Cargo.toml -- -D warnings",
     "test": "pnpm run build:debug && jest --no-cache",
     "artifacts": "napi artifacts",

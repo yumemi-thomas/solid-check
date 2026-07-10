@@ -136,8 +136,9 @@ Supported options track the Babel plugin where currently implemented:
 - `omitQuotes`
 - `omitAttributeSpacing`
 - `inlineStyles`
-- `effectWrapper`: `"effect"` or `false`
-- paired wrapperless mode: `wrapConditionals: false` with `memoWrapper: false`
+- `effectWrapper`: custom import name string, or `false` to disable
+- `memoWrapper`: custom import name string, or `false` to disable
+- `wrapConditionals`
 - `staticMarker`
 - `validate`
 - `omitNestedClosingTags`
@@ -145,6 +146,22 @@ Supported options track the Babel plugin where currently implemented:
 - `builtIns`
 - `requireImportSource`
 - `renderers`
+
+## Performance
+
+Compared against `@dom-expressions/babel-plugin-jsx` compiling identical
+sources under identical options (Apple Silicon, release build, in-process,
+median of 7 iterations after warmup — run `pnpm bench` in this package to
+reproduce on your machine):
+
+| Workload                                        | babel-plugin-jsx | jsx-compiler | Speedup |
+| ----------------------------------------------- | ---------------: | -----------: | ------: |
+| Fixture corpus (88 files, 174 KB, all 10 modes) |           151 ms |       8.4 ms |     18x |
+| 129 KB single module                            |           230 ms |       4.6 ms |     50x |
+| 1 MB single module                              |        10,164 ms |        39 ms |    258x |
+
+Native throughput stays flat at ~20–27 MB/s as input grows, while Babel's
+per-file cost grows super-linearly — so the gap widens with file size.
 
 ## Current Scope
 
@@ -159,10 +176,10 @@ the DOM, hydratable DOM, dev hydratable DOM, SSR, hydratable SSR, universal, dyn
   attribute handling covered by the checked fixture suites for those targets
 - Solid-compatible defaults such as `contextToCustomElements: true`
 - option coverage for `hydratable`, `dev`, `delegateEvents`, `delegatedEvents`,
-  `omitQuotes`, `omitAttributeSpacing`, `inlineStyles`, `effectWrapper: false`,
-  paired `wrapConditionals: false` / `memoWrapper: false`, `requireImportSource`,
-  `staticMarker`, `validate`, `omitNestedClosingTags`, `omitLastClosingTag`,
-  `builtIns`, and dynamic `renderers`
+  `omitQuotes`, `omitAttributeSpacing`, `inlineStyles`, `effectWrapper`,
+  `memoWrapper`, `wrapConditionals`, `requireImportSource`, `staticMarker`,
+  `validate`, `omitNestedClosingTags`, `omitLastClosingTag`, `builtIns`, and
+  dynamic `renderers`
 - source maps for the implemented path
 
 ## Not Implemented Yet
@@ -172,8 +189,6 @@ The compiler intentionally rejects unsupported features instead of pretending to
 - DOM `namespaceElements` sections that the current Oxc parser rejects before transform
   (for example, hyphenated JSX member segments)
 - arbitrary custom renderer names beyond dynamic DOM renderer override plus universal fallback
-- custom `effectWrapper` / `memoWrapper` helper names
-- unpaired `wrapConditionals: false` or `memoWrapper: false`
 - unknown/custom namespaced DOM attributes outside known runtime namespaces such as `xlink`
 
 ## Architecture
