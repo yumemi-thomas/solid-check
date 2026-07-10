@@ -10,9 +10,14 @@ describe("binding loader", () => {
 
   test("falls back to WASI when native addons cannot load", () => {
     const existsSync = fs.existsSync;
-    jest
-      .spyOn(fs, "existsSync")
-      .mockImplementation(file => !String(file).endsWith(".node") && existsSync(file));
+    jest.spyOn(fs, "existsSync").mockImplementation(file => {
+      const filename = String(file);
+      return (
+        !filename.endsWith(".node") &&
+        !filename.endsWith(".wasi.cjs") &&
+        existsSync(file)
+      );
+    });
 
     const nativePackage =
       process.platform === "darwin"
