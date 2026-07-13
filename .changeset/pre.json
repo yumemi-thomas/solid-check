@@ -17,6 +17,7 @@
     "asset-registry-inline-styles",
     "auto-install-wasm-compiler",
     "babel-wrapperless-and-style-fixes",
+    "defer-held-fragment-activation",
     "export-void-rawtext-element-sets",
     "expose-classvalue-type",
     "expose-void-rawtext-everywhere",
