@@ -520,6 +520,105 @@ describe("reveal defensive invariants", () => {
     expect(() => runtime.$dfj([])).not.toThrow();
   });
 
+  describe("deferred activation for markers inside held templates", () => {
+    // A fragment marker that sits inside a flushed-but-unactivated ancestor
+    // template (a reveal-held slot) is invisible to getElementById. These
+    // swaps must queue and re-apply after the ancestor activates, not drop.
+    const visibleHTML = container => container.firstChild.innerHTML;
+
+    it("queues a content swap whose marker is inside a held template and applies it after group activation", () => {
+      globalThis._$HY = { events: [], completed: new WeakSet(), r: {}, done: false, fe() {} };
+      const container = document.createElement("div");
+      container.innerHTML =
+        '<div><template id="pl-a"></template><!--pl-a-->' +
+        '<template id="a"><section><template id="pl-n"></template><i>NF</i><!--pl-n--></section></template>' +
+        '<template id="n"><span>N</span></template></div>';
+      document.body.appendChild(container);
+
+      // Nested fragment settles while its ancestor slot is still held.
+      expect(runtime.$df("n")).toBe(0);
+      expect(globalThis._$HY.dq.n).toBe(1);
+      expect(visibleHTML(container)).toContain('<template id="n">');
+
+      // Group releases the ancestor; the drain applies the queued nested swap.
+      runtime.$dfj(["a"]);
+      expect(visibleHTML(container)).toBe("<section><span>N</span></section>");
+      container.remove();
+    });
+
+    it("does not queue an already-swapped fragment", () => {
+      globalThis._$HY = { events: [], completed: new WeakSet(), r: {}, done: false, fe() {} };
+      const container = document.createElement("div");
+      container.innerHTML =
+        '<div><template id="pl-a"></template><!--pl-a--><template id="a"><span>A</span></template></div>';
+      document.body.appendChild(container);
+
+      expect(runtime.$df("a")).toBe(1);
+      // Repeat activation: content template is gone — a no-op, never queued.
+      expect(runtime.$df("a")).toBe(0);
+      expect(globalThis._$HY.dq).toBeFalsy();
+      container.remove();
+    });
+
+    it("queues a collapsed fallback whose marker is inside a held template", () => {
+      globalThis._$HY = { events: [], completed: new WeakSet(), r: {}, done: false, fe() {} };
+      const container = document.createElement("div");
+      container.innerHTML =
+        '<div><template id="pl-a"></template><!--pl-a-->' +
+        '<template id="a"><section><template id="pl-f"><em>F</em></template><!--pl-f--></section></template></div>';
+      document.body.appendChild(container);
+
+      runtime.$dflj(["f"]);
+      expect(globalThis._$HY.dlq.f).toBe(1);
+
+      runtime.$df("a");
+      // Materialized clone sits between the fallback template and its comment
+      // marker (the template's own serialized content doesn't count).
+      expect(visibleHTML(container)).toContain("</template><em>F</em><!--pl-f-->");
+      container.remove();
+    });
+
+    it("prefers queued content over the queued fallback for the same fragment", () => {
+      globalThis._$HY = { events: [], completed: new WeakSet(), r: {}, done: false, fe() {} };
+      const container = document.createElement("div");
+      container.innerHTML =
+        '<div><template id="pl-a"></template><!--pl-a-->' +
+        '<template id="a"><section><template id="pl-n"><em>NF</em></template><!--pl-n--></section></template>' +
+        '<template id="n"><span>N</span></template></div>';
+      document.body.appendChild(container);
+
+      // Both a fallback materialization and the real content settle while held.
+      runtime.$dflj(["n"]);
+      runtime.$df("n");
+
+      runtime.$dfj(["a"]);
+      expect(visibleHTML(container)).toBe("<section><span>N</span></section>");
+      expect(visibleHTML(container)).not.toContain("NF");
+      container.remove();
+    });
+
+    it("drains transitively through nested held levels", () => {
+      globalThis._$HY = { events: [], completed: new WeakSet(), r: {}, done: false, fe() {} };
+      const container = document.createElement("div");
+      container.innerHTML =
+        '<div><template id="pl-a"></template><!--pl-a-->' +
+        '<template id="a"><template id="pl-b"></template><!--pl-b--></template>' +
+        '<template id="b"><template id="pl-c"></template><!--pl-c--></template>' +
+        '<template id="c"><span>C</span></template></div>';
+      document.body.appendChild(container);
+
+      // Deepest settles first, then its parent — both while the root is held.
+      runtime.$df("c");
+      runtime.$df("b");
+      expect(globalThis._$HY.dq).toEqual({ c: 1, b: 1 });
+
+      // Releasing the root must cascade: a reveals b's marker, b reveals c's.
+      runtime.$df("a");
+      expect(visibleHTML(container)).toBe("<span>C</span>");
+      container.remove();
+    });
+  });
+
   it("keeps unknown-group early release harmless for unrelated groups", async () => {
     let done;
     let reveal;
