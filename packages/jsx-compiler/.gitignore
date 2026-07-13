@@ -2,3 +2,9 @@ target/
 node_modules/
 *.node
 index.d.ts
+browser.js
+jsx-compiler.wasi-browser.js
+jsx-compiler.wasi.cjs
+wasi-worker-browser.mjs
+wasi-worker.mjs
+*.wasm
