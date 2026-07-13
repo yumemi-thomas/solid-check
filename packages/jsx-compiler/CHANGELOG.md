@@ -1,5 +1,11 @@
 # @dom-expressions/jsx-compiler
 
+## 0.50.0-next.19
+
+### Patch Changes
+
+- ff7818e: Install the WebAssembly compiler fallback automatically so StackBlitz and other environments without native addon support work without package-manager architecture configuration.
+
 ## 0.50.0-next.18
 
 ### Patch Changes

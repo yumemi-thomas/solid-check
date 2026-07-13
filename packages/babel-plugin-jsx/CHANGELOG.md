@@ -1,5 +1,7 @@
 # babel-plugin-jsx-dom-expressions
 
+## 0.50.0-next.19
+
 ## 0.50.0-next.18
 
 ## 0.50.0-next.17
