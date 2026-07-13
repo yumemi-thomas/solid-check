@@ -1007,6 +1007,74 @@ describe("manifest-driven asset resolution", () => {
     expect(html).toContain("<div>x</div>");
   });
 
+  // The manifest option's resolver form `{ resolve, resolveSync? }`: a dev
+  // server implements asset resolution against its live module graph. No
+  // manifest-object normalization (joinAssetPath, imports walk) applies, and
+  // results (possibly promises, possibly inline-style css descriptors) flow
+  // through untouched. `resolveSync` wires to `context.resolveAssetsSync`
+  // for sync consumers (e.g. lazy's moduleUrl getter used by islands).
+  it("wires a resolver manifest to context.resolveAssets / resolveAssetsSync", () => {
+    const resolver = {
+      resolve: key => ({
+        js: ["/" + key],
+        css: [{ id: "/src/a.css", content: ".a{}", attrs: { "data-vite-dev-id": "/src/a.css" } }]
+      }),
+      resolveSync: key => ({ js: ["/" + key], css: [] })
+    };
+    let resolved, resolvedSync;
+    r.renderToString(
+      () => {
+        resolved = sharedConfig.context.resolveAssets("src/a.tsx");
+        resolvedSync = sharedConfig.context.resolveAssetsSync("src/a.tsx");
+        return r.ssr`<div>x</div>`;
+      },
+      { manifest: resolver }
+    );
+    expect(resolved.js).toEqual(["/src/a.tsx"]);
+    expect(resolved.css[0].content).toBe(".a{}");
+    expect(resolvedSync).toEqual({ js: ["/src/a.tsx"], css: [] });
+  });
+
+  it("accepts a bare function as resolver shorthand (no sync path)", () => {
+    const resolver = key => ({ js: ["/" + key], css: [] });
+    let installed, sync;
+    r.renderToString(
+      () => {
+        installed = sharedConfig.context.resolveAssets;
+        sync = sharedConfig.context.resolveAssetsSync;
+        return r.ssr`<div>x</div>`;
+      },
+      { manifest: resolver }
+    );
+    expect(installed).toBe(resolver);
+    expect(sync).toBeUndefined();
+  });
+
+  it("exposes resolveAssetsSync for object manifests (sync by nature)", () => {
+    const manifest = { _base: "/assets/", "a.tsx": { file: "a.js", css: ["a.css"] } };
+    let resolvedSync;
+    r.renderToString(
+      () => {
+        resolvedSync = sharedConfig.context.resolveAssetsSync("a.tsx");
+        return r.ssr`<div>x</div>`;
+      },
+      { manifest }
+    );
+    expect(resolvedSync).toEqual({ js: ["/assets/a.js"], css: ["/assets/a.css"] });
+  });
+
+  it("skips entry-asset registration for resolver manifests", () => {
+    // Resolvers can't be enumerated for isEntry; must render without throwing
+    // and without emitting any preload links.
+    for (const manifest of [() => ({ js: [], css: [] }), { resolve: () => null }]) {
+      const html = r.renderToString(
+        () => r.ssr`<html><head></head><body><div>x</div></body></html>`,
+        { manifest }
+      );
+      expect(html).not.toContain("<link");
+    }
+  });
+
   // solidjs/solid#2817 layers 1-2: dev manifests have answered `_base` with a
   // non-string (a proxy object) and emitted `file` with a leading slash.
   // resolveAssets normalizes instead of trusting the manifest's shape.

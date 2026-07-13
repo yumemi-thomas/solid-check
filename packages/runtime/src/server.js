@@ -62,7 +62,9 @@ function resolveAssets(moduleUrl, manifest) {
 }
 
 function registerEntryAssets(manifest) {
-  if (!manifest) return;
+  // Resolver manifests can't be enumerated for entries; consumers that want
+  // SSR'd entry assets resolve their entry key themselves.
+  if (!manifest || typeof manifest === "function" || typeof manifest.resolve === "function") return;
   const ctx = sharedConfig.context;
   if (!ctx?.registerAsset) return;
   for (const key in manifest) {
@@ -148,7 +150,28 @@ function applyAssetTracking(context, tracking, manifest) {
   });
   context.registerModule = tracking.registerModule;
   context.getBoundaryModules = tracking.getBoundaryModules;
-  if (manifest) context.resolveAssets = moduleUrl => resolveAssets(moduleUrl, manifest);
+  // A manifest can be the static object produced by a build (sync lookups,
+  // entry enumeration) or a resolver — the primitive a dev server implements
+  // against its live module graph: `{ resolve, resolveSync? }`, where
+  // `resolve` may return a promise and may resolve css entries to
+  // inline-style descriptors instead of URLs, and `resolveSync` answers with
+  // what is knowable without async work (for sync consumers like a lazy
+  // component's moduleUrl getter). A bare function is accepted as shorthand
+  // for `{ resolve }`. Callers (the reactive library's lazy()) handle both
+  // result shapes. Static manifests are sync by nature, so both context
+  // paths point at the same lookup.
+  if (typeof manifest === "function") {
+    context.resolveAssets = manifest;
+  } else if (manifest && typeof manifest.resolve === "function") {
+    context.resolveAssets = key => manifest.resolve(key);
+    if (typeof manifest.resolveSync === "function") {
+      context.resolveAssetsSync = key => manifest.resolveSync(key);
+    }
+  } else if (manifest) {
+    const resolve = moduleUrl => resolveAssets(moduleUrl, manifest);
+    context.resolveAssets = resolve;
+    context.resolveAssetsSync = resolve;
+  }
 }
 
 // Based on https://github.com/WebReflection/domtagger/blob/master/esm/sanitizer.js

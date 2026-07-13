@@ -11,6 +11,51 @@ export const Namespaces: Record<string, string>;
 
 type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
 
+/** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
+export type AssetManifest = Record<
+  string,
+  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+> & { _base?: string };
+
+/** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
+export type InlineStyleAsset = {
+  id: string;
+  content: string;
+  attrs?: Record<string, string>;
+};
+
+export type ResolvedAssets = {
+  js: string[];
+  css: (string | InlineStyleAsset)[];
+};
+
+/**
+ * Resolver form of the manifest option — the primitive a dev server
+ * implements against its live module graph (a static manifest object is
+ * normalized into a sync resolver internally). `resolve` may return a
+ * promise (async resolvers require streaming rendering); CSS entries may be
+ * URL strings (emitted as load-gated `<link>` tags) or inline-style
+ * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
+ * is accepted as shorthand for `{ resolve }`.
+ */
+export type AssetResolver = {
+  resolve(
+    key: string
+  ): ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+  /**
+   * Synchronous fast path answering with whatever is knowable without async
+   * work (typically js URLs, omitting css). Sync consumers — e.g. a lazy
+   * component's `moduleUrl` getter used by islands — use this when `resolve`
+   * would return a promise, so adapters should provide it whenever possible.
+   */
+  resolveSync?(key: string): ResolvedAssets | null | undefined;
+};
+
+/** Bare-function shorthand for `AssetResolver` (no sync fast path). */
+export type AssetResolverFn = (
+  key: string
+) => ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+
 export function renderToString<T>(
   fn: () => T,
   options?: {
@@ -18,10 +63,7 @@ export function renderToString<T>(
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
-    manifest?: Record<
-      string,
-      { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
-    > & { _base?: string };
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onError?: (err: any) => void;
   }
 ): string;
@@ -34,10 +76,7 @@ export function renderToStringAsync<T>(
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
-    manifest?: Record<
-      string,
-      { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
-    > & { _base?: string };
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onError?: (err: any) => void;
   }
 ): Promise<string>;
@@ -48,10 +87,7 @@ export function renderToStream<T>(
     renderId?: string;
     noScripts?: boolean;
     plugins?: any[];
-    manifest?: Record<
-      string,
-      { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
-    > & { _base?: string };
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
     onCompleteShell?: (info: { write: (v: string) => void }) => void;
     onCompleteAll?: (info: { write: (v: string) => void }) => void;
     onError?: (err: any) => void;
