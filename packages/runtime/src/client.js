@@ -1020,8 +1020,7 @@ function insertExpression(parent, value, current, marker) {
     if (tc === "string" || tc === "number") {
       parent.firstChild.data = value;
     } else {
-      const owned = ownedChildCount(current);
-      if (owned === -1 || owned === parent.childNodes.length) parent.textContent = value;
+      if (ownsAllChildren(parent, current)) parent.textContent = value;
       else {
         // Foreign nodes present (e.g. stream-injected stylesheet links) —
         // replace only our own nodes, keeping text content leading.
@@ -1106,14 +1105,26 @@ function appendNodes(parent, array, marker = null) {
   }
 }
 
-// Number of parent children the tracked `current` value accounts for, or -1
-// when unknown (initial render / untracked content — the whole parent is
-// considered owned, preserving the designed clear-on-first-render behavior).
-function ownedChildCount(current) {
-  if (Array.isArray(current)) return current.length;
-  if (current == null) return -1;
-  if (current === "") return 0; // `textContent = ""` left no node behind
-  return 1; // single node, or a string/number rendered as one text node
+// Whether the tracked `current` value accounts for all of the parent's
+// children, using only O(1) boundary pointer reads — `childNodes.length`
+// re-counts the child list after every mutation, which is O(n) on exactly
+// the hot markerless clear path this guards. Foreign nodes appended after
+// our content (late-flushed stylesheet <link>s at the end of <body>) break
+// the `lastChild` identity. `current == null` (initial render / untracked
+// content) reports true, preserving the designed clear-on-first-render
+// behavior.
+function ownsAllChildren(parent, current) {
+  if (current == null) return true;
+  if (Array.isArray(current)) {
+    return current.length
+      ? parent.firstChild === current[0] && parent.lastChild === current[current.length - 1]
+      : parent.firstChild === null;
+  }
+  if (current === "") return parent.firstChild === null; // `textContent = ""` left no node behind
+  if (current.nodeType) return parent.firstChild === current && parent.lastChild === current;
+  // string/number content lives in a single leading text node
+  const first = parent.firstChild;
+  return first !== null && first.nodeType === 3 && parent.lastChild === first;
 }
 
 // Remove only the nodes tracked by `current` from a root-level (markerless)
@@ -1141,8 +1152,7 @@ function cleanChildren(parent, current, marker, replacement) {
     // children. Streaming can append foreign nodes to the root (late-flushed
     // stylesheet <link>s land at the end of <body>) and those must survive a
     // re-render — wiping them drops loaded CSS.
-    const owned = ownedChildCount(current);
-    if (owned === -1 || owned === parent.childNodes.length) return (parent.textContent = "");
+    if (ownsAllChildren(parent, current)) return (parent.textContent = "");
     return removeOwnedChildren(parent, current);
   }
   if (current.length) {
