@@ -1,6 +1,6 @@
 {
   "name": "@dom-expressions/jsx-compiler-win32-x64-msvc",
-  "version": "0.50.0-next.19",
+  "version": "0.50.0-next.20",
   "cpu": [
     "x64"
   ],
