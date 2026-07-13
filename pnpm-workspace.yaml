@@ -1,9 +1,5 @@
 packages:
   - 'packages/*'
-supportedArchitectures:
-  cpu:
-    - current
-    - wasm32
 allowBuilds:
   '@parcel/watcher': true
   nx: true
