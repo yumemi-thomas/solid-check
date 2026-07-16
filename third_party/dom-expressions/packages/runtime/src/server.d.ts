@@ -1,0 +1,232 @@
+import { JSX } from "./jsx.js";
+export const DOMWithState: Record<string, Record<string, 1 | 2>>;
+export const ChildProperties: Set<string>;
+export const DelegatedEvents: Set<string>;
+export const DOMElements: Set<string>;
+export const SVGElements: Set<string>;
+export const MathMLElements: Set<string>;
+export const VoidElements: Set<string>;
+export const RawTextElements: Set<string>;
+export const Namespaces: Record<string, string>;
+
+type MountableElement = Element | Document | ShadowRoot | DocumentFragment | Node;
+
+/** Static asset manifest produced by a build (e.g. parsed Vite manifest.json). */
+export type AssetManifest = Record<
+  string,
+  { file: string; css?: string[]; isEntry?: boolean; imports?: string[] }
+> & { _base?: string };
+
+/** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
+export type InlineStyleAsset = {
+  id: string;
+  content: string;
+  attrs?: Record<string, string>;
+};
+
+export type ResolvedAssets = {
+  js: string[];
+  css: (string | InlineStyleAsset)[];
+};
+
+/**
+ * Resolver form of the manifest option — the primitive a dev server
+ * implements against its live module graph (a static manifest object is
+ * normalized into a sync resolver internally). `resolve` may return a
+ * promise (async resolvers require streaming rendering); CSS entries may be
+ * URL strings (emitted as load-gated `<link>` tags) or inline-style
+ * descriptors (emitted as `<style>` tags). A bare `resolve`-shaped function
+ * is accepted as shorthand for `{ resolve }`.
+ */
+export type AssetResolver = {
+  resolve(
+    key: string
+  ): ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+  /**
+   * Synchronous fast path answering with whatever is knowable without async
+   * work (typically js URLs, omitting css). Sync consumers — e.g. a lazy
+   * component's `moduleUrl` getter used by islands — use this when `resolve`
+   * would return a promise, so adapters should provide it whenever possible.
+   */
+  resolveSync?(key: string): ResolvedAssets | null | undefined;
+};
+
+/** Bare-function shorthand for `AssetResolver` (no sync fast path). */
+export type AssetResolverFn = (
+  key: string
+) => ResolvedAssets | null | undefined | Promise<ResolvedAssets | null | undefined>;
+
+export function renderToString<T>(
+  fn: () => T,
+  options?: {
+    nonce?: string;
+    renderId?: string;
+    noScripts?: boolean;
+    plugins?: any[];
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    onError?: (err: any) => void;
+  }
+): string;
+/** @deprecated use renderToStream which also returns a promise */
+export function renderToStringAsync<T>(
+  fn: () => T,
+  options?: {
+    timeoutMs?: number;
+    nonce?: string;
+    renderId?: string;
+    noScripts?: boolean;
+    plugins?: any[];
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    onError?: (err: any) => void;
+  }
+): Promise<string>;
+export function renderToStream<T>(
+  fn: () => T,
+  options?: {
+    nonce?: string;
+    renderId?: string;
+    noScripts?: boolean;
+    plugins?: any[];
+    manifest?: AssetManifest | AssetResolver | AssetResolverFn;
+    onCompleteShell?: (info: { write: (v: string) => void }) => void;
+    onCompleteAll?: (info: { write: (v: string) => void }) => void;
+    onError?: (err: any) => void;
+  }
+): {
+  then: (fn: (html: string) => void) => void;
+  pipe: (writable: { write: (v: string) => void; end: () => void }) => void;
+  pipeTo: (writable: WritableStream) => Promise<void>;
+};
+
+export function HydrationScript(props: { nonce?: string; eventNames?: string[] }): JSX.Element;
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string };
+export function ssrElement(
+  name: string,
+  props: any,
+  children: any,
+  needsId: boolean
+): { t: string };
+export function ssrClassName(value: string | { [k: string]: boolean } | Array<any>): string;
+export function ssrStyle(value: string | { [k: string]: string }): string;
+export function ssrStyleProperty(name: string, value: any): string;
+export function ssrAttribute(key: string, value: any): string;
+export function ssrGroup<T extends () => any[]>(fn: T, n: number): T;
+export function scope<T>(fn: () => T): () => unknown;
+export function ssrHydrationKey(): string;
+export function resolveSSRNode(node: any, result?: any, top?: boolean): any;
+export function escape(s: any, attr?: boolean): any;
+export function applyRef(
+  r: ((element: any) => void) | ((element: any) => void)[],
+  element: any
+): void;
+export function useAssets(fn: () => JSX.Element): void;
+export function getAssets(): string;
+export function getHydrationKey(): string | undefined;
+export function effect<T>(fn: (prev?: T) => T, effect: (value: T, prev?: T) => void): void;
+export function memo<T>(fn: () => T, equal: boolean): () => T;
+export function createComponent<T>(Comp: (props: T) => JSX.Element, props: T): JSX.Element;
+export function mergeProps(...sources: unknown[]): unknown;
+export function getOwner(): unknown;
+export function generateHydrationScript(options?: {
+  nonce?: string;
+  eventNames?: string[];
+}): string;
+export declare const RequestContext: unique symbol;
+export interface RequestEvent {
+  request: Request;
+  locals: Record<string | number | symbol, any>;
+}
+export function getRequestEvent(): RequestEvent | undefined;
+
+export function Assets(props: { children?: JSX.Element }): JSX.Element;
+export function untrack<T>(fn: () => T): T;
+
+// client-only APIs
+
+/** @deprecated not supported on the server side */
+export function style(
+  node: Element,
+  value: { [k: string]: string },
+  prev?: { [k: string]: string }
+): void;
+
+/** @deprecated not supported on the server side */
+export function insert<T>(
+  parent: MountableElement,
+  accessor: (() => T) | T,
+  marker?: Node | null,
+  init?: JSX.Element
+): JSX.Element;
+
+/** @deprecated not supported on the server side */
+export function spread<T>(node: Element, accessor: T, skipChildren?: Boolean): void;
+
+/** @deprecated not supported on the server side */
+export function delegateEvents(eventNames: string[]): void;
+/** @deprecated not supported on the server side */
+export function registerDelegatedRoot(root: MountableElement): void;
+/** @deprecated not supported on the server side */
+export function unregisterDelegatedRoot(root: MountableElement): void;
+/** @deprecated not supported on the server side */
+export function registerDelegatedContainer(
+  container: MountableElement,
+  owner?: MountableElement
+): void;
+/** @deprecated not supported on the server side */
+export function unregisterDelegatedContainer(
+  container: MountableElement,
+  owner?: MountableElement
+): void;
+/** @deprecated not supported on the server side */
+export function getDelegatedRoot(node: MountableElement): MountableElement | undefined;
+/** @deprecated not supported on the server side */
+export function dynamicProperty(props: unknown, key: string): unknown;
+/** @deprecated not supported on the server side */
+export function setAttribute(node: Element, name: string, value: string): void;
+/** @deprecated not supported on the server side */
+export function setAttributeNS(node: Element, namespace: string, name: string, value: string): void;
+
+/** @deprecated not supported on the server side */
+export function addEvent(node: Element, name: string, handler: () => void, delegate: boolean): void;
+
+/** @deprecated not supported on the server side */
+export function render(code: () => JSX.Element, element: MountableElement): () => void;
+/**
+ * @deprecated not supported on the server side
+ * @param flag
+ * - `undefined` — clone the template as-is (uses `cloneNode`).
+ * - `1` — use `document.importNode` instead of `cloneNode`.
+ * - `2` — the template html is wrapped; the outer tag is stripped at clone time.
+ */
+export function template(html: string, flag?: 1 | 2): () => Element;
+/** @deprecated not supported on the server side */
+export function setProperty(node: Element, name: string, value: any): void;
+/** @deprecated not supported on the server side */
+export function className(node: Element, value: string): void;
+/** @deprecated not supported on the server side */
+export function assign(node: Element, props: any, skipChildren?: Boolean): void;
+
+/** @deprecated not supported on the server side */
+export function hydrate(
+  fn: () => JSX.Element,
+  node: MountableElement,
+  options?: { renderId?: string; owner?: unknown }
+): () => void;
+
+/** @deprecated not supported on the server side */
+export function getNextElement(template?: () => Element): Element;
+/** @deprecated not supported on the server side */
+export function getNextMatch(start: Node, elementName: string): Element;
+/** @deprecated not supported on the server side */
+export function getNextMarker(start: Node): [Node, Array<Node>];
+/** @deprecated not supported on the server side */
+export function runHydrationEvents(): void;
+/** @deprecated not supported on the server side */
+export function ref(
+  fn: () => ((element: Element) => void) | ((element: Element) => void)[],
+  element: Element
+): void;
+/** @deprecated not supported on the server side */
+export function setStyleProperty(node: Element, name: string, value: any): void;
+/** @deprecated not supported on the server side — register assets through the render context instead */
+export function acquireAsset(descriptor: unknown): () => void;

@@ -1,0 +1,56 @@
+---
+description: Core architecture and mental model for the dom-expressions monorepo
+alwaysApply: true
+---
+
+# Architecture
+
+Fine-grained DOM rendering runtime used by SolidJS and other reactive libraries. Framework-agnostic — plugs into any reactive system via the `rxcore` import pattern. Pre-release on the `next` branch; every release may be breaking.
+
+## Monorepo Structure
+
+pnpm workspaces + Changesets. All packages live under the `@dom-expressions` npm scope and are versioned together (`0.50.0-next.x`).
+
+- **`@dom-expressions/runtime`** (`packages/runtime/`): Core runtime — client rendering, SSR, hydration, universal renderer. No build step; source files consumed directly by downstream bundlers.
+- **`@dom-expressions/babel-plugin-jsx`** (`packages/babel-plugin-jsx/`): Babel plugin that compiles JSX to DOM expressions. Supports DOM, SSR, and universal output modes.
+- **`@dom-expressions/jsx-compiler`** (`packages/jsx-compiler/`): Experimental AST-native JSX compiler implemented in Rust with Oxc (napi-rs). Platform binaries ship as `@dom-expressions/jsx-compiler-<platform>` packages resolved via `optionalDependencies`.
+- **`@dom-expressions/hyperscript`** (`packages/hyperscript/`): HyperScript API — `h()` function wrapping the runtime.
+- **`@dom-expressions/tagged-jsx`** (`packages/tagged-jsx/`): Tagged template literal API — runtime JSX parsing with template caching.
+
+The pre-scope names (`dom-expressions`, `babel-plugin-jsx-dom-expressions`, `hyper-dom-expressions`, `lit-dom-expressions`) remain in use only by the Solid 1.x maintenance line on the `main` branch. `lit-dom-expressions` was dropped from this branch in favor of `tagged-jsx`.
+
+## Dependency Chain
+
+```
+Reactive library (e.g. @solidjs/signals)
+       ↓  (provides rxcore implementation)
+  dom-expressions  (DOM rendering runtime)
+       ↓
+  solid-js / @solidjs/web  (consumer)
+```
+
+## The `rxcore` Pattern
+
+All runtime modules (`client.js`, `server.js`, `universal.js`) import from `"rxcore"` — a virtual module that doesn't exist at publish time. Downstream consumers use `babel-plugin-transform-rename-import` to rewrite `rxcore` to their actual reactive core module. Expected exports from `rxcore`:
+
+- `root`, `effect`, `memo`, `getOwner`, `createComponent`, `sharedConfig`, `untrack`, `mergeProps`, `flatten`
+- Server-only: `ssrHandleError`, `runWithOwner`
+
+## Runtime Modules
+
+- **`client.js`**: `render()`, `hydrate()`, `insert()`, `spread()`, `template()`, event delegation, hydration utilities
+- **`server.js`**: `renderToString()`, `renderToStream()`, `ssr()`, SSR helpers, asset tracking, serialization via `seroval`
+- **`universal.js`**: `createRenderer()` factory for non-DOM platforms
+- **`reconcile.js`**: Array reconciliation (diffing) algorithm for efficient DOM updates
+- **`constants.js`**: DOM/SVG element sets, delegated events, property mappings
+
+## Build-time Constants
+
+`_DX_DEV_` is replaced at build time for dev-only code paths (error messages, validation).
+
+## Commands
+
+- `pnpm test` — run all package test suites
+- `pnpm build` — build all packages
+- `pnpm jsx-sync-types` — regenerate `jsx.d.ts` from `jsx-h.d.ts`
+- Package-level: `pnpm test`, `pnpm build` within each package directory

@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "outDir": "types",
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "target": "esnext",
+    "rootDir": "src",
+    "moduleResolution": "bundler",
+    "strict": true
+  },
+  "include": ["src"]
+}
