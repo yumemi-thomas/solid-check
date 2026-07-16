@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solid-check.dev/schema/certification-snapshot.schema.json",
+  "title": "Solid Check Certification Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "findings", "packageSummaries", "metrics"],
+  "properties": {
+    "status": { "enum": ["certified", "violation", "uncertifiable"] },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "packageSummaries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/packageSummary" }
+    },
+    "metrics": { "$ref": "#/$defs/metrics" }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "startByte", "endByte", "line", "column"],
+      "properties": {
+        "path": { "type": "string" },
+        "startByte": { "type": "integer", "minimum": 0 },
+        "endByte": { "type": "integer", "minimum": 0 },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string", "minLength": 1 },
+        "location": { "$ref": "#/$defs/location" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rule", "kind", "severity", "message"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["violation", "uncertifiable"] },
+        "severity": { "enum": ["warning", "error"] },
+        "message": { "type": "string", "minLength": 1 },
+        "primaryLocation": { "$ref": "#/$defs/location" },
+        "relatedLocations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/location" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "packageSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "evidence", "exportsAnalyzed"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" },
+        "contractHash": { "type": "string" },
+        "evidence": { "type": "string", "minLength": 1 },
+        "exportsAnalyzed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filesAnalyzed", "functionsAnalyzed", "proofObligations", "cachedSummaries", "unresolvedObligations"],
+      "properties": {
+        "filesAnalyzed": { "type": "integer", "minimum": 0 },
+        "functionsAnalyzed": { "type": "integer", "minimum": 0 },
+        "proofObligations": { "type": "integer", "minimum": 0 },
+        "cachedSummaries": { "type": "integer", "minimum": 0 },
+        "unresolvedObligations": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

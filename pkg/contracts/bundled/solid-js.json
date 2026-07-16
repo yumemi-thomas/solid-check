@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "solid-js",
+    "version": "2.0.0-beta.18"
+  },
+  "compilerFactsProtocol": 1,
+  "exports": {
+    "$PROXY": { "kind": "value" },
+    "$RAW": { "kind": "value" },
+    "$TRACK": { "kind": "value" },
+    "DEV": { "kind": "value" },
+    "NotReadyError": { "kind": "value" },
+    "sharedConfig": { "kind": "value" },
+    "createSignal": { "kind": "function" },
+    "createResource": { "kind": "function" },
+    "createStore": { "kind": "function" },
+    "createMemo": {
+      "kind": "function",
+      "returns": { "kind": "accessor", "label": "memo result" },
+      "callbacks": [{ "parameter": 0, "execution": "tracked" }]
+    },
+    "createEffect": {
+      "kind": "function",
+      "callbacks": [
+        { "parameter": 0, "execution": "tracked" },
+        { "parameter": 1, "execution": "deferred" }
+      ]
+    },
+    "createRenderEffect": {
+      "kind": "function",
+      "callbacks": [
+        { "parameter": 0, "execution": "tracked" },
+        { "parameter": 1, "execution": "deferred" }
+      ]
+    },
+    "createTrackedEffect": {
+      "kind": "function",
+      "callbacks": [{ "parameter": 0, "execution": "tracked" }]
+    },
+    "children": {
+      "kind": "function",
+      "returns": { "kind": "accessor", "label": "resolved children" }
+    },
+    "createComponent": { "kind": "function" },
+    "createContext": { "kind": "function" },
+    "useContext": { "kind": "function" },
+    "createOwner": { "kind": "function" },
+    "createReaction": { "kind": "function" },
+    "createUniqueId": { "kind": "function" },
+    "For": { "kind": "function" },
+    "getOwner": { "kind": "function" },
+    "getObserver": { "kind": "function" },
+    "getListener": { "kind": "function" },
+    "mapArray": {
+      "kind": "function",
+      "returns": { "kind": "accessor", "label": "mapped array" }
+    },
+    "createProjection": {
+      "kind": "function",
+      "returns": { "kind": "store-path", "label": "projection result" },
+      "callbacks": [{ "parameter": 0, "execution": "tracked" }]
+    },
+    "onSettled": {
+      "kind": "function",
+      "callbacks": [{ "parameter": 0, "execution": "tracked" }]
+    },
+    "onCleanup": { "kind": "function" },
+    "on": { "kind": "function" },
+    "untrack": { "kind": "function" },
+    "createRoot": {
+      "kind": "function",
+      "callbacks": [{ "parameter": 0, "execution": "inline" }]
+    },
+    "runWithOwner": {
+      "kind": "function",
+      "callbacks": [{ "parameter": 1, "execution": "inline" }]
+    },
+    "flush": { "kind": "function" },
+    "resolve": { "kind": "function" },
+    "refresh": { "kind": "function" },
+    "latest": { "kind": "function" },
+    "isPending": { "kind": "function" },
+    "isRefreshing": { "kind": "function" },
+    "isServer": { "kind": "value" },
+    "action": { "kind": "function" },
+    "createOptimistic": { "kind": "function" },
+    "createOptimisticStore": { "kind": "function" },
+    "deep": { "kind": "function" },
+    "snapshot": { "kind": "function" },
+    "unwrap": { "kind": "function" },
+    "merge": { "kind": "function" },
+    "omit": { "kind": "function" },
+    "reconcile": { "kind": "function" },
+    "storePath": { "kind": "function" }
+  },
+  "evidence": {
+    "kind": "reviewed",
+    "generator": "solid-check bundled Solid 2 model"
+  }
+}

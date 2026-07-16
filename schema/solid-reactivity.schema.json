@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solid-check.dev/schema/solid-reactivity.schema.json",
+  "title": "Solid Reactivity Package Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "package", "exports", "evidence"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" }
+      }
+    },
+    "compilerFactsProtocol": { "const": 1 },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declaration": { "$ref": "#/$defs/artifact" },
+        "implementation": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "exports": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["function", "value"] },
+          "returns": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "label"],
+            "properties": {
+              "kind": { "enum": ["accessor", "store-path"] },
+              "label": { "type": "string", "minLength": 1 }
+            }
+          },
+          "callbacks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["parameter", "execution"],
+              "properties": {
+                "parameter": { "type": "integer", "minimum": 0 },
+                "execution": { "enum": ["inline", "tracked", "deferred"] }
+              }
+            }
+          },
+          "asyncBehavior": { "enum": ["promise", "async-iterable"] },
+          "reactiveReads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "label"],
+              "properties": {
+                "kind": { "enum": ["accessor", "store-path"] },
+                "label": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["generated", "reviewed", "trusted"] },
+        "generator": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "hash"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

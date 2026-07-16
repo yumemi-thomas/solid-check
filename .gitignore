@@ -1,0 +1,7 @@
+/bin/
+/coverage.out
+/.solid-check/
+.DS_Store
+**/.DS_Store
+**/target/
+**/node_modules/
