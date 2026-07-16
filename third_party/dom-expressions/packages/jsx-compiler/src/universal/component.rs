@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_ast::{ast::Expression, AstBuilder};
 use oxc_span::Span;
 

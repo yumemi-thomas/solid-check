@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::{Allocator, CloneIn};
 use oxc_ast::ast::{
     AssignmentOperator, AssignmentTarget, Expression, JSXElement, JSXExpression, Statement,
@@ -78,6 +78,7 @@ pub(crate) struct AstDomTransform<'a, 'source> {
     /// Babel keeps a raw `this` in the tag callee of the root element of each
     /// `transformJSX` call; only descendants use the `_self$` capture.
     pub(crate) jsx_root_span: Option<oxc_span::Span>,
+    pub(crate) facts: crate::facts::FactRecorder,
 }
 
 pub(crate) struct DomTransformConfig {
@@ -99,6 +100,7 @@ pub(crate) struct DomTransformConfig {
     pub(crate) built_ins: std::vec::Vec<String>,
     pub(crate) wrapper_module_name: Option<String>,
     pub(crate) renderer_elements: Option<std::vec::Vec<String>>,
+    pub(crate) compiler_facts: bool,
 }
 
 impl<'a, 'source> AstDomTransform<'a, 'source> {
@@ -157,6 +159,7 @@ impl<'a, 'source> AstDomTransform<'a, 'source> {
             ref_index: 0,
             condition_index: 0,
             jsx_root_span: None,
+            facts: crate::facts::FactRecorder::new(config.compiler_facts),
         }
     }
 

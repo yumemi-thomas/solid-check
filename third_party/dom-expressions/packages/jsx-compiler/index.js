@@ -14,10 +14,12 @@ function transform(code, options) {
 
   const nativeOptions = validateOptions(code, options);
   const result = native.transform(code, nativeOptions);
-  return {
+  const output = {
     code: result.code,
     map: result.map ?? null
   };
+  if (result.executionMap) output.executionMap = JSON.parse(result.executionMap);
+  return output;
 }
 
 function transformAsync(code, options) {
@@ -46,7 +48,8 @@ const nativeOptionKeys = new Set([
   "omitNestedClosingTags",
   "omitLastClosingTag",
   "builtIns",
-  "renderers"
+  "renderers",
+  "compilerFacts"
 ]);
 
 const compatibleBabelDefaults = new Map([]);

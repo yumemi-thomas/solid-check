@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::Vec as ArenaVec;
 use oxc_ast::{
     ast::{

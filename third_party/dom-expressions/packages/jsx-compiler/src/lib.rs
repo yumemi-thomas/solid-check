@@ -1,10 +1,13 @@
 mod config;
 mod dom;
+mod facts;
+pub mod prelude;
 mod shared;
 mod ssr;
 mod universal;
 
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use oxc_allocator::Allocator;
 use oxc_ast_visit::VisitMut;
@@ -18,7 +21,7 @@ use dom::element::{AstDomTransform, DomTransformConfig};
 use ssr::transform::AstSsrTransform;
 use universal::transform::{AstUniversalTransform, DynamicDomConfig, UniversalWrapperConfig};
 
-#[napi]
+#[cfg_attr(feature = "node", napi)]
 pub fn transform(code: String, options: Option<TransformOptions>) -> Result<TransformResult> {
     let options = options.unwrap_or_default();
     let source_type = source_type_for_filename(options.filename.as_deref())?;
@@ -53,7 +56,16 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
             }
         });
         if !has_pragma {
-            return Ok(TransformResult { code, map: None });
+            if options.compiler_facts.unwrap_or(false) {
+                return Err(Error::from_reason(
+                    "compiler facts analysis cannot skip a source excluded by `requireImportSource`",
+                ));
+            }
+            return Ok(TransformResult {
+                code,
+                map: None,
+                execution_map: None,
+            });
         }
     }
 
@@ -62,8 +74,16 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
         .as_deref()
         .ok_or_else(|| Error::from_reason("AST-native transform requires a `moduleName` option"))?;
 
+    let generate = options.generate.as_deref().unwrap_or("dom");
+    if options.compiler_facts.unwrap_or(false) && generate != "dom" {
+        return Err(Error::from_reason(
+            "compiler facts analysis currently supports DOM output only",
+        ));
+    }
+
     let mut program = parsed.program;
-    match options.generate.as_deref().unwrap_or("dom") {
+    let mut execution_map = None;
+    match generate {
         "dom" => {
             let mut transform = AstDomTransform::new(
                 &allocator,
@@ -72,10 +92,11 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
                 dom_transform_config(&options, built_ins(&options)),
             );
             transform.visit_program(&mut program);
-            if let Some(error) = transform.error {
+            if let Some(error) = transform.error.take() {
                 return Err(Error::from_reason(error));
             }
             transform.prepend_helpers(&mut program)?;
+            execution_map = transform.facts.finish(&code);
         }
         "dynamic" => {
             if let Some(renderer) = dom_renderer(options.renderers.as_deref()) {
@@ -115,11 +136,13 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
                 &allocator,
                 &code,
                 module_name,
-                options.hydratable.unwrap_or(false),
-                options.wrap_conditionals.unwrap_or(true),
-                wrapper_name(&options.memo_wrapper, "memo"),
-                static_marker(&options),
-                built_ins(&options),
+                ssr::transform::SsrTransformConfig {
+                    hydratable: options.hydratable.unwrap_or(false),
+                    wrap_conditionals: options.wrap_conditionals.unwrap_or(true),
+                    memo_wrapper: wrapper_name(&options.memo_wrapper, "memo"),
+                    static_marker: static_marker(&options),
+                    built_ins: built_ins(&options),
+                },
             );
             transform.visit_program(&mut program);
             if let Some(error) = transform.error {
@@ -161,6 +184,7 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
     Ok(TransformResult {
         code: build.code,
         map: build.map.map(|map| map.to_json_string()),
+        execution_map,
     })
 }
 
@@ -184,6 +208,7 @@ fn dom_transform_config(options: &TransformOptions, built_ins: Vec<String>) -> D
         built_ins,
         wrapper_module_name: None,
         renderer_elements: None,
+        compiler_facts: options.compiler_facts.unwrap_or(false),
     }
 }
 

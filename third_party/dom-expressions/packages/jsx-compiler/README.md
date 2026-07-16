@@ -130,6 +130,34 @@ const result = transform(source, {
 console.log(result.map);
 ```
 
+### Compiler Execution Facts
+
+Set `compilerFacts: true` in DOM mode to receive a versioned `executionMap`
+derived from the same transform branches that emit inserts, render effects, and
+event listeners. Spans are UTF-8 byte offsets into the exact original source,
+and `sourceHash` is its SHA-256 digest.
+
+```js
+const result = transform(`const view = <div>{count()}</div>;`, {
+  filename: "App.tsx",
+  moduleName: "dom",
+  generate: "dom",
+  compilerFacts: true
+});
+
+console.log(result.executionMap.trackedRegions);
+```
+
+The standalone persistent sidecar uses this exact transform implementation:
+
+```sh
+cargo build --no-default-features --features sidecar --bin solid-compiler-facts
+```
+
+It accepts one versioned analysis request per stdin line and writes one result
+per stdout line. Compiler-facts analysis currently rejects non-DOM output modes
+rather than approximating their execution semantics.
+
 ### Options
 
 Supported options track the Babel plugin where currently implemented:
@@ -156,6 +184,7 @@ Supported options track the Babel plugin where currently implemented:
 - `builtIns`
 - `requireImportSource`
 - `renderers`
+- `compilerFacts` (DOM mode only)
 
 ## Performance
 

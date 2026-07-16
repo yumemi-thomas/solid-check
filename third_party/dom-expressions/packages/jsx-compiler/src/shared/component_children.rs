@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::{Expression, JSXChild, JSXExpression, Statement};
 use oxc_span::GetSpan;

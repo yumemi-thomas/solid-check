@@ -21,6 +21,7 @@ export interface TransformOptions {
   builtIns?: string[];
   requireImportSource?: false | string;
   renderers?: RendererOption[];
+  compilerFacts?: boolean;
 }
 
 export interface RendererOption {
@@ -32,6 +33,42 @@ export interface RendererOption {
 export interface TransformResult {
   code: string;
   map?: string | null;
+  executionMap?: ExecutionMap;
+}
+
+export interface SourceSpan {
+  start: number;
+  end: number;
+}
+
+export interface ExecutionRegion {
+  span: SourceSpan;
+  reason: "jsx-child" | "jsx-attribute";
+}
+
+export interface CallbackRole {
+  span: SourceSpan;
+  role: "event-handler";
+}
+
+export interface OwnershipRegion {
+  span: SourceSpan;
+  kind: string;
+}
+
+export interface JsxOperation {
+  span: SourceSpan;
+  kind: "insert" | "dynamic-attribute" | "event-listener";
+}
+
+export interface ExecutionMap {
+  compilerFactsProtocol: 1;
+  sourceHash: string;
+  trackedRegions: ExecutionRegion[];
+  untrackedRegions: ExecutionRegion[];
+  ownershipRegions: OwnershipRegion[];
+  callbackRoles: CallbackRole[];
+  jsxOperations: JsxOperation[];
 }
 
 export function transform(code: string, options?: TransformOptions | null): TransformResult;

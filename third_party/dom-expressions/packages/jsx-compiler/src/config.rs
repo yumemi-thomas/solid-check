@@ -1,8 +1,9 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
+#[cfg(feature = "node")]
 use napi_derive::napi;
 use oxc_span::SourceType;
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
 #[derive(Default)]
 pub struct RendererOption {
     pub name: String,
@@ -10,7 +11,7 @@ pub struct RendererOption {
     pub elements: Vec<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
 #[derive(Default)]
 pub struct TransformOptions {
     pub filename: Option<String>,
@@ -46,12 +47,15 @@ pub struct TransformOptions {
     pub omit_last_closing_tag: Option<bool>,
     pub built_ins: Option<Vec<String>>,
     pub renderers: Option<Vec<RendererOption>>,
+    /// Emit the versioned original-source ExecutionMap used by static tools.
+    pub compiler_facts: Option<bool>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "node", napi(object))]
 pub struct TransformResult {
     pub code: String,
     pub map: Option<String>,
+    pub execution_map: Option<String>,
 }
 
 pub(crate) fn source_type_for_filename(filename: Option<&str>) -> Result<SourceType> {

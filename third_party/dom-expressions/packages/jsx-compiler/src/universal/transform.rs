@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::{Allocator, CloneIn, Vec as ArenaVec};
 use oxc_ast::{
     ast::{
@@ -220,6 +220,7 @@ impl<'a, 'source> AstUniversalTransform<'a, 'source> {
                 // even inside the dom renderer's subtree.
                 wrapper_module_name: Some(module_name.to_string()),
                 renderer_elements: Some(dom.elements.clone()),
+                compiler_facts: false,
             },
         ));
         transform.dynamic_dom_elements = dom.elements;

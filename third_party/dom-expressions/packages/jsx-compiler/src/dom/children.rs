@@ -2,18 +2,19 @@ use crate::dom::attrs::CloseTagContext;
 use crate::dom::element::{jsx_expression_to_expression, AstDomTransform};
 use crate::dom::static_template::lower_static_native_template;
 use crate::dom::template::InsertMarker;
+use crate::prelude::*;
 use crate::shared::utils::{
     child_slot_allocates_ids, element_name, escape_html_text, escape_html_text_expression,
     is_component_name, is_dynamic_child_slot, is_dynamic_expression_deep, static_jsx_expression,
     trim_jsx_text,
 };
-use napi::bindgen_prelude::*;
 use oxc_allocator::CloneIn;
 use oxc_ast::ast::Expression;
 use oxc_ast::ast::{
     JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement, JSXExpression,
     Statement,
 };
+use oxc_span::GetSpan;
 
 impl<'a> AstDomTransform<'a, '_> {
     #[allow(clippy::too_many_arguments)]
@@ -310,6 +311,10 @@ impl<'a> AstDomTransform<'a, '_> {
                         // A `/*@static*/` marker opts the hole out of deferral:
                         // the value inserts once, unwrapped and unscoped.
                         let marked_static = self.has_static_marker(container.span);
+                        if !marked_static && deep_dynamic {
+                            self.facts
+                                .tracked(container.expression.span(), "jsx-child", "insert");
+                        }
                         let value = if marked_static || !deep_dynamic {
                             value
                         } else {

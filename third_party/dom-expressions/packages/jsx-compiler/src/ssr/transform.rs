@@ -1,4 +1,4 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::{Allocator, CloneIn, Vec as ArenaVec};
 use oxc_ast::{
     ast::{
@@ -115,6 +115,14 @@ pub(crate) struct AstSsrTransform<'a, 'source> {
     pub(crate) error: Option<String>,
 }
 
+pub(crate) struct SsrTransformConfig {
+    pub(crate) hydratable: bool,
+    pub(crate) wrap_conditionals: bool,
+    pub(crate) memo_wrapper: Option<String>,
+    pub(crate) static_marker: String,
+    pub(crate) built_ins: std::vec::Vec<String>,
+}
+
 /// The Babel scope shapes `Scope.push` distinguishes when placing hoisted
 /// `var` declarations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -168,22 +176,18 @@ impl<'a, 'source> AstSsrTransform<'a, 'source> {
         allocator: &'a Allocator,
         source: &'source str,
         module_name: &'source str,
-        hydratable: bool,
-        wrap_conditionals: bool,
-        memo_wrapper: Option<String>,
-        static_marker: String,
-        built_ins: std::vec::Vec<String>,
+        config: SsrTransformConfig,
     ) -> Self {
         Self {
             allocator,
             source,
             module_name,
-            built_ins,
+            built_ins: config.built_ins,
             built_in_imports: std::vec::Vec::new(),
-            hydratable,
-            wrap_conditionals,
-            memo_wrapper,
-            static_marker,
+            hydratable: config.hydratable,
+            wrap_conditionals: config.wrap_conditionals,
+            memo_wrapper: config.memo_wrapper,
+            static_marker: config.static_marker,
             uses_ssr: false,
             uses_ssr_hydration_key: false,
             uses_escape: false,

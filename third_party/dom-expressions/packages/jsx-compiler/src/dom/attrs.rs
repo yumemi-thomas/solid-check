@@ -1,10 +1,10 @@
-use napi::bindgen_prelude::*;
+use crate::prelude::*;
 use oxc_allocator::CloneIn;
 use oxc_ast::{
     ast::{Expression, FormalParameterKind, JSXAttributeItem, Statement},
     NONE,
 };
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 use crate::dom::dynamics::DynamicSlot;
 use crate::dom::element::AstDomTransform;
@@ -284,6 +284,8 @@ impl<'a> AstDomTransform<'a, '_> {
         }
 
         if plan.key.starts_with("on") {
+            self.facts
+                .callback(raw.span(), "event-handler", "event-listener");
             front_groups.push(self.dom_event_statements(span, element_id, &plan.key, raw));
             return Ok(());
         }
@@ -298,9 +300,12 @@ impl<'a> AstDomTransform<'a, '_> {
         // (static or dynamic) is only transformed by the outer traversal
         // after the root's own template registers (see `lower_deferred_jsx`),
         // which also keeps `wrapForEffect` from unwrapping the lowered IIFE.
+        let raw_span = raw.span();
         let value = raw;
 
         if dynamic {
+            self.facts
+                .tracked(raw_span, "jsx-attribute", "dynamic-attribute");
             let elem = if plan.key == "textContent" {
                 // Dynamic textContent targets a dedicated text node: the
                 // template gets a single-space placeholder child and updates
