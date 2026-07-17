@@ -51,8 +51,12 @@ Phase 2 (differential Rust port, G2)  →  Phase 3 (flip, G3)  →  Phase 4 (ret
      and protocol error responses.
   Snapshot bytes are one required artifact, not the whole definition of
   observable equivalence. The CLI golden suite and LSP conformance suite
-  are built in Phase 0–1 against the Go implementation and become
-  oracle-agnostic gates from G2 on.
+  are built in Phase 0–1 against the Go implementation, gate the Go
+  implementation continuously, and gate the Rust implementation at **G3**,
+  when a Rust CLI and LSP first exist. G2 gates the engine-level behaviors
+  that `solid-engine-diff` can actually exercise (see Phase 2); requiring
+  CLI/LSP equivalence of a binary that has no CLI or LSP would be
+  untestable.
 
 ## Topology by phase
 
@@ -132,7 +136,23 @@ land, `docs/typefacts-protocol.md` must specify, and G1 tests must cover:
 - **cancellation:** honored at round boundaries; a cancelled generation
   never contributes cached tables to a later one;
 - **limits:** the codec's size limits, restated as protocol-level
-  requirements.
+  requirements;
+- **fact universe (bulk finite tables):** the legal key space is finite and
+  enumerable by construction. For every affected file, `typefacts` exports
+  a finite **entity table** — declarations, bindings, functions, call
+  sites — each entry carrying its semantic facts (type descriptor,
+  reference list, async classification). Every legal query key is an entry
+  of an entity table; there are no queries keyed by arbitrary locations or
+  free-form symbols. `DescribeTypeAt` survives only as a lookup on
+  enumerated entries; reference lists are facts attached to enumerated
+  symbols, not follow-up queries. The spec states the exact key space per
+  fact kind, how the universe is enumerated for an affected generation,
+  the expected size and generation cost (validated on the large corpus at
+  G1), and that a request for a key outside the universe is a protocol
+  error — fail closed, distinct error code, never a best-effort answer.
+  The live protocol still serves demanded **subsets** of the universe in
+  rounds (a bandwidth optimization); enumerability is what makes the
+  complete universe materializable offline in Phase 2.
 
 ## The seam problem, stated precisely
 
@@ -235,12 +255,21 @@ templates exaggerate cache locality and interning wins.
   certification snapshot consistent with that edit. Same events in every
   topology; editor-to-engine transport is inside the timed region on both
   sides or neither.
-- **Statistical rule.** p50/p99 and improvement percentages are reported
-  with 95% bootstrap confidence intervals. A latency gate passes only if
-  the point estimate meets its threshold **and** the CI half-width is
-  ≤ 5 percentage points **and** the CI lower bound stays above
-  (threshold − 5 points). If the CI is too wide, collect more repetitions;
-  a gate is never passed on a wide interval.
+- **Statistical rule.** All estimates carry 95% bootstrap confidence
+  intervals, and every gate is a **hard** claim about its threshold —
+  "probably about 15%" is not "at least 15%". Three gate shapes, used
+  consistently everywhere:
+  - *Improvement gates* (G0 and G3 15%; G2 1.5×): the CI **lower bound**
+    must be at or above the threshold. Collect more repetitions until the
+    interval is narrow enough to decide; a gate is never passed or failed
+    on a wide interval.
+  - *Non-regression gates* (G1 lifecycle benchmarks; G3 p50): the CI
+    **upper bound** of the regression must be below the declared noise
+    allowance — absence of evidence of regression is not evidence of
+    absence.
+  - *Guardrail gates* (secondary latency and memory bounds): the CI upper
+    bound of the metric must be below both the relative allowance and the
+    absolute budget.
 - **Cancellation scenarios** are scripted separately and never mixed into
   latency distributions.
 
@@ -324,21 +353,25 @@ approve the migration; that requires the implemented seam.
 
 ### Phase 1 — Batch the seam, still all Go (independently justified)
 
-Write `docs/typefacts-protocol.md` to the specification requirements above.
-Convert `reactiveir` from lazy per-symbol queries to batched demand rounds:
-IR build emits one demand list per round, `typefacts` answers with
-materialized fact tables typed against `TypeFactsSchema` v1 with
-deterministic serialization. The lazy `Project` API is deleted when no
-caller remains.
+Write `docs/typefacts-protocol.md` to the specification requirements above,
+including the bulk-table fact universe. Convert `reactiveir` from lazy
+per-symbol queries to batched demand rounds over enumerated entity tables:
+IR build emits one demand list per round (keys drawn from the universe),
+`typefacts` answers with materialized fact tables typed against
+`TypeFactsSchema` v1 with deterministic serialization. The lazy `Project`
+API is deleted when no caller remains.
 
 **Gate G1:** zero certification-snapshot diffs on all suites and the corpus
 (`make verify`, `make conformance`, `make corpus`); CLI golden and LSP
 conformance suites pass unchanged; protocol property tests (request-key
 monotonicity, generation isolation, round-limit fail-closed, cancellation at
-round boundaries) pass; no lifecycle benchmark regressed beyond the
-statistical rule's noise bound; measured rounds per edit ≤ the limit derived
-in the protocol spec, per edit class; cancellation latency and steady-state
-RSS within 10% of the Phase 0 baseline.
+round boundaries, out-of-universe requests fail closed) pass; no lifecycle
+benchmark regressed beyond the statistical rule's non-regression semantics;
+measured rounds per edit ≤ the limit derived in the protocol spec, per edit
+class; the complete fact universe for an affected generation is measured on
+the large corpus and its size and generation cost are within the bounds the
+protocol spec declared; cancellation latency and steady-state RSS within
+10% of the Phase 0 baseline.
 
 ### Gate G0 — Investment decision (after G1, on the implemented seam)
 
@@ -369,12 +402,17 @@ Implement `reactiveir` + `internal/solver` rule families as crates in the
 **Executable topology.** The Rust engine ships as a `solid-engine-diff`
 binary. `solid-check --engine=both` runs the Go engine normally while
 recording a **job directory** containing: the source manifest, the
-**canonical fact universe** for the affected generation (demand-independent
-— every fact the protocol could serve for the affected set, not just what
-Go requested), the Go engine's **normalized demand trace**, ExecutionMaps,
-and the Go snapshot. `solid-engine-diff <job-dir>` replays with no live seam
-to Go: the Rust engine selects facts from the universe by its own demand
-algorithm. Two comparison channels result:
+**canonical fact universe** for each affected generation — finite and
+enumerable by construction under the bulk-table model, so "every fact the
+protocol could serve" is a concrete, materialized artifact, not an
+abstraction — the Go engine's **normalized demand trace**, ExecutionMaps,
+and the Go snapshot. A job directory may record a whole **edit sequence**
+(one universe per generation), so incremental behavior, cancellation at
+round boundaries, and error paths are replayable, not just single
+snapshots. `solid-engine-diff <job-dir>` replays with no live seam to Go:
+the Rust engine selects facts from the universe by its own demand
+algorithm, and a request outside the universe is the protocol's fail-closed
+error, surfaced as a differential failure. Two comparison channels result:
 
 - **snapshot diff** — gating: must be empty;
 - **demand-trace diff** — reported, not snapshot-gating: Oxc-based
@@ -396,9 +434,11 @@ window** — evidence accumulated against the previous oracle is not evidence
 about the new one. Documentation and test-suite additions without
 expected-output changes restart nothing.
 
-**Gate G2 (accuracy):** the differential diff is empty and the CLI golden
-and LSP conformance suites pass against both engines, sustained for a
-two-week window (restarted on semantic oracle changes) **and** meeting
+**Gate G2 (accuracy):** the differential diff is empty — including
+multi-edit incremental sequences, cancellation replays, and error-path
+replays, the engine-level behaviors `solid-engine-diff` can actually
+exercise — sustained for a two-week window (restarted on semantic oracle
+changes) **and** meeting
 minimum evidence counts: differential runs over ≥ 25 distinct commits, the
 complete pinned fixture/corpus matrix on every qualifying run, seeded
 randomized edit-sequence differentials, protocol decoder fuzzing with no
@@ -407,8 +447,12 @@ Elapsed time is supplementary; the evidence counts are the requirement.
 
 **Gate G2 (performance):** the timed unit (IR + solve + emit), both engines
 replaying the same job directories to byte-identical snapshots, analyzed
-under the single-statistical-method rule. Rust must win ≥ 1.5× per edit
-class on the per-edit paired samples. The measured per-edit speedups replace
+under the single-statistical-method rule. The gate statistic is, for each
+edit class, the **median of the paired per-edit speedup ratios**
+(Go time / Rust time per edit); its 95% CI lower bound must be ≥ 1.5× for
+every class. Individual edits may fall below 1.5× without failing the gate,
+but the full ratio distribution and the slowest regressing edits are
+published for diagnosis. The measured per-class median speedups replace
 S in the payoff model; if the recomputed projection falls under 15%, G0 is
 re-decided before Phase 3 starts. (The 1.5× floor and G0's conservative
 scenario are deliberately the same number: an engine that cannot beat the
@@ -431,9 +475,9 @@ sidecar-transport removal, boundary cost — so the model is validated or
 corrected, not just the outcome. Additionally: p50 does not regress; CLI
 golden and LSP conformance suites pass against the Rust entry point; cold
 snapshot, startup-to-first-snapshot, cancellation latency, steady-state
-RSS, and peak RSS are each within 10% of baseline **and** within the
-absolute budgets recorded for them at Phase 0 (percentages alone can hide
-unacceptable absolute regressions on fast metrics). If realized improvement
+RSS, and peak RSS each satisfy the guardrail gate shape (CI upper bound
+below both the 10% relative allowance and the absolute budget derived by
+the policy-register formula before Phase 0 recorded baselines). If realized improvement
 lands under 15%, hold here — Phase 2's Rust engine remains a differential
 oracle and the fused compiler facts still removed one JSON boundary.
 
@@ -466,19 +510,37 @@ drifted past:
   design. 2× / 3× are published upside scenarios only.
 - **10%** per-edit-class boundary-cost ceiling (feasibility), computed per
   class, not against one aggregate.
-- **10% and an absolute budget** for each secondary metric (cold latency,
-  startup, cancellation, RSS); absolute budgets are set from the Phase 0
-  baseline and recorded in the Phase 0 report. This knowingly accepts
-  bounded secondary regressions in exchange for the p99 win.
+- **Secondary-metric budgets, derivation fixed before Phase 0 records
+  values** (so the gate cannot be tuned retroactively): each budget is
+  `min(product ceiling, 110% of the Phase 0 baseline)`. The product
+  ceilings are user-facing and declared now — cancellation p99 ≤ 100 ms;
+  startup to first snapshot ≤ 10 s on the large corpus; steady-state RSS
+  ≤ 2 GiB and peak RSS ≤ 3 GiB on the large corpus; cold snapshot ≤ 60 s
+  on the large corpus. These ceilings are provisional policy pending
+  product confirmation, but they may only be changed **before** the
+  Phase 0 baselines are recorded. The 110% term is the deliberate,
+  bounded acceptance of secondary regressions in exchange for the p99
+  win; the ceiling term keeps a fast baseline from licensing an
+  absolutely unacceptable result.
 - **Round limit** is derived from the Phase 1 protocol's termination bound
   and validated per edit class; it is a correctness property with a
   fail-closed behavior, not a tuning knob.
 - **Codec: deterministic CBOR** (RFC 8949 §4.2) with the canonical rules
   above; changing it after Phase 0 measurements invalidates the boundary
   cost model and forces a re-measure.
-- **Statistical rule:** 95% bootstrap CIs; a gate needs its point estimate
-  past threshold, CI half-width ≤ 5 points, CI lower bound above
-  threshold − 5 points; ≥ 5,000 samples overall, ≥ 800 per edit class.
+- **Statistical rule:** hard thresholds — improvement gates need the 95%
+  bootstrap CI lower bound at/above threshold, non-regression gates need
+  the CI upper bound of the regression below the noise allowance,
+  guardrails need the CI upper bound below both bounds; ≥ 5,000 samples
+  overall, ≥ 800 per edit class, and more repetitions whenever an interval
+  is too wide to decide. G2's statistic is the per-class median of paired
+  per-edit speedup ratios.
+- **Fact universe:** bulk finite entity tables; every legal key enumerable
+  by construction, out-of-universe requests fail closed; universe size and
+  generation cost validated on the large corpus at G1.
+- **Rust CLI/LSP equivalence is a G3 gate**, not G2: Phase 2's replay
+  binary has no CLI or LSP surface, so G2 gates engine-level differential
+  behavior only.
 
 ## Rollback rules
 
