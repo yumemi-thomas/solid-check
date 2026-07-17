@@ -1,9 +1,13 @@
 # Rust migration plan
 
 Goal: move the analysis engine (Reactive IR construction, solving, LSP,
-certification emission) from Go to Rust, fused with the Oxc-based
-`jsx-compiler`, while keeping TypeScript-Go as the type checker. The end state
-is one Rust binary and a small Go type-facts service.
+certification and package-contract emission) from Go to Rust, linked against
+the Oxc-based `jsx-compiler`, while keeping TypeScript-Go as the type
+checker. The end state is a **single installed artifact**: a Rust entry
+point plus a small Go type-facts service — one process if the c-archive
+transport wins at G3, one supervised two-executable package if the
+subprocess transport wins. "One binary" is not promised; one install, one
+version, one seam is.
 
 The two criteria are **accuracy** and **performance**. Both are enforced the
 same way: no phase merges without passing its measured gate. Nothing in this
@@ -81,11 +85,17 @@ mismatch rejected, unknown fields an error):
    retired as a wire protocol in Phase 3 (the schema survives as an internal
    type).
 2. **TypeFacts protocol** — introduced in Phase 1, specified before it is
-   implemented (see below), frozen as a language-neutral schema file under
-   `schema/` in Phase 2, and made the live wire protocol in Phase 3 behind a
-   mandatory handshake: the Go service reports
-   `(TypeFactsSchema, engine build ID)` on startup; the Rust binary rejects
-   any mismatch with a distinct exit code. No silent fallback.
+   implemented (see below), and **frozen in Phase 1, before G0**: the
+   language-neutral schema file under `schema/`, its content hash, the
+   decoder limits, and cross-language golden fixtures (encode/decode
+   vectors checked against independent Go and Rust codec implementations)
+   all land as G1 deliverables, so the bytes G0's boundary cost model
+   measures are the bytes the product will ship. Any wire-shape change
+   after G1 invalidates those measurements and reruns G1 and G0. Phase 3
+   makes it the live wire protocol behind a mandatory handshake: the Go
+   service reports `(TypeFactsSchema hash, engine build ID)` on startup;
+   the Rust binary rejects any mismatch with a distinct exit code. No
+   silent fallback.
 
 ### Wire codec (decided now, used from Phase 0 on)
 
@@ -193,7 +203,13 @@ A dedicated benchmark replays the edit script (below) through
 vector with at least these stages:
 
 1. overlay update and tsgo invalidation;
-2. compiler-facts generation and current sidecar transport;
+2. compiler facts, split into two separately instrumented sub-stages,
+   because the payoff model treats them oppositely:
+   2a. compiler-facts **computation** in the Rust sidecar (survives the
+       migration unchanged);
+   2b. sidecar **codec and transport** — JSON encode on the Rust side,
+       IPC round-trip, JSON decode on the Go side (removed by the
+       migration);
 3. type-facts demand and materialization;
 4. IR construction;
 5. solving;
@@ -204,11 +220,23 @@ stage shares are never used in projections (see the payoff model below).
 
 ### LSP-critical metrics
 
-Beyond throughput: **cancellation latency** (superseding edit to in-flight
-work quiescent), **steady-state memory** (RSS after 1,000 edit/snapshot
-cycles), and **startup cost** (process spawn to first snapshot), each
-measured for the current layout so Phase 3's two-runtime layout has a
-baseline.
+Beyond throughput: **steady-state memory** (RSS after 1,000 edit/snapshot
+cycles) and **startup cost** (process spawn to first snapshot), measured
+for the current layout so Phase 3's layout has a baseline.
+
+**Cancellation is a special case, because today it does not exist.** The
+current Go server processes messages in a synchronous read-dispatch loop
+and blocks inside `Snapshot` (`internal/lsp/server.go`, `Serve`/`refresh`);
+it cannot observe a superseding edit mid-analysis and handles no
+`$/cancelRequest`. Phase 0 therefore records the honest baseline the
+implementation has — **superseding-edit service time** (edit arrival to its
+diagnostics, including the blocking predecessor) — and the LSP conformance
+suite's cancellation cases are written against the *specified* semantics
+but marked pending. Phase 1 delivers asynchronous request scheduling,
+`$/cancelRequest`, and superseding-edit cancellation in the Go server (the
+engine already takes `context.Context` throughout); the cancellation cases
+activate at G1, and the **cancellation-latency baseline is recorded at G1**
+— that, not Phase 0, is the baseline G3's guardrail compares against.
 
 ### Boundary cost model and its validation
 
@@ -255,18 +283,23 @@ templates exaggerate cache locality and interning wins.
   certification snapshot consistent with that edit. Same events in every
   topology; editor-to-engine transport is inside the timed region on both
   sides or neither.
-- **Statistical rule.** All estimates carry 95% bootstrap confidence
-  intervals, and every gate is a **hard** claim about its threshold —
-  "probably about 15%" is not "at least 15%". Three gate shapes, used
-  consistently everywhere:
+- **Statistical rule.** Samples are collected across **≥ 10 independent
+  process runs**, and confidence intervals use a **hierarchical (block)
+  bootstrap** — resample runs, then complete script repetitions within a
+  run, never individual edits: edits within one stateful session are
+  serially correlated, and bootstrapping them individually produces
+  spuriously narrow intervals (pseudoreplication). All estimates carry 95%
+  CIs so computed, and every gate is a **hard** claim about its
+  threshold — "probably about 15%" is not "at least 15%". Three gate
+  shapes, used consistently everywhere:
   - *Improvement gates* (G0 and G3 15%; G2 1.5×): the CI **lower bound**
     must be at or above the threshold. Collect more repetitions until the
     interval is narrow enough to decide; a gate is never passed or failed
     on a wide interval.
   - *Non-regression gates* (G1 lifecycle benchmarks; G3 p50): the CI
     **upper bound** of the regression must be below the declared noise
-    allowance — absence of evidence of regression is not evidence of
-    absence.
+    allowance of **3%** (policy register) — absence of evidence of
+    regression is not evidence of absence.
   - *Guardrail gates* (secondary latency and memory bounds): the CI upper
     bound of the metric must be below both the relative allowance and the
     absolute budget.
@@ -306,7 +339,9 @@ The projection therefore transforms **each observed edit's** stage vector:
 for each edit e in the sample population:
     projected(e) = observed_end_to_end(e)
                  − movable(e) × (1 − 1/S)        # movable = IR+solve+emit stages of e
-                 − sidecar_transport(e)           # measured ExecutionMap transport for e
+                 − sidecar_transport(e)           # stage 2b ONLY: codec + IPC, measured
+                                                  #   separately; 2a computation survives
+                                                  #   the migration and is never subtracted
                  + boundary_cost(e)               # stub-measured cost for e's recorded
                                                   #   rounds and bytes
 ```
@@ -339,7 +374,7 @@ Output: the baseline table (per edit class and overall) —
 | Per-edit stage vectors (six stages, archived raw) | | |
 | Type-facts traffic per edit (runtime queries, bytes), per class | | |
 | Compiler-facts traffic per edit (bytes) | | |
-| Cancellation latency p50 / p99 | | |
+| Superseding-edit service time p50 / p99 (cancellation baseline lands at G1) | | |
 | Steady-state RSS after 1,000 edits | | |
 | Startup to first snapshot | | |
 | Peak RSS | | |
@@ -361,6 +396,25 @@ IR build emits one demand list per round (keys drawn from the universe),
 `TypeFactsSchema` v1 with deterministic serialization. The lazy `Project`
 API is deleted when no caller remains.
 
+Phase 1 additionally delivers:
+
+- **the schema freeze** — schema file under `schema/`, content hash,
+  decoder limits, and cross-language golden codec fixtures (issue: G0
+  must measure shipping bytes);
+- **Go LSP scheduling and cancellation** — asynchronous request handling,
+  `$/cancelRequest`, and superseding-edit cancellation in
+  `internal/lsp/server.go`, activating the pending conformance cases and
+  establishing the cancellation-latency baseline.
+
+**Keep-or-revert policy (G0 failure).** G1 proves accuracy and
+non-regression, not positive benefit. If G0 subsequently rejects the
+migration, the batching refactor is kept only if it passes an improvement
+gate of **≥ 5%** on at least one primary lifecycle metric (p99 latency or
+steady-state RSS); otherwise it is reverted rather than carried as
+structure that serves a boundary that will never exist. The LSP
+scheduling/cancellation work is exempt — it is user-facing behavior,
+justified regardless of G0.
+
 **Gate G1:** zero certification-snapshot diffs on all suites and the corpus
 (`make verify`, `make conformance`, `make corpus`); CLI golden and LSP
 conformance suites pass unchanged; protocol property tests (request-key
@@ -370,8 +424,10 @@ benchmark regressed beyond the statistical rule's non-regression semantics;
 measured rounds per edit ≤ the limit derived in the protocol spec, per edit
 class; the complete fact universe for an affected generation is measured on
 the large corpus and its size and generation cost are within the bounds the
-protocol spec declared; cancellation latency and steady-state RSS within
-10% of the Phase 0 baseline.
+protocol spec declared; the previously pending LSP cancellation conformance
+cases pass and the cancellation-latency baseline is recorded (this baseline,
+not Phase 0's, is what G3 compares against); steady-state RSS within 10% of
+the Phase 0 baseline.
 
 ### Gate G0 — Investment decision (after G1, on the implemented seam)
 
@@ -395,9 +451,18 @@ requires re-running the Phase 0 measurements it consumes.
 
 ### Phase 2 — Port solver and IR build to Rust, run differentially
 
-Freeze `TypeFactsSchema` as a language-neutral schema file under `schema/`.
-Implement `reactiveir` + `internal/solver` rule families as crates in the
-`jsx-compiler` workspace.
+Implement `reactiveir` + `internal/solver` rule families as first-party
+crates in a **root Rust workspace** (`crates/`), which links the
+`jsx-compiler` crate as a dependency. Engine crates never live inside
+`third_party/dom-expressions`: that subtree is maintained by
+`git subtree pull` (see `docs/monorepo.md`), and upstream synchronization
+must never touch product-engine code.
+
+The port scope is the engine's full output surface, not just diagnostics:
+**package-contract discovery, loading, validation, emission, and artifact
+hashing** (`PackageContractEmitter`, `--emit-contract`, the bundled
+contracts in `pkg/contracts`) are Phase 2 deliverables with the same
+byte-identical bar as snapshots.
 
 **Executable topology.** The Rust engine ships as a `solid-engine-diff`
 binary. `solid-check --engine=both` runs the Go engine normally while
@@ -435,10 +500,11 @@ about the new one. Documentation and test-suite additions without
 expected-output changes restart nothing.
 
 **Gate G2 (accuracy):** the differential diff is empty — including
-multi-edit incremental sequences, cancellation replays, and error-path
-replays, the engine-level behaviors `solid-engine-diff` can actually
-exercise — sustained for a two-week window (restarted on semantic oracle
-changes) **and** meeting
+multi-edit incremental sequences, cancellation replays, error-path
+replays, and **byte-identical package-contract outputs with the corpus
+contract generation reaching the same fixed point** (`make corpus`) —
+sustained for a two-week window (restarted on semantic oracle changes)
+**and** meeting
 minimum evidence counts: differential runs over ≥ 25 distinct commits, the
 complete pinned fixture/corpus matrix on every qualifying run, seeded
 randomized edit-sequence differentials, protocol decoder fuzzing with no
@@ -466,6 +532,27 @@ handshake. Benchmark both transports (c-archive FFI; subprocess with the
 production framing) before choosing. Cancellation propagates across the
 boundary and is measured end-to-end.
 
+**Packaging and process model** (deliverables regardless of which
+transport wins):
+
+- a supported-platform matrix — darwin arm64/amd64, linux arm64/amd64,
+  windows amd64 — with per-platform build and install layout for
+  `solid-check` and `solid-checkd`, and a CI packaging smoke test (install
+  the artifact, run a real check, clean shutdown) on every platform;
+- **subprocess variant:** the Rust entry point owns the Go service's
+  lifecycle — spawn with the handshake, health-check, terminate on exit
+  (no orphans, verified by the smoke test), restart with backoff on
+  crash, surfacing a diagnostic rather than hanging; all memory
+  guardrails measure the **whole process tree**, not the Rust process
+  alone;
+- **c-archive variant:** the boundary ABI is specified per platform;
+  every Go-side panic is recovered at the boundary and converted to an
+  error response — a Go panic must never unwind into Rust — and the Go
+  runtime's signal-handler and threading interactions with the Rust host
+  are covered by dedicated tests;
+- crash behavior is part of LSP conformance: a type-facts service failure
+  produces a protocol-visible error and recovery, not a silent hang.
+
 **Gate G3 (payoff validation):** realized end-to-end p99 improvement on the
 large corpus, computed with the same per-edit method and statistical rule as
 G0, is **≥ 15%** against the current Phase 1 Go baseline. Merely beating
@@ -474,10 +561,13 @@ projected-vs-realized values per payoff-model term — movable-unit speedup,
 sidecar-transport removal, boundary cost — so the model is validated or
 corrected, not just the outcome. Additionally: p50 does not regress; CLI
 golden and LSP conformance suites pass against the Rust entry point; cold
-snapshot, startup-to-first-snapshot, cancellation latency, steady-state
-RSS, and peak RSS each satisfy the guardrail gate shape (CI upper bound
-below both the 10% relative allowance and the absolute budget derived by
-the policy-register formula before Phase 0 recorded baselines). If realized improvement
+snapshot, startup-to-first-snapshot, cancellation latency (relative to its
+G1 baseline — cancellation did not exist at Phase 0), steady-state RSS,
+and peak RSS each satisfy the guardrail gate shape (CI upper bound below
+both the 10% relative allowance and the absolute budget derived by the
+policy-register formula before baselines were recorded; memory
+metrics cover the whole process tree under subprocess transport); the
+packaging smoke test passes on every supported platform. If realized improvement
 lands under 15%, hold here — Phase 2's Rust engine remains a differential
 oracle and the fused compiler facts still removed one JSON boundary.
 
@@ -541,6 +631,22 @@ drifted past:
 - **Rust CLI/LSP equivalence is a G3 gate**, not G2: Phase 2's replay
   binary has no CLI or LSP surface, so G2 gates engine-level differential
   behavior only.
+- **Non-regression noise allowance: 3%** (CI upper bound of the
+  regression), used by G1 lifecycle checks and G3 p50.
+- **Keep-or-revert on G0 failure:** Phase 1 batching survives a rejected
+  migration only on a demonstrated ≥ 5% improvement in a primary
+  lifecycle metric; the Go LSP scheduling/cancellation work survives
+  unconditionally.
+- **Schema freeze is a G1 deliverable**; any wire-shape change after G1
+  reruns G1 and G0.
+- **First-party Rust crates live in the root `crates/` workspace**, never
+  inside the `third_party/dom-expressions` subtree.
+- **Supported platforms:** darwin arm64/amd64, linux arm64/amd64, windows
+  amd64; the G3 packaging smoke test gates all of them.
+- **End state is one installed artifact, not necessarily one process**;
+  the transport decision at G3 is made by measurement, and the subprocess
+  variant is acceptable only with full lifecycle supervision and
+  process-tree memory accounting.
 
 ## Rollback rules
 
