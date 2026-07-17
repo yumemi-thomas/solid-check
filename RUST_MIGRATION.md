@@ -17,9 +17,11 @@ with the same method.
 
 ## Decision order
 
-Phase numbering is not decision order. Phase 1 (batching the type-facts seam)
-is an independently justified Go improvement gated only on its own neutrality
-(G1). The migration's investment decision (**G0**) is taken **after** Phase 1,
+Phase numbering is not decision order. Phase 1 (batching the type-facts
+seam) is gated on its own accuracy and neutrality (G1), but neutrality is
+not a justification to keep it forever: if the migration is later rejected,
+the keep-or-revert policy in Phase 1 decides its fate on measured benefit.
+The migration's investment decision (**G0**) is taken **after** Phase 1,
 on the implemented batch seam — not on a projection of a seam that does not
 exist yet. Phase 0 produces the measurement infrastructure and an *advisory*
 projection that can kill the idea early, but cannot approve it.
@@ -416,8 +418,9 @@ scheduling/cancellation work is exempt — it is user-facing behavior,
 justified regardless of G0.
 
 **Gate G1:** zero certification-snapshot diffs on all suites and the corpus
-(`make verify`, `make conformance`, `make corpus`); CLI golden and LSP
-conformance suites pass unchanged; protocol property tests (request-key
+(`make verify`, `make conformance`, `make corpus`); the CLI golden suite
+and all Phase 0 LSP conformance cases pass, plus the newly activated
+cancellation cases; protocol property tests (request-key
 monotonicity, generation isolation, round-limit fail-closed, cancellation at
 round boundaries, out-of-universe requests fail closed) pass; no lifecycle
 benchmark regressed beyond the statistical rule's non-regression semantics;
@@ -434,10 +437,15 @@ the Phase 0 baseline.
 Two conditions, both required, both computed from post-Phase 1
 measurements:
 
-1. **Feasibility.** Per-edit-class boundary cost projection (stub-measured
-   transport and codec on each edit's recorded rounds and bytes) is < 10%
-   of that class's observed p99. A class that fails marks the seam
-   unaffordable for that workload; signature edits are expected to be the
+1. **Feasibility, per named transport.** The boundary-cost projection is
+   computed separately for each candidate transport (c-archive FFI;
+   subprocess), and **at least one named candidate** must pass both:
+   per-edit-class projected cost (stub-measured transport and codec on
+   each edit's recorded rounds and bytes) < 10% of that class's observed
+   p99, **and** a compile/link/handshake smoke test on every supported
+   platform. A candidate that fails either is eliminated now — transport
+   viability must not be discovered at G3. If both candidates fail, the
+   feasibility condition fails. Signature edits are expected to be the
    binding class.
 2. **Payoff.** The per-edit projection yields a **≥ 15%** end-to-end p99
    improvement on the large corpus at the **conservative scenario
@@ -445,9 +453,12 @@ measurements:
    sensitivity table at S = 1.5× / 2× / 3×; the 2× and 3× rows are upside
    context and never approve the investment.
 
-If either fails, stop: Phase 1's batching is kept (it passed G1 on its own
-merits), and further Go optimization proceeds instead. Re-running G0 later
-requires re-running the Phase 0 measurements it consumes.
+If either fails, stop, and apply Phase 1's **keep-or-revert policy**: the
+batching refactor survives only on a demonstrated ≥ 5% improvement in a
+primary lifecycle metric, otherwise it is reverted; the LSP
+scheduling/cancellation work survives unconditionally. Further Go
+optimization proceeds instead. Re-running G0 later requires re-running the
+Phase 0 measurements it consumes.
 
 ### Phase 2 — Port solver and IR build to Rust, run differentially
 
@@ -471,10 +482,16 @@ recording a **job directory** containing: the source manifest, the
 enumerable by construction under the bulk-table model, so "every fact the
 protocol could serve" is a concrete, materialized artifact, not an
 abstraction — the Go engine's **normalized demand trace**, ExecutionMaps,
-and the Go snapshot. A job directory may record a whole **edit sequence**
-(one universe per generation), so incremental behavior, cancellation at
-round boundaries, and error paths are replayable, not just single
-snapshots. `solid-engine-diff <job-dir>` replays with no live seam to Go:
+and the Go snapshot. Because G2 requires byte-identical package-contract
+output, the job directory also records the normalized contract-emission
+inputs — package identity, the discovered/explicit contract set, and
+artifact files with their hashes — plus the expected contract bytes. A job
+directory may record a whole **edit sequence** (one universe per
+generation), so incremental behavior, cancellation, and error paths are
+replayable, not just single snapshots; cancellation is triggered by a
+recorded **logical injection point** ("cancel after demand round N of
+generation G"), never wall-clock timing, so a cancellation replay is
+deterministic. `solid-engine-diff <job-dir>` replays with no live seam to Go:
 the Rust engine selects facts from the universe by its own demand
 algorithm, and a request outside the universe is the protocol's fail-closed
 error, surfaced as a differential failure. Two comparison channels result:
@@ -567,9 +584,12 @@ and peak RSS each satisfy the guardrail gate shape (CI upper bound below
 both the 10% relative allowance and the absolute budget derived by the
 policy-register formula before baselines were recorded; memory
 metrics cover the whole process tree under subprocess transport); the
-packaging smoke test passes on every supported platform. If realized improvement
-lands under 15%, hold here — Phase 2's Rust engine remains a differential
-oracle and the fused compiler facts still removed one JSON boundary.
+packaging smoke test passes on every supported platform. If realized
+improvement lands under 15%, hold here: production remains the Phase 1 Go
+engine **with its JSON compiler-facts sidecar** — fused compiler facts
+exist only in the offline Rust oracle, so holding forfeits that benefit in
+production. What is retained is the batched seam and the Rust engine as a
+permanent differential oracle.
 
 ### Phase 4 — Retire the Go engine, after a stabilization window
 
@@ -602,13 +622,16 @@ drifted past:
   class, not against one aggregate.
 - **Secondary-metric budgets, derivation fixed before Phase 0 records
   values** (so the gate cannot be tuned retroactively): each budget is
-  `min(product ceiling, 110% of the Phase 0 baseline)`. The product
+  `min(product ceiling, 110% of the Phase 0 baseline)` — except
+  **cancellation latency**, which has no Phase 0 baseline (the capability
+  first exists in Phase 1): its budget is `min(100 ms, 110% of the G1
+  baseline)`, frozen at the moment G1 records that baseline. The product
   ceilings are user-facing and declared now — cancellation p99 ≤ 100 ms;
   startup to first snapshot ≤ 10 s on the large corpus; steady-state RSS
   ≤ 2 GiB and peak RSS ≤ 3 GiB on the large corpus; cold snapshot ≤ 60 s
   on the large corpus. These ceilings are provisional policy pending
-  product confirmation, but they may only be changed **before** the
-  Phase 0 baselines are recorded. The 110% term is the deliberate,
+  product confirmation, but each may only be changed **before** its
+  baseline is recorded (Phase 0 for most, G1 for cancellation). The 110% term is the deliberate,
   bounded acceptance of secondary regressions in exchange for the p99
   win; the ceiling term keeps a fast baseline from licensing an
   absolutely unacceptable result.
