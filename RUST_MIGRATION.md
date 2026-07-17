@@ -203,11 +203,16 @@ required — feasibility does not substitute for payoff, or vice versa.
    current incremental p99. If the seam cannot be made cheap, no amount of
    engine speedup justifies relocating the boundary onto it.
 2. **Payoff.** A projected end-to-end p99 improvement of **≥ 15%** on the
-   large corpus, computed from measured inputs only:
+   large corpus at the **conservative scenario**, computed from measured
+   inputs only:
    `(movable-stage share) × (1 − 1/S) + (measured ExecutionMap transport
-   share) − (projected boundary cost share)`, where the assumed Rust
-   speedup S is capped at 3× until G2 replaces it with a measurement. Every
-   term must come from the Phase 0 table — no unmeasured estimates.
+   share) − (projected boundary cost share)`. The Phase 0 report publishes
+   this as a sensitivity table at S = 1.5× / 2× / 3×; the gate passes only
+   if the projection clears 15% at **S = 1.5×**. The 2× and 3× rows are
+   upside scenarios for context, never the investment case. Every other
+   term must come from the Phase 0 table — no unmeasured estimates. At G2
+   the measured per-stage speedup replaces the scenarios; at G3 the whole
+   projection is validated against realized end-to-end results.
 
 If either condition fails, stop: optimize Go (allocation, parallelism
 across files) instead, and re-run Phase 0 afterwards. Phase 1 (seam
@@ -271,9 +276,12 @@ consecutive weeks of development.
 parity rule, both engines replaying the same job directories to
 byte-identical snapshot output. Rust must win ≥ 1.5×; below that the
 boundary cost in Phase 3 will likely eat the gain, so pause and re-evaluate
-at G3 with a prototype. The measured speedup replaces the capped S in the
-G0 payoff model; if the recomputed projection falls under 15%, G0 is
-re-decided before Phase 3 starts.
+at G3 with a prototype. The measured per-stage speedup replaces the
+sensitivity scenarios in the G0 payoff model; if the recomputed projection
+falls under 15%, G0 is re-decided before Phase 3 starts. (The G2 floor of
+1.5× and G0's conservative scenario are deliberately the same number: an
+engine that cannot beat the scenario the investment case was approved at
+has already invalidated that case.)
 
 ### Phase 3 — Flip the boundary
 
@@ -289,12 +297,19 @@ Cancellation must propagate across the boundary: an aborted request on the
 Rust side must cancel the corresponding tsgo work, and cancellation latency
 is measured end-to-end through the seam.
 
-**Gate G3:** end-to-end incremental p50 and p99 on the large corpus beat the
-Phase 1 Go baseline; cold snapshot, startup-to-first-snapshot, cancellation
-latency, steady-state RSS, and peak RSS all within 10% of baseline. If the
-FFI/IPC tax loses to in-process Go, hold here — Phase 2's Rust engine still
-serves as a differential oracle and the fused compiler facts still removed
-one JSON boundary.
+**Gate G3 (payoff validation):** realized end-to-end incremental p99
+improvement on the large corpus is **≥ 15%** against the current Phase 1 Go
+baseline — the same policy number the migration was approved under at G0,
+now measured instead of projected. Merely beating the baseline is not
+enough to ship the flip. The G3 report publishes projected-vs-realized
+values for every term of the payoff model (movable-stage share, boundary
+cost, transport removal), so the model itself is validated or corrected,
+not just the outcome. Additionally: p50 must not regress, and cold
+snapshot, startup-to-first-snapshot, cancellation latency, steady-state
+RSS, and peak RSS must all be within 10% of baseline. If realized
+improvement lands under 15%, hold here — Phase 2's Rust engine still serves
+as a differential oracle and the fused compiler facts still removed one
+JSON boundary.
 
 ### Phase 4 — Retire the Go engine, after a stabilization window
 
