@@ -32,7 +32,7 @@ scope for that phase.
 | Phase | Entry point | Engine (IR + solve + emit) | Type facts | Compiler facts | Cross-language boundary |
 | --- | --- | --- | --- | --- | --- |
 | 0–1 | Go (`solid-check`, `solid-checkd`) | Go, in-process | Go, in-process | Rust sidecar, JSON lines | Go → Rust (ExecutionMap v1) |
-| 2 | Go (authoritative) + Rust engine as differential oracle | Both, differential | Go, in-process; exported fact tables feed Rust | Rust: sidecar for Go, in-process for Rust engine | Go → Rust (ExecutionMap v1) + fact-table export (offline files, not a live protocol) |
+| 2 | Go (authoritative); Rust engine is a separate `solid-engine-diff` binary replaying recorded job directories | Both, differential | Go, in-process; recorded fact tables feed Rust | Rust: sidecar for Go, in-process for Rust engine | Go → Rust (ExecutionMap v1) + recorded job directories (offline files, not a live protocol) |
 | 3 | Rust (CLI + LSP) | Rust, in-process | Go service (transport chosen by G3 benchmark: c-archive FFI or subprocess) | Rust, in-process (sidecar retired) | Rust → Go (TypeFacts protocol) |
 | 4 | Rust | Rust | Go service | Rust, in-process | Rust → Go (TypeFacts protocol) |
 
@@ -115,7 +115,14 @@ the warm editor-critical path.
    and **startup cost** (process spawn to first snapshot, measured for the
    current single-binary layout so Phase 3's two-runtime layout has a
    baseline to be compared against).
-4. **A deterministic representative corpus.** The 38-source fixture is too
+4. **Boundary cost model inputs.** The G0 decision needs a measured
+   estimate of what the relocated boundary would cost, before any Rust
+   engine exists: microbenchmark encode/decode of representative fact
+   tables in the candidate codec, and per-round overhead of both candidate
+   transports (cgo FFI call into a stub Go `c-archive`; subprocess
+   round-trip over length-prefixed frames to a stub echo service). These
+   stubs are throwaway measurement rigs, not product code.
+5. **A deterministic representative corpus.** The 38-source fixture is too
    small. The benchmark corpus must be reproducible byte-for-byte: either a
    pinned real Solid 2 application at a recorded revision, or a generated
    project produced by a checked-in generator with a fixed seed. Either way
@@ -124,11 +131,37 @@ the warm editor-critical path.
    must vary identifiers, module graphs, and body shapes rather than
    duplicating templates — duplicated content exaggerates cache locality and
    interning wins and is not representative.
-5. **Comparison protocol.** All before/after claims use
+6. **Comparison protocol.** All before/after claims use
    `go test -bench ... -count=10` compared with `benchstat` (criterion with
    matching sample counts on the Rust side); record commit, Go/Rust
    versions, OS, CPU, power mode, and corpus manifest hash. Latency gates
    compare p50 and p99, not just means.
+
+### Incremental benchmark definition
+
+"Incremental update p50/p99" is meaningless without a fixed workload, and
+Phase 3 compares it across different process topologies, so the workload is
+defined once and replayed identically in every phase:
+
+- **Edit script.** A checked-in, deterministic script of ≥ 200 edit
+  operations against the corpus (JSON: file, range, replacement text),
+  produced once and committed next to the corpus manifest. It covers four
+  edit classes in fixed proportion, reported separately because their stage
+  shares differ: *leaf edit* (function body change in a file nothing
+  imports), *hub edit* (change in a file with many dependents), *JSX-only
+  edit* (markup change that alters compiler facts but not types), and
+  *signature edit* (exported type change that invalidates dependent type
+  facts).
+- **Measurement endpoints.** One sample = the time from the edit being
+  delivered to the engine (overlay apply call in Go; LSP `didChange`
+  receipt in the Phase 3 Rust server) to a complete certification snapshot
+  consistent with that edit being available. The endpoints are the same
+  events in every topology; transport between editor and engine is inside
+  the timed region on both sides or on neither.
+- **Aggregation.** p50/p99 are computed across the script's samples after a
+  fixed warm-up prefix (first 20 edits discarded), per edit class and
+  overall. Cancellation cases (superseding edits) are a separate scripted
+  scenario and never mixed into these distributions.
 
 ### Benchmark parity rule (applies to every cross-language comparison)
 
@@ -160,13 +193,26 @@ Build the instrumentation above and record the baseline table:
 | Startup to first snapshot | | |
 | Peak RSS | | |
 
-**Gate G0 (go / no-go for the whole migration):** on the large corpus, the
-stages that would move to Rust (IR build + solve + emission) account for
-**≥ 25%** of incremental p99 latency, or measured type-facts traffic per edit
-is demonstrably boundable (runtime queries collapse into few batched rounds
-with payloads in the low hundreds of KB). If tsgo checking dominates beyond
-that, stop: optimize Go (allocation, parallelism across files) instead, and
-re-run Phase 0 afterwards.
+**Gate G0 (go / no-go for the whole migration):** two conditions, both
+required — feasibility does not substitute for payoff, or vice versa.
+
+1. **Feasibility.** Measured type-facts traffic per edit is boundable:
+   runtime queries collapse into ≤ 10 batched rounds with payloads whose
+   projected boundary cost (bytes × measured codec throughput + rounds ×
+   measured transport overhead, from the boundary cost model) is < 10% of
+   current incremental p99. If the seam cannot be made cheap, no amount of
+   engine speedup justifies relocating the boundary onto it.
+2. **Payoff.** A projected end-to-end p99 improvement of **≥ 15%** on the
+   large corpus, computed from measured inputs only:
+   `(movable-stage share) × (1 − 1/S) + (measured ExecutionMap transport
+   share) − (projected boundary cost share)`, where the assumed Rust
+   speedup S is capped at 3× until G2 replaces it with a measurement. Every
+   term must come from the Phase 0 table — no unmeasured estimates.
+
+If either condition fails, stop: optimize Go (allocation, parallelism
+across files) instead, and re-run Phase 0 afterwards. Phase 1 (seam
+batching) may still proceed on its own merits, since G1 requires it to be
+performance-neutral or better in pure Go.
 
 ### Phase 1 — Reshape the seam, still all Go
 
@@ -193,22 +239,41 @@ This phase is valuable even if the migration stops here.
 Freeze `TypeFactsSchema` as a language-neutral schema file under `schema/`.
 Implement `reactiveir` + `internal/solver` rule families as crates in the
 `jsx-compiler` workspace, consuming ExecutionMaps in-process and fact tables
-deserialized from the frozen schema. The regex-based source scans in
-`build.go` are replaced by Oxc AST queries — any fixture whose outcome
-*improves* is recorded separately as an accuracy fix, not a diff to
-suppress, and back-ported to the Go oracle so the engines re-converge.
+deserialized from the frozen schema.
 
-Build a differential harness: `solid-check --engine=both` runs Go and Rust
-engines on the same inputs and diffs snapshots. Wire it into CI for every
-fixture suite and the corpus.
+**Executable topology.** The Rust engine ships as a `solid-engine-diff`
+binary in the `jsx-compiler` workspace. `solid-check --engine=both` runs the
+Go engine normally while recording a **job directory**: source manifest,
+serialized fact tables (every batch response), ExecutionMaps, and the Go
+snapshot. It then invokes `solid-engine-diff <job-dir>`, which replays the
+recorded inputs with no live seam to Go, emits its snapshot, and the driver
+diffs the two. Job directories are deterministic and self-contained, so any
+CI diff is committed as a replayable repro. This same replay path is the
+input side of the G2 performance benchmark, satisfying the parity rule by
+construction.
+
+**Backport rule.** The regex-based source scans in `build.go` are replaced
+by Oxc AST queries; any fixture whose outcome *improves* is recorded as an
+accuracy fix, not a diff to suppress, and back-ported to the Go oracle so
+the engines re-converge. Because a backport changes the oracle mid-
+migration, each one must land as its own reviewed change that passes the
+full Go correctness suites, and triggers a re-run of the Phase 1 benchmark
+baseline before differential comparisons resume — otherwise later Go-vs-Rust
+numbers would be measured against a baseline the oracle no longer matches.
+The G2 accuracy clock does not restart on a backport, but the differential
+diff must be empty against the updated oracle from that point on.
+
+The differential harness runs in CI for every fixture suite and the corpus.
 
 **Gate G2 (accuracy):** differential diff empty across all suites for two
 consecutive weeks of development.
 **Gate G2 (performance):** IR+solve stage compared under the benchmark
-parity rule — identical serialized fact-table and ExecutionMap inputs,
+parity rule, both engines replaying the same job directories to
 byte-identical snapshot output. Rust must win ≥ 1.5×; below that the
 boundary cost in Phase 3 will likely eat the gain, so pause and re-evaluate
-at G3 with a prototype.
+at G3 with a prototype. The measured speedup replaces the capped S in the
+G0 payoff model; if the recomputed projection falls under 15%, G0 is
+re-decided before Phase 3 starts.
 
 ### Phase 3 — Flip the boundary
 
