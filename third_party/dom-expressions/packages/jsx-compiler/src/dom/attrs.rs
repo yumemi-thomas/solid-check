@@ -257,6 +257,7 @@ impl<'a> AstDomTransform<'a, '_> {
         needs_placeholder: &mut bool,
     ) -> Result<()> {
         let span = plan.span;
+        let was_expression = matches!(plan.value, PlanValue::Expr(_));
         let raw = match plan.value {
             PlanValue::Expr(expression) => expression,
             PlanValue::Literal(value) => {
@@ -330,6 +331,13 @@ impl<'a> AstDomTransform<'a, '_> {
             return Ok(());
         }
 
+        // The value came from a JSX expression container but the compiler
+        // chose a one-shot `setAttr` over an effect wrap (`/*@static*/`
+        // marker, no effect wrapper, or a non-dynamic expression).
+        if was_expression {
+            self.facts.untracked(raw_span, "jsx-attribute");
+        }
+
         let elem = self.identifier_expression(span, element_id);
         let set_attr = self.set_attr_expression(
             span,
@@ -368,6 +376,8 @@ impl<'a> AstDomTransform<'a, '_> {
                 _ => break,
             }
         }
+
+        self.record_ref_facts(&value);
 
         let is_constant = matches!(
             &value,
@@ -445,6 +455,29 @@ impl<'a> AstDomTransform<'a, '_> {
             )
         };
         vec![declaration, statement]
+    }
+
+    fn record_ref_facts(&mut self, value: &Expression<'a>) {
+        match value {
+            Expression::CallExpression(_) => {
+                let span = value.span();
+                self.facts
+                    .callback(span, "directive-apply", "directive-apply");
+                self.facts.operation(span, "directive-setup");
+            }
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
+                self.facts
+                    .callback(value.span(), "directive-apply", "directive-apply");
+            }
+            Expression::ArrayExpression(array) => {
+                for element in &array.elements {
+                    if let Some(expression) = element.as_expression() {
+                        self.record_ref_facts(expression);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Event attributes as a statement group (delegated handlers with data

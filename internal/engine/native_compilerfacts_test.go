@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/yumemi-thomas/solid-check/internal/compilerfacts"
@@ -58,6 +59,33 @@ func TestNativeSessionAnalyzesChangedTSXWithCompilerFacts(t *testing.T) {
 	}
 }
 
+func TestNativeSessionCanonicalizesUpdatePathsBeforeForwarding(t *testing.T) {
+	facts := &fakeTypeFacts{}
+	session, err := (engine.NativeEngine{
+		OpenTypeFacts: func(context.Context, string) (typefacts.Project, error) {
+			return facts, nil
+		},
+	}).OpenProject(context.Background(), engine.ProjectConfig{ConfigPath: "tsconfig.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+
+	relativePath := filepath.Join("testdata", "App.ts")
+	if _, err := session.Update(context.Background(), []engine.FileChange{{
+		Path: relativePath, Version: 1, Source: []byte("export {}"),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.Abs(relativePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts.changes) != 1 || facts.changes[0].Path != want {
+		t.Fatalf("forwarded changes = %#v, want canonical path %q", facts.changes, want)
+	}
+}
+
 type recordingAnalyzer struct {
 	requests []compilerfacts.AnalysisRequest
 	closed   bool
@@ -76,13 +104,16 @@ func (a *recordingAnalyzer) Close() error {
 	return nil
 }
 
-type fakeTypeFacts struct{}
+type fakeTypeFacts struct {
+	changes []typefacts.FileChange
+}
 
 func (*fakeTypeFacts) SourceFiles(context.Context) ([]typefacts.SourceFile, error) {
 	return []typefacts.SourceFile{}, nil
 }
 
-func (*fakeTypeFacts) Update(_ context.Context, changes []typefacts.FileChange) (typefacts.AffectedSet, error) {
+func (f *fakeTypeFacts) Update(_ context.Context, changes []typefacts.FileChange) (typefacts.AffectedSet, error) {
+	f.changes = append([]typefacts.FileChange(nil), changes...)
 	paths := make([]string, len(changes))
 	for index, change := range changes {
 		paths[index] = change.Path
@@ -91,7 +122,7 @@ func (*fakeTypeFacts) Update(_ context.Context, changes []typefacts.FileChange) 
 }
 
 func (*fakeTypeFacts) SymbolAt(context.Context, typefacts.Location) (typefacts.SymbolID, error) {
-	return "", errors.New("unused")
+	return "", typefacts.ErrNotFound
 }
 func (*fakeTypeFacts) ResolveAlias(context.Context, typefacts.SymbolID) (typefacts.SymbolID, error) {
 	return "", errors.New("unused")

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: test -z "$(gofmt -l cmd internal pkg)"
+
+  compiler-facts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: third_party/dom-expressions/packages/jsx-compiler
+      - run: cargo fmt --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml -- --check
+      - run: >-
+          cargo clippy
+          --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
+          --no-default-features --features sidecar --all-targets -- -D warnings
+      - run: >-
+          cargo test
+          --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
+          --no-default-features --features sidecar
+
+  eslint-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: make test-eslint
+
+  compiler-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: third_party/dom-expressions/pnpm-lock.yaml
+      - run: make conformance
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh -n scripts/*.sh
+      - run: jq empty schema/*.json pkg/contracts/bundled/*.json

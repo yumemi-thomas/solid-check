@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -35,6 +36,73 @@ func TestCLIReachesExecutionMapObligationForValidProject(t *testing.T) {
 	}
 	if len(snapshot.Findings) != 1 || snapshot.Findings[0].Rule != "execution-map-unavailable" {
 		t.Errorf("findings = %#v", snapshot.Findings)
+	}
+}
+
+func TestCLIOxlintInjectsEphemeralSnapshotAndPropagatesExitCode(t *testing.T) {
+	helper := filepath.Join(t.TempDir(), "oxlint")
+	capturedPath := filepath.Join(t.TempDir(), "snapshot-path")
+	script := `#!/bin/sh
+set -eu
+test -f "$SOLID_CHECK_SNAPSHOT_PATH"
+grep -q '"status"' "$SOLID_CHECK_SNAPSHOT_PATH"
+printf '%s' "$SOLID_CHECK_SNAPSHOT_PATH" > "$SOLID_CHECK_CAPTURE_PATH"
+case " $* " in
+  *" --format=default "*) ;;
+  *) exit 9 ;;
+esac
+case " $* " in
+  *" --fix "*) ;;
+  *) exit 8 ;;
+esac
+printf 'framed oxlint diagnostic\n'
+exit 1
+`
+	if err := os.WriteFile(helper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OXLINT_BIN", helper)
+	t.Setenv("SOLID_CHECK_CAPTURE_PATH", capturedPath)
+	project := filepath.Join("..", "..", "internal", "typefacts", "testdata", "aliased-import", "tsconfig.json")
+	var stdout, stderr bytes.Buffer
+	exitCode := run(context.Background(), []string{
+		"oxlint", "--project", project, "--fix", "src",
+	}, &stdout, &stderr)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1; stderr = %s", exitCode, stderr.String())
+	}
+	if stdout.String() != "framed oxlint diagnostic\n" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	temporarySnapshot, err := os.ReadFile(capturedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(string(temporarySnapshot)); !os.IsNotExist(err) {
+		t.Fatalf("temporary snapshot still exists or cannot be checked: %v", err)
+	}
+}
+
+func TestParseOxlintArgsReservesCheckerOptionsAndForwardsLinterOptions(t *testing.T) {
+	project, contracts, passthrough, err := parseOxlintArgs([]string{
+		"--project", "app.json", "--contract=one.json", "--fix", "src",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project != "app.json" || !reflect.DeepEqual(contracts, []string{"one.json"}) || !reflect.DeepEqual(passthrough, []string{"--fix", "src"}) {
+		t.Fatalf("project=%q contracts=%q passthrough=%q", project, contracts, passthrough)
+	}
+}
+
+func TestOxlintFormatterOverrideDetection(t *testing.T) {
+	for _, args := range [][]string{{"--format=json"}, {"--format", "json"}, {"-f=json"}, {"-f", "json"}} {
+		if !hasOxlintFormat(args) {
+			t.Errorf("hasOxlintFormat(%q) = false", args)
+		}
+	}
+	if hasOxlintFormat([]string{"src"}) {
+		t.Error("source path was treated as a formatter override")
 	}
 }
 

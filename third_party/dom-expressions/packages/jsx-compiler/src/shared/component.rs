@@ -20,7 +20,15 @@ pub(crate) fn lower_component_with_setup<'a>(
     ctx: &mut AstDomTransform<'a, '_>,
     element: &JSXElement<'a>,
 ) -> Result<(Expression<'a>, std::vec::Vec<Statement<'a>>)> {
+    let render_callbacks = match &element.opening_element.name {
+        oxc_ast::ast::JSXElementName::IdentifierReference(name) => ctx
+            .built_ins
+            .iter()
+            .any(|built_in| built_in == name.name.as_str()),
+        _ => false,
+    };
     ctx.template_state.uses_create_component = true;
+    ctx.facts.operation(element.span, "component-invocation");
     let root_tag = ctx.jsx_root_span == Some(element.span);
     let component = component_callee_expression(ctx, &element.opening_element.name, root_tag)?;
     let mut prop_objects = std::vec::Vec::new();
@@ -65,6 +73,19 @@ pub(crate) fn lower_component_with_setup<'a>(
             }
             Some(JSXAttributeValue::ExpressionContainer(container)) => {
                 let dynamic = component_prop_is_dynamic(ctx, &name, container);
+                if dynamic {
+                    ctx.facts.callback(
+                        container.expression.span(),
+                        "deferred",
+                        "component-property",
+                    );
+                } else if name != "ref" {
+                    // Static props pass by value with no getter: the child
+                    // component never re-evaluates the expression. Refs keep
+                    // their own application semantics and stay unclassified.
+                    ctx.facts
+                        .untracked(container.expression.span(), "component-getter");
+                }
                 let mut value = transform_component_expression(ctx, &container.expression);
                 // Dynamic conditional/logical props collapse their memos
                 // inline within the getter, mirroring Babel's
@@ -117,7 +138,7 @@ pub(crate) fn lower_component_with_setup<'a>(
         }
     }
 
-    let children = component_children(ctx, &element.children)?;
+    let children = component_children(ctx, &element.children, render_callbacks)?;
     if let Some(children) = children {
         if children.needs_getter {
             running_props.push(ctx.object_getter_property_with_setup(

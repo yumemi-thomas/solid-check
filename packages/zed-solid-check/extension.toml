@@ -1,0 +1,18 @@
+authors = ["solid-check contributors"]
+description = "Live Solid 2 semantic diagnostics from solid-checkd"
+id = "solid-check"
+name = "Solid Check"
+repository = "https://github.com/yumemi-thomas/solid-check"
+schema_version = 1
+version = "0.0.1"
+
+[language_servers.solid-check]
+language = "JavaScript"
+languages = ["JavaScript", "JSX", "TypeScript", "TSX"]
+name = "Solid Check Language Server"
+
+[language_servers.solid-check.language_ids]
+"JSX" = "javascriptreact"
+"JavaScript" = "javascript"
+"TSX" = "typescriptreact"
+"TypeScript" = "typescript"

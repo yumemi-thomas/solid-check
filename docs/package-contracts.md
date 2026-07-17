@@ -84,22 +84,15 @@ function bodies produce `strict-read-untracked` findings.
 Reviewed contracts for `solid-js` and `@solidjs/web` are embedded in the
 checker and selected automatically from project imports.
 
-The controlled Solid Primitives `next` checkout lives at
-`../solid-primitives-next`. Its 98 packages publish generated contracts with
-hashes for built declarations and implementations. Regenerate and validate the
-corpus with:
+The pinned Solid Primitives `next` corpus contains 98 packages that publish
+generated contracts with hashes for built declarations and implementations.
+Regenerate and validate the complete corpus with:
 
 ```sh
-pnpm --dir ../solid-primitives-next build
-go build -o /tmp/solid-check ./cmd/solid-check
-
-SOLID_CHECK_BIN=/tmp/solid-check \
-SOLID_COMPILER_FACTS_BIN=../dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
-  scripts/generate-solid-primitives-contracts.sh ../solid-primitives-next
-
-SOLID_CHECK_BIN=/tmp/solid-check \
-  scripts/validate-solid-primitives-contracts.sh ../solid-primitives-next
+make corpus
 ```
+
+Set `SOLID_PRIMITIVES_CORPUS=/path/to/clean/checkout` to reuse a local clone.
 
 Generation repeats to a fixed point so contracted package dependencies retain
 their transitive summaries. Validation checks artifact hashes and confirms each

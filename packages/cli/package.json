@@ -1,0 +1,27 @@
+{
+  "name": "solid-check",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "solid-check": "bin/solid-check.mjs"
+  },
+  "exports": {
+    "./eslint": "./eslint.cjs"
+  },
+  "files": [
+    "bin",
+    "eslint.cjs",
+    "native"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "eslint-plugin-solid-check": "file:../eslint-plugin-solid-check"
+  },
+  "license": "MIT"
+}

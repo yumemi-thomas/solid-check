@@ -39,6 +39,25 @@
         "location": { "$ref": "#/$defs/location" }
       }
     },
+    "textEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["location", "newText"],
+      "properties": {
+        "location": { "$ref": "#/$defs/location" },
+        "newText": { "type": "string" }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "applicability", "edits"],
+      "properties": {
+        "message": { "type": "string", "minLength": 1 },
+        "applicability": { "const": "safe" },
+        "edits": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/textEdit" } }
+      }
+    },
     "finding": {
       "type": "object",
       "additionalProperties": false,
@@ -49,6 +68,8 @@
         "kind": { "enum": ["violation", "uncertifiable"] },
         "severity": { "enum": ["warning", "error"] },
         "message": { "type": "string", "minLength": 1 },
+        "analysisContext": { "type": "string", "minLength": 1 },
+        "subjectKind": { "enum": ["accessor", "store-path", "component-props"] },
         "primaryLocation": { "$ref": "#/$defs/location" },
         "relatedLocations": {
           "type": "array",
@@ -57,7 +78,8 @@
         "evidence": {
           "type": "array",
           "items": { "$ref": "#/$defs/evidence" }
-        }
+        },
+        "fixes": { "type": "array", "items": { "$ref": "#/$defs/fix" } }
       }
     },
     "packageSummary": {

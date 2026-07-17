@@ -1,0 +1,39 @@
+{
+  "languages": {
+    "JavaScript": {
+      "language_servers": ["typescript-ls", "solid-check", "oxlint", "!vtsls", "!typescript-language-server", "..."]
+    },
+    "JSX": {
+      "language_servers": ["typescript-ls", "solid-check", "oxlint", "!vtsls", "!typescript-language-server", "..."]
+    },
+    "TypeScript": {
+      "language_servers": ["typescript-ls", "solid-check", "oxlint", "!vtsls", "!typescript-language-server", "..."]
+    },
+    "TSX": {
+      "language_servers": ["typescript-ls", "solid-check", "oxlint", "!vtsls", "!typescript-language-server", "..."]
+    }
+  },
+  "lsp": {
+    "solid-check": {
+      "initialization_options": {
+        "project": "tsconfig.json"
+      },
+      "binary": {
+        "path": "../../bin/solid-checkd",
+        "arguments": ["--project", "tsconfig.json"],
+        "env": {
+          "SOLID_COMPILER_FACTS_BIN": "../../third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts"
+        }
+      }
+    },
+    "oxlint": {
+      "initialization_options": {
+        "settings": {
+          "configPath": ".oxlintrc.editor.json",
+          "fixKind": "safe_fix",
+          "run": "onType"
+        }
+      }
+    }
+  }
+}

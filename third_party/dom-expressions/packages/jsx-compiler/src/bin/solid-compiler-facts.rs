@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, BufWriter, Write};
 
-use dom_expressions_jsx_compiler::{transform, TransformOptions};
+use dom_expressions_jsx_compiler::{prelude::Either, transform, TransformOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -28,6 +28,14 @@ struct CompilerOptions {
     hydratable: bool,
     #[serde(default)]
     dev: bool,
+    #[serde(default)]
+    effect_wrapper: Option<String>,
+    #[serde(default)]
+    wrap_conditionals: Option<bool>,
+    #[serde(default)]
+    static_marker: Option<String>,
+    #[serde(default)]
+    built_ins: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -91,6 +99,57 @@ fn analyze(request: AnalysisRequest) -> Result<Value, String> {
     if source_hash != request.source_hash {
         return Err("request source hash does not match exact source bytes".to_owned());
     }
+    if request.path.trim().is_empty() || request.path.contains('\0') {
+        return Err("request path is required and must not contain NUL".to_owned());
+    }
+    if request.compiler_options.module_name.trim().is_empty() {
+        return Err("compiler option moduleName is required".to_owned());
+    }
+    if request.compiler_options.generate != "dom" {
+        return Err(format!(
+            "compiler facts analysis supports DOM output only, got {:?}",
+            request.compiler_options.generate
+        ));
+    }
+    if request
+        .compiler_options
+        .effect_wrapper
+        .as_deref()
+        .is_some_and(|name| name.contains('\0'))
+    {
+        return Err("compiler option effectWrapper must not contain NUL".to_owned());
+    }
+    if request
+        .compiler_options
+        .static_marker
+        .as_deref()
+        .is_some_and(|marker| marker.contains('\0'))
+    {
+        return Err("compiler option staticMarker must not contain NUL".to_owned());
+    }
+    if request
+        .compiler_options
+        .built_ins
+        .iter()
+        .any(|name| name.trim().is_empty())
+    {
+        return Err("compiler option builtIns must not contain empty names".to_owned());
+    }
+    if request
+        .compiler_options
+        .built_ins
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
+    {
+        return Err("compiler option builtIns must be sorted and unique".to_owned());
+    }
+    let effect_wrapper = request.compiler_options.effect_wrapper.map(|name| {
+        if name.is_empty() {
+            Either::A(false)
+        } else {
+            Either::B(name)
+        }
+    });
     let result = transform(
         request.source,
         Some(TransformOptions {
@@ -99,6 +158,10 @@ fn analyze(request: AnalysisRequest) -> Result<Value, String> {
             generate: Some(request.compiler_options.generate),
             hydratable: Some(request.compiler_options.hydratable),
             dev: Some(request.compiler_options.dev),
+            effect_wrapper,
+            wrap_conditionals: request.compiler_options.wrap_conditionals,
+            static_marker: request.compiler_options.static_marker,
+            built_ins: Some(request.compiler_options.built_ins),
             compiler_facts: Some(true),
             ..TransformOptions::default()
         }),

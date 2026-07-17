@@ -49,6 +49,21 @@ type EvidenceStep struct {
 	Location *SourceLocation `json:"location,omitempty"`
 }
 
+type FixApplicability string
+
+const FixSafe FixApplicability = "safe"
+
+type TextEdit struct {
+	Location SourceLocation `json:"location"`
+	NewText  string         `json:"newText"`
+}
+
+type Fix struct {
+	Message       string           `json:"message"`
+	Applicability FixApplicability `json:"applicability"`
+	Edits         []TextEdit       `json:"edits"`
+}
+
 // Finding is either a proven violation or an unresolved proof obligation.
 type Finding struct {
 	ID               string           `json:"id"`
@@ -56,9 +71,12 @@ type Finding struct {
 	Kind             FindingKind      `json:"kind"`
 	Severity         Severity         `json:"severity"`
 	Message          string           `json:"message"`
+	AnalysisContext  string           `json:"analysisContext,omitempty"`
+	SubjectKind      string           `json:"subjectKind,omitempty"`
 	PrimaryLocation  *SourceLocation  `json:"primaryLocation,omitempty"`
 	RelatedLocations []SourceLocation `json:"relatedLocations,omitempty"`
 	Evidence         []EvidenceStep   `json:"evidence,omitempty"`
+	Fixes            []Fix            `json:"fixes,omitempty"`
 }
 
 // PackageSummary describes contract evidence used for one dependency.
@@ -115,6 +133,14 @@ func NewSnapshot(findings []Finding, packages []PackageSummary, metrics Metrics)
 		}
 		finding.RelatedLocations = append([]SourceLocation(nil), finding.RelatedLocations...)
 		finding.Evidence = append([]EvidenceStep(nil), finding.Evidence...)
+		finding.Fixes = append([]Fix(nil), finding.Fixes...)
+		for fixIndex := range finding.Fixes {
+			fix := &finding.Fixes[fixIndex]
+			if fix.Message == "" || fix.Applicability != FixSafe || len(fix.Edits) == 0 {
+				return Snapshot{}, fmt.Errorf("finding %q has invalid fix %d", finding.ID, fixIndex)
+			}
+			fix.Edits = append([]TextEdit(nil), fix.Edits...)
+		}
 	}
 
 	sort.SliceStable(ownedFindings, func(i, j int) bool {

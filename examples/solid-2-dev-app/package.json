@@ -1,0 +1,26 @@
+{
+  "name": "solid-check-solid-2-dev-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "solid-check oxlint",
+    "lint:fix": "solid-check oxlint --fix",
+    "lint:clean": "npm run lint -- src/App.tsx src/main.tsx",
+    "lint:examples": "npm run lint -- src/cases/*.tsx",
+    "lint:failing": "npm run lint -- src/cases/*.tsx src/showcase/*.tsx src/BadAsync.tsx"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-beta.19",
+    "solid-js": "2.0.0-beta.19"
+  },
+  "devDependencies": {
+    "oxlint": "1.67.0",
+    "solid-check": "file:../../packages/cli",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vite-plugin-solid": "3.0.0-next.11"
+  }
+}

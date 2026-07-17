@@ -11,29 +11,48 @@ every successful `ExecutionMap` repeats both values. The Go client rejects
 stale hashes, incompatible protocol versions, and spans outside the original
 source.
 
-The current vertical slice covers these DOM compiler decisions:
+The hardened DOM contract covers these compiler decisions:
 
 - Dynamic native JSX children are tracked `jsx-child` regions.
 - Dynamic native JSX attributes are tracked `jsx-attribute` regions.
+- Expressions the compiler renders exactly once are explicit untracked
+  regions: template-inlined and unwrapped-insert children (including
+  `staticMarker` holes) as `jsx-child`, one-shot `setAttr` attribute values as
+  `jsx-attribute`, and by-value component properties and children as
+  `component-getter`.
 - `on*` JSX values are deferred `event-handler` callbacks rather than tracked
   reads at element creation.
+- Component invocations and dynamic component properties are identified;
+  property getters are deferred callbacks.
+- Function children of configured control-flow built-ins are render callbacks.
+- `hydratable`, `dev`, `effectWrapper`, `wrapConditionals`, `staticMarker`, and
+  sorted, unique `builtIns` are forwarded exactly to the compiler.
+- Fact arrays are sorted deterministically by original UTF-8 byte spans.
 
-Other renderer modes and semantic roles fail closed or remain unresolved until
-their compiler-conformance fixtures are implemented.
+Completeness invariant: every `jsx-expression` operation must be covered by a
+tracked region, an untracked region, a callback role, or a
+`component-property` operation. The IR builder reports uncovered holes as
+`SC9004 execution-map-incomplete` unresolved obligations instead of assuming
+untracked rendering, so a fact-recording gap makes the file uncertifiable
+rather than silently downgrading reads.
 
-Build the sidecar from the sibling compiler fork with Rust 1.93 (Oxc 0.118
+Only DOM generation is supported. Other renderer modes, malformed options,
+unknown fact kinds, invalid UTF-8 boundaries, stale hashes, and incompatible
+protocol versions fail closed.
+
+Build the sidecar from the in-repository compiler fork with Rust 1.93 (Oxc 0.118
 requires Rust 1.92 or newer):
 
 ```sh
 cargo +1.93 build \
-  --manifest-path ../dom-expressions/packages/jsx-compiler/Cargo.toml \
+  --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml \
   --no-default-features --features sidecar --bin solid-compiler-facts
 ```
 
 Point the CLI at the resulting persistent process:
 
 ```sh
-SOLID_COMPILER_FACTS_BIN=../dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
+SOLID_COMPILER_FACTS_BIN=third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
   go run ./cmd/solid-check --project tsconfig.json
 ```
 
@@ -42,6 +61,6 @@ transform and the sidecar against the same sources:
 
 ```sh
 node scripts/compiler-conformance.mjs \
-  ../dom-expressions/packages/jsx-compiler \
-  ../dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
+  third_party/dom-expressions/packages/jsx-compiler \
+  third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
 ```

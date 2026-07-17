@@ -33,12 +33,21 @@ func SolveStrictReads(program reactiveir.Program) StrictReadResult {
 	findings := make([]certification.Finding, 0)
 	for _, unresolved := range program.Unresolved {
 		location := unresolved.Location
+		id, rule := unresolved.ID, unresolved.Rule
+		evidence := unresolved.Message
+		if id == "" {
+			id = "SC9001"
+			evidence = "the imported package has a contract, but this export has no effect summary"
+		}
+		if rule == "" {
+			rule = "package-contract-export-missing"
+		}
 		findings = append(findings, certification.Finding{
-			ID: "SC9001", Rule: "package-contract-export-missing",
+			ID: id, Rule: rule,
 			Kind: certification.FindingUncertifiable, Severity: certification.SeverityError,
 			Message: unresolved.Message, PrimaryLocation: &location,
 			Evidence: []certification.EvidenceStep{{
-				Message:  "the imported package has a contract, but this export has no effect summary",
+				Message:  evidence,
 				Location: &location,
 			}},
 		})
@@ -93,6 +102,8 @@ func SolveStrictReads(program reactiveir.Program) StrictReadResult {
 			Kind:             certification.FindingViolation,
 			Severity:         certification.SeverityWarning,
 			Message:          message,
+			AnalysisContext:  read.Context,
+			SubjectKind:      string(read.Kind),
 			PrimaryLocation:  &primary,
 			RelatedLocations: related,
 			Evidence:         evidence,
@@ -107,6 +118,9 @@ func SolveStrictReads(program reactiveir.Program) StrictReadResult {
 func reactiveValueLabel(kind reactiveir.ReactiveValueKind) string {
 	if kind == reactiveir.ReactiveStorePath {
 		return "reactive store path"
+	}
+	if kind == reactiveir.ReactiveProps {
+		return "component prop"
 	}
 	return "reactive accessor"
 }

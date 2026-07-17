@@ -49,11 +49,13 @@ func Start(ctx context.Context, config ProcessConfig) (*Client, error) {
 		_ = input.Close()
 		return nil, fmt.Errorf("start compiler facts sidecar: %w", err)
 	}
+	decoder := json.NewDecoder(bufio.NewReader(output))
+	decoder.DisallowUnknownFields()
 	return &Client{
 		command: command,
 		input:   input,
 		encoder: json.NewEncoder(input),
-		decoder: json.NewDecoder(bufio.NewReader(output)),
+		decoder: decoder,
 	}, nil
 }
 
@@ -75,15 +77,44 @@ func (c *Client) Analyze(ctx context.Context, request AnalysisRequest) (Executio
 	if err := ctx.Err(); err != nil {
 		return ExecutionMap{}, err
 	}
+	if err := ValidateRequest(request); err != nil {
+		return ExecutionMap{}, fmt.Errorf("validate compiler facts request: %w", err)
+	}
 	if err := c.encoder.Encode(request); err != nil {
-		return ExecutionMap{}, fmt.Errorf("send compiler facts request: %w", err)
+		waitErr := c.stopLocked(true)
+		return ExecutionMap{}, fmt.Errorf("send compiler facts request: %w", errors.Join(err, waitErr))
 	}
-	var response sidecarResponse
-	if err := c.decoder.Decode(&response); err != nil {
-		return ExecutionMap{}, fmt.Errorf("read compiler facts response: %w", err)
+	type decodeResult struct {
+		response sidecarResponse
+		err      error
 	}
+	result := make(chan decodeResult, 1)
+	go func() {
+		var response sidecarResponse
+		err := c.decoder.Decode(&response)
+		result <- decodeResult{response: response, err: err}
+	}()
+	var decoded decodeResult
+	select {
+	case <-ctx.Done():
+		_ = c.stopLocked(true)
+		<-result
+		return ExecutionMap{}, ctx.Err()
+	case decoded = <-result:
+	}
+	if decoded.err != nil {
+		waitErr := c.stopLocked(false)
+		return ExecutionMap{}, fmt.Errorf("read compiler facts response: %w", errors.Join(decoded.err, waitErr))
+	}
+	response := decoded.response
 	if !response.OK {
+		if response.Error.Code == "" || response.Error.Message == "" {
+			return ExecutionMap{}, errors.New("compiler facts sidecar returned an invalid error response")
+		}
 		return ExecutionMap{}, fmt.Errorf("compiler facts %s: %s", response.Error.Code, response.Error.Message)
+	}
+	if response.Error.Code != "" || response.Error.Message != "" {
+		return ExecutionMap{}, errors.New("compiler facts sidecar returned success with an error body")
 	}
 	if err := Validate(request, response.ExecutionMap); err != nil {
 		return ExecutionMap{}, fmt.Errorf("validate compiler facts response: %w", err)
@@ -97,14 +128,25 @@ func (c *Client) Close() error {
 	if c.closed {
 		return ErrClientClosed
 	}
+	return c.stopLocked(false)
+}
+
+func (c *Client) stopLocked(kill bool) error {
 	c.closed = true
 	closeErr := c.input.Close()
+	var killErr error
+	if kill && c.command.Process != nil {
+		killErr = c.command.Process.Kill()
+		if errors.Is(killErr, os.ErrProcessDone) {
+			killErr = nil
+		}
+	}
 	waitErr := c.command.Wait()
 	if closeErr != nil {
-		return closeErr
+		return errors.Join(closeErr, killErr, waitErr)
 	}
 	if waitErr != nil {
-		return fmt.Errorf("compiler facts sidecar exited: %w", waitErr)
+		return fmt.Errorf("compiler facts sidecar exited: %w", errors.Join(killErr, waitErr))
 	}
-	return nil
+	return killErr
 }

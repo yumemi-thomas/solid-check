@@ -228,7 +228,11 @@ impl<'a> AstDomTransform<'a, '_> {
                         index += 1;
                         continue;
                     }
+                    self.facts
+                        .operation(container.expression.span(), "jsx-expression");
                     if let Some(value) = self.static_jsx_expression_value(&container.expression) {
+                        self.facts
+                            .untracked(container.expression.span(), "jsx-child");
                         template.push_both(&escape_html_text_expression(&value));
                         if !in_text_run {
                             if filtered_index(child).is_some_and(|position| {
@@ -290,6 +294,12 @@ impl<'a> AstDomTransform<'a, '_> {
                                 "Dynamic child run included a non-expression child",
                             ));
                         };
+                        // The arm head only records the run's first hole; later
+                        // run members skip it via `index = run_end`.
+                        if run_offset > 0 {
+                            self.facts
+                                .operation(container.expression.span(), "jsx-expression");
+                        }
                         self.template_state.uses_insert = true;
                         // Babel's `transformNode` gates wrapping on a deep
                         // `isDynamic(expr, { checkMember: true })` of the
@@ -314,6 +324,9 @@ impl<'a> AstDomTransform<'a, '_> {
                         if !marked_static && deep_dynamic {
                             self.facts
                                 .tracked(container.expression.span(), "jsx-child", "insert");
+                        } else {
+                            self.facts
+                                .untracked(container.expression.span(), "jsx-child");
                         }
                         let value = if marked_static || !deep_dynamic {
                             value

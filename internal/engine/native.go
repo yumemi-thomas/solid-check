@@ -35,6 +35,10 @@ func (e NativeEngine) OpenProject(ctx context.Context, config ProjectConfig) (Pr
 	if config.ConfigPath == "" {
 		config.ConfigPath = "tsconfig.json"
 	}
+	workingDirectory, err := filepath.Abs(".")
+	if err != nil {
+		return nil, err
+	}
 	facts, err := e.OpenTypeFacts(ctx, config.ConfigPath)
 	if err != nil {
 		return nil, err
@@ -127,6 +131,7 @@ func (e NativeEngine) OpenProject(ctx context.Context, config ProjectConfig) (Pr
 		executionMaps: executionMaps,
 		sources:       projectSources,
 		contracts:     packageContracts,
+		workingDir:    workingDirectory,
 	}, nil
 }
 
@@ -224,6 +229,7 @@ type nativeSession struct {
 	executionMaps map[string]compilerfacts.ExecutionMap
 	sources       []typefacts.SourceFile
 	contracts     []contracts.Contract
+	workingDir    string
 	version       uint64
 	closed        bool
 }
@@ -238,12 +244,14 @@ func (s *nativeSession) Update(ctx context.Context, changes []FileChange) (Analy
 	pendingSources := make(map[string][]byte)
 	deletedJSX := make([]string, 0)
 	deletedSources := make([]string, 0)
-	for _, change := range changes {
-		path, err := filepath.Abs(change.Path)
-		if err != nil {
-			return AnalysisDelta{}, err
+	canonicalPaths := make([]string, len(changes))
+	for index, change := range changes {
+		path := change.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.workingDir, path)
 		}
 		path = filepath.Clean(path)
+		canonicalPaths[index] = path
 		if change.Deleted {
 			deletedSources = append(deletedSources, path)
 		} else {
@@ -251,15 +259,11 @@ func (s *nativeSession) Update(ctx context.Context, changes []FileChange) (Analy
 		}
 	}
 	if s.compiler != nil {
-		for _, change := range changes {
-			if !isJSXPath(change.Path) {
+		for index, change := range changes {
+			path := canonicalPaths[index]
+			if !isJSXPath(path) {
 				continue
 			}
-			path, err := filepath.Abs(change.Path)
-			if err != nil {
-				return AnalysisDelta{}, err
-			}
-			path = filepath.Clean(path)
 			if change.Deleted {
 				deletedJSX = append(deletedJSX, path)
 				continue
@@ -278,7 +282,7 @@ func (s *nativeSession) Update(ctx context.Context, changes []FileChange) (Analy
 	factChanges := make([]typefacts.FileChange, len(changes))
 	for i, change := range changes {
 		factChanges[i] = typefacts.FileChange{
-			Path:    change.Path,
+			Path:    canonicalPaths[i],
 			Version: change.Version,
 			Source:  append([]byte(nil), change.Source...),
 			Deleted: change.Deleted,
@@ -330,6 +334,27 @@ func (s *nativeSession) Snapshot(ctx context.Context, _ *AnalysisScope) (certifi
 		return certification.Snapshot{}, err
 	}
 	result := solver.SolveStrictReads(program)
+	result.Findings = append(result.Findings, solver.SignalWrites(program)...)
+	result.Findings = append(result.Findings, solver.ActionCalls(program)...)
+	result.Findings = append(result.Findings, solver.LeafOwnerRestrictions(program)...)
+	result.Findings = append(result.Findings, solver.OwnerPresence(program)...)
+	result.Findings = append(result.Findings, solver.AsyncBoundaries(program)...)
+	result.Findings = append(result.Findings, solver.CleanupReturns(program)...)
+	result.Findings = append(result.Findings, solver.DirectiveApplications(program)...)
+	result.Findings = append(result.Findings, solver.StaticAPIDiagnostics(program)...)
+	writeObligations, actionObligations := len(program.Writes), len(program.ActionCalls)
+	for _, function := range program.Functions {
+		writeObligations += len(function.Writes)
+		actionObligations += len(function.ActionCalls)
+	}
+	result.ProofObligations += writeObligations
+	result.ProofObligations += actionObligations
+	result.ProofObligations += len(program.LeafOperations)
+	result.ProofObligations += len(program.MissingOwners)
+	result.ProofObligations += len(program.AsyncReads)
+	result.ProofObligations += len(program.InvalidCleanupReturns)
+	result.ProofObligations += solver.DirectiveApplicationObligations(program)
+	result.ProofObligations += len(program.StaticViolations)
 	packages := make([]certification.PackageSummary, 0, len(s.contracts))
 	for _, contract := range s.contracts {
 		packages = append(packages, certification.PackageSummary{
@@ -385,6 +410,7 @@ func newCompilerRequest(path string, source []byte) compilerfacts.AnalysisReques
 	return compilerfacts.NewRequest(path, source, compilerfacts.CompilerOptions{
 		ModuleName: "dom",
 		Generate:   "dom",
+		BuiltIns:   []string{"Errored", "For", "Loading", "Match", "Repeat", "Reveal", "Show", "Switch"},
 	})
 }
 

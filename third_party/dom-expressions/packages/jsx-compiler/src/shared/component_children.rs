@@ -39,6 +39,7 @@ struct ChildValue<'a> {
 pub(crate) fn component_children<'a>(
     ctx: &mut AstDomTransform<'a, '_>,
     children: &[JSXChild<'a>],
+    render_callbacks: bool,
 ) -> Result<Option<ComponentChildren<'a>>> {
     let mut values = std::vec::Vec::new();
     for child in children {
@@ -69,6 +70,27 @@ pub(crate) fn component_children<'a>(
                     .expression
                     .as_expression()
                     .is_some_and(|expression| is_dynamic_expression_deep(expression, true));
+                let is_function = matches!(
+                    container.expression,
+                    JSXExpression::ArrowFunctionExpression(_)
+                        | JSXExpression::FunctionExpression(_)
+                );
+                let role = if is_function && render_callbacks {
+                    "render"
+                } else if is_function || dynamic {
+                    "deferred"
+                } else {
+                    ""
+                };
+                if !role.is_empty() {
+                    ctx.facts
+                        .callback(container.expression.span(), role, "component-property");
+                } else {
+                    // Non-dynamic, non-function children pass by value: the
+                    // component receives the settled result, never a getter.
+                    ctx.facts
+                        .untracked(container.expression.span(), "component-getter");
+                }
                 let mut value = transform_component_expression(ctx, &container.expression);
                 if dynamic && ctx.wrap_conditionals && is_condition_shape(&value) {
                     // `transformCondition(..., true)` — memos collapse inline.

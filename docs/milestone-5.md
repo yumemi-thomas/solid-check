@@ -10,7 +10,7 @@ the Solid 2 Reactivity Checker Plan.
   discovery, and CLI validation: `pkg/contracts`, `internal/packagecontracts`,
   and `cmd/solid-check`.
 - Reviewed bundled contracts for `solid-js` and `@solidjs/web`.
-- Controlled Solid Primitives `next` checkout at `../solid-primitives-next`.
+- Pinned Solid Primitives `next` corpus, reproducible with `make corpus`.
 - Generated, published contracts for all 98 Solid Primitives packages.
 - Fixed-point generation for dependencies between contracted packages.
 

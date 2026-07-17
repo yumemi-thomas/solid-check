@@ -1,0 +1,109 @@
+# Solid 2 development app
+
+This standalone Vite app demonstrates the complete local development path:
+Solid 2 source, native `solid-check` analysis, ephemeral handoff to Oxlint, and
+framed diagnostics through the JavaScript adapter. No snapshot file is exposed
+to the user.
+
+## Run the app
+
+```sh
+cd examples/solid-2-dev-app
+npm install
+npm run dev
+```
+
+`src/App.tsx` is the clean, runnable application. Verify it with:
+
+```sh
+npm run lint:clean
+```
+
+## Paired rule examples
+
+`src/cases` is an intentionally exhaustive teaching and checker corpus. Every
+file covers one rule and keeps its `Bad...` and `Good...` components together,
+so the unsafe pattern and its replacement can be compared without jumping
+between directories.
+
+| File | Cases covered |
+| --- | --- |
+| `component-props.tsx` | parameter, body, and aliased destructuring; direct reads, defaults, and prop forwarding |
+| `untracked-reads.tsx` | component-body, aliased, and effect-apply reads; JSX, memo, and effect-compute reads |
+| `reactive-writes.tsx` | component, memo, and effect-compute writes; event, settled, and untracked writes |
+| `actions.tsx` | action calls in owned scopes; event-driven actions and writes inside actions |
+| `effect-cleanup.tsx` | forbidden nested cleanup registration; cleanup returned by all three supported effect forms |
+| `leaf-owners.tsx` | primitive creation and `flush()` in leaf owners; leaf-only work |
+| `control-flow-accessors.tsx` | `Show`, all `For` keying modes, and `Repeat` callback argument shapes |
+| `async-after-await.tsx` | reactive reads after one or several awaits; dependency capture before suspension |
+| `loading-boundaries.tsx` | missing, fake, direct, wrapped, and errored async boundaries |
+| `refresh-targets.tsx` | wrapper/read misuse versus original memo and signal targets |
+
+There are 51 example components arranged into bad/good comparisons. Type-check
+their source shapes with:
+
+```sh
+npx tsc --noEmit --skipLibCheck --lib ESNext,DOM
+```
+
+Run all semantic examples with:
+
+```sh
+npm run lint:examples
+```
+
+That command is expected to exit non-zero because every file deliberately
+contains violations. It is also a living conformance corpus: good examples
+that receive a diagnostic and bad examples that do not are useful evidence of
+checker gaps, rather than reasons to hide either half of the pair.
+
+`src/showcase/AsyncLoadingBoundary.tsx` also includes both a direct uncovered
+async read and a custom wrapper that does not provide a real `<Loading>`
+boundary. The showcase directory focuses on multi-file and proof-specific
+demonstrations; `src/cases` focuses on small side-by-side rules.
+Display these expected proof-backed failures with:
+
+```sh
+npm run lint:failing
+```
+
+Apply the safe fix for its simple parameter destructure with:
+
+```sh
+npm run lint:fix -- src/BadCard.tsx
+```
+
+The equivalent generic npm form is `npm run lint -- --fix src/BadCard.tsx`.
+`npm run lint --fix` does not forward `--fix`; npm treats it as an npm option.
+Aliases, defaults, rest patterns, writes, and references outside
+compiler-recorded JSX expression containers remain diagnostic-only.
+
+The failing command exits non-zero and uses Oxlint's `default` formatter, so it
+shows the source frame, highlighted destructuring pattern, canonical `SC1003`
+identifier, proof evidence, and summary.
+
+The app installs the private workspace `solid-check` package and invokes its
+real npm binary. There is no app-specific lint launcher, native binary path, or
+compiler-sidecar environment variable. In this source checkout the package
+locates and, when missing, builds the repository development binaries.
+`solid-check oxlint` analyzes once, injects a temporary snapshot into the child
+process, and deletes it when Oxlint exits. Nothing is downloaded or executed
+from a published package.
+
+## Zed
+
+Install the Oxc extension from Zed's extension view, then install
+`packages/zed-solid-check` as a development extension. The checked-in
+Zed settings launch both language servers:
+
+- Oxlint uses `.oxlintrc.editor.json`, which contains syntax rules only.
+- `solid-checkd` provides live, incremental Solid semantic diagnostics and
+  fixes directly from unsaved buffers.
+
+Run the **Solid Check: build local tools** Zed task once before opening a TSX
+file. No certification snapshot is created or read by the editor.
+
+When the complete `solid-check` repository is open, Zed uses the root
+`.zed/settings.json`. When this example directory is opened by itself, it uses
+this directory's `.zed/settings.json`. Zed does not inherit settings from a
+nested `.zed` directory into a parent worktree.

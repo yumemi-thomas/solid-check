@@ -2,6 +2,7 @@ package packagecontracts
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/yumemi-thomas/solid-check/internal/reactiveir"
 	"github.com/yumemi-thomas/solid-check/internal/solver"
@@ -19,7 +20,8 @@ func Emit(program reactiveir.Program, options EmitOptions) (contracts.Contract, 
 		return contracts.Contract{}, errors.New("emit package contract: package name is required")
 	}
 	if len(program.Unresolved) != 0 {
-		return contracts.Contract{}, errors.New("emit package contract: unresolved effect: " + program.Unresolved[0].Message)
+		unresolved := program.Unresolved[0]
+		return contracts.Contract{}, fmt.Errorf("emit package contract: unresolved effect at %s:%d:%d: %s", unresolved.Location.Path, unresolved.Location.Line, unresolved.Location.Column, unresolved.Message)
 	}
 	summaries := solver.FunctionReadSummaries(program)
 	exports := make(map[string]contracts.ExportSummary)

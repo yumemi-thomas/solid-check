@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "package": {
     "name": "@solidjs/web",
-    "version": "2.0.0-beta.18"
+    "version": "2.0.0-beta.19"
   },
   "compilerFactsProtocol": 1,
   "exports": {
     "isServer": { "kind": "value" },
     "assign": { "kind": "function" },
     "getRequestEvent": { "kind": "function" },
+    "render": { "kind": "function" },
     "Repeat": { "kind": "function" }
   },
   "evidence": {

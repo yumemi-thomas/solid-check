@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/yumemi-thomas/solid-check/internal/compilerfacts"
@@ -32,6 +33,9 @@ func (values *stringListFlag) Set(value string) error {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 0 && args[0] == "oxlint" {
+		return runOxlint(ctx, args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet("solid-check", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	project := flags.String("project", "tsconfig.json", "path to a TypeScript project")
@@ -63,13 +67,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	nativeEngine := engine.NativeEngine{OpenTypeFacts: tsgo.OpenProject}
-	if executable := os.Getenv("SOLID_COMPILER_FACTS_BIN"); executable != "" {
-		nativeEngine.OpenCompilerFacts = func(ctx context.Context) (compilerfacts.Analyzer, error) {
-			return compilerfacts.Start(ctx, compilerfacts.ProcessConfig{Executable: executable})
-		}
-	}
-	session, err := nativeEngine.OpenProject(ctx, engine.ProjectConfig{
+	session, err := nativeEngine().OpenProject(ctx, engine.ProjectConfig{
 		ConfigPath:    *project,
 		ContractPaths: append([]string(nil), contractPaths...),
 	})
@@ -142,4 +140,119 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runOxlint(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	project, contractPaths, oxlintArgs, err := parseOxlintArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+
+	session, err := nativeEngine().OpenProject(ctx, engine.ProjectConfig{
+		ConfigPath:    project,
+		ContractPaths: append([]string(nil), contractPaths...),
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+	defer session.Close()
+	snapshot, err := session.Snapshot(ctx, nil)
+	if err != nil {
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+
+	file, err := os.CreateTemp("", "solid-check-oxlint-*.json")
+	if err != nil {
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+	path := file.Name()
+	defer os.Remove(path)
+	encoder := json.NewEncoder(file)
+	if err := encoder.Encode(snapshot); err != nil {
+		_ = file.Close()
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+	if err := file.Close(); err != nil {
+		fmt.Fprintf(stderr, "solid-check oxlint: %v\n", err)
+		return 2
+	}
+
+	executable := os.Getenv("OXLINT_BIN")
+	if executable == "" {
+		executable = "oxlint"
+	}
+	if !hasOxlintFormat(oxlintArgs) {
+		oxlintArgs = append([]string{"--format=default"}, oxlintArgs...)
+	}
+	command := exec.CommandContext(ctx, executable, oxlintArgs...)
+	command.Env = append(os.Environ(), "SOLID_CHECK_SNAPSHOT_PATH="+path)
+	command.Stdout = stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode()
+		}
+		fmt.Fprintf(stderr, "solid-check oxlint: start %s: %v\n", executable, err)
+		return 2
+	}
+	return 0
+}
+
+func parseOxlintArgs(args []string) (string, []string, []string, error) {
+	project := "tsconfig.json"
+	contracts := []string(nil)
+	passthrough := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			passthrough = append(passthrough, args[index+1:]...)
+			break
+		}
+		if arg == "--project" || arg == "-project" || arg == "--contract" || arg == "-contract" {
+			if index+1 >= len(args) {
+				return "", nil, nil, fmt.Errorf("%s requires a value", arg)
+			}
+			index++
+			if strings.HasSuffix(arg, "project") {
+				project = args[index]
+			} else {
+				contracts = append(contracts, args[index])
+			}
+			continue
+		}
+		if value, found := strings.CutPrefix(arg, "--project="); found {
+			project = value
+			continue
+		}
+		if value, found := strings.CutPrefix(arg, "--contract="); found {
+			contracts = append(contracts, value)
+			continue
+		}
+		passthrough = append(passthrough, arg)
+	}
+	return project, contracts, passthrough, nil
+}
+
+func hasOxlintFormat(args []string) bool {
+	for _, arg := range args {
+		if arg == "--format" || arg == "-f" || strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "-f=") {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeEngine() engine.NativeEngine {
+	result := engine.NativeEngine{OpenTypeFacts: tsgo.OpenProject}
+	if executable := os.Getenv("SOLID_COMPILER_FACTS_BIN"); executable != "" {
+		result.OpenCompilerFacts = func(ctx context.Context) (compilerfacts.Analyzer, error) {
+			return compilerfacts.Start(ctx, compilerfacts.ProcessConfig{Executable: executable})
+		}
+	}
+	return result
 }
