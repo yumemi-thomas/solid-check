@@ -1,4 +1,6 @@
+mod directives;
 mod indexes;
+mod static_api;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -7,11 +9,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use directives::{DirectiveCreationCollector, is_created_primitive, push_directive_creation};
 use indexes::{CachedAstFileIndex, EntitySymbols, ProjectIndexes};
 use serde::{Deserialize, Serialize};
 use solid_facts::{FileFacts, ProjectFacts};
 use solid_facts_core::{SourceHash, Span};
 use solid_ts_facts::{Declaration, EntityFact, FactTable, FileFact, Location, SymbolFact};
+use static_api::StaticApiContext;
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1766,16 +1770,20 @@ fn build_with_contracts_measured_incremental(
                 function_symbols: HashSet::new(),
             });
             let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
-                facts,
-                &project_indexes,
-                entities,
-                &symbol_names,
-                &mut cached.files,
-                &mut cached.multiplicity_by_path,
-                &mut cached.calls,
-                &mut cached.function_symbols,
-                typescript_unchanged,
-                typescript_indexes.source_discovery_delta.as_ref(),
+                ReachabilityInputs {
+                    facts,
+                    indexes: &project_indexes,
+                    entities,
+                    symbol_names: &symbol_names,
+                    typescript_unchanged,
+                    typescript_delta: typescript_indexes.source_discovery_delta.as_ref(),
+                },
+                ReachabilityState {
+                    files: &mut cached.files,
+                    multiplicity_by_path: &mut cached.multiplicity_by_path,
+                    calls: &mut cached.calls,
+                    function_symbols: &mut cached.function_symbols,
+                },
             );
             build_timings.reachability = substage_started.elapsed();
             build_timings.reachability_reused_files = reused_files;
@@ -2673,18 +2681,16 @@ fn build_with_contracts_measured_incremental(
         unresolved_cleanup_returns.extend(unresolved);
     }
     finish_stage!(static_api, "static-api");
-    for result in parallel_file_results(&facts.files, |file| {
-        static_directive_checks_for_file(
-            facts,
-            file,
-            entities,
-            &symbol_names,
-            &source_kinds,
-            &source_owned_write,
-            &accessors,
-            reachable_calls,
-        )
-    }) {
+    let static_api = StaticApiContext {
+        facts,
+        entities,
+        symbol_names: &symbol_names,
+        source_kinds: &source_kinds,
+        source_owned_write: &source_owned_write,
+        accessors: &accessors,
+        reachable_calls,
+    };
+    for result in parallel_file_results(&facts.files, |file| static_api.check_file(file)) {
         static_violations.extend(result.violations);
         writes.extend(result.writes);
         write_action_obligations.extend(result.write_action_obligations);
@@ -2727,16 +2733,14 @@ fn build_with_contracts_measured_incremental(
                 if let Some((target_file, target)) =
                     function_called_at(facts, file, call.callee, entities)
                 {
-                    collect_returned_directive_creations(
+                    DirectiveCreationCollector::new(
                         facts,
-                        target_file,
-                        target,
                         entities,
                         &symbol_names,
-                        &mut HashSet::new(),
                         &mut directive_creations,
                         &mut seen_directive_creations,
-                    );
+                    )
+                    .collect_returned(target_file, target);
                 }
             }
         }
@@ -3066,205 +3070,6 @@ fn cleanup_returns_for_file(
         }
     }
     (invalid, unresolved)
-}
-
-struct StaticDirectiveFileResult {
-    violations: Vec<StaticViolation>,
-    writes: Vec<ReactiveWrite>,
-    write_action_obligations: Vec<(&'static str, String, u64, u64)>,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn static_directive_checks_for_file(
-    facts: &ProjectFacts,
-    file: &FileFacts,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
-    source_owned_write: &HashMap<String, bool>,
-    accessors: &HashMap<String, (String, Location)>,
-    reachable_calls: &HashMap<Location, usize>,
-) -> StaticDirectiveFileResult {
-    let mut result = StaticDirectiveFileResult {
-        violations: Vec::new(),
-        writes: Vec::new(),
-        write_action_obligations: Vec::new(),
-    };
-    let allowed = allowed_callback_spans(file, entities, symbol_names);
-    for call in &file.ast.calls {
-        let Some(primitive) = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        ) else {
-            continue;
-        };
-        if primitive == "createEffect"
-            && (call.arguments.len() < 2
-                || call.arguments[1].value == solid_ast_facts::ArgumentValueKind::Undefined)
-        {
-            result.violations.push(StaticViolation {
-                id: "SC7001".into(),
-                rule: "missing-effect-function".into(),
-                message: "createEffect requires both a compute function and an effect function"
-                    .into(),
-                location: location(file.path.as_str(), call.callee),
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-        }
-        let options_index = match primitive.as_str() {
-            "createMemo" | "createSignal" | "createOptimistic" => Some(1),
-            "createStore"
-            | "createProjection"
-            | "createOptimisticStore"
-            | "createEffect"
-            | "createRenderEffect" => Some(2),
-            "createTrackedEffect" => Some(1),
-            _ => None,
-        };
-        if let Some(options_index) = options_index
-            && call.arguments.get(options_index).is_some_and(|argument| {
-                argument
-                    .boolean_properties
-                    .iter()
-                    .any(|property| property.name == "sync" && property.value)
-            })
-            && call
-                .arguments
-                .first()
-                .is_some_and(|argument| computation_is_async(facts, file, argument.span))
-        {
-            result.violations.push(StaticViolation {
-                id: "SC7002".into(),
-                rule: "sync-node-received-async".into(),
-                message: format!(
-                    "{primitive} uses sync: true but its computation can return a Promise or AsyncIterable"
-                ),
-                location: location(file.path.as_str(), call.callee),
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-        }
-        if !matches!(primitive.as_str(), "refresh" | "affects") {
-            continue;
-        }
-        let invalid_arity = call.arguments.is_empty()
-            || primitive == "refresh" && call.arguments.len() != 1
-            || primitive == "affects" && call.arguments.len() > 2;
-        if invalid_arity {
-            result.violations.push(StaticViolation {
-                id: "SC7003".into(),
-                rule: format!("invalid-{primitive}-target"),
-                message: format!("{primitive}() received an invalid number of target arguments"),
-                location: location(file.path.as_str(), call.callee),
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-            continue;
-        }
-        let target = &call.arguments[0];
-        if target.value != solid_ast_facts::ArgumentValueKind::Identifier {
-            result.violations.push(StaticViolation {
-                id: "SC7003".into(),
-                rule: format!("invalid-{primitive}-target"),
-                message: format!(
-                    "{primitive}() expects the original Solid source accessor or store, not a wrapper, read value, or literal"
-                ),
-                location: location(file.path.as_str(), target.span),
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-            continue;
-        }
-        let target_location = location(file.path.as_str(), target.span);
-        let Some(symbol) = entities.get(&target_location) else {
-            result.violations.push(StaticViolation {
-                id: "SC9003".into(),
-                rule: format!("{primitive}-target-unresolved"),
-                message: format!(
-                    "cannot prove that the target is a branded Solid source accepted by {primitive}"
-                ),
-                location: target_location,
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-            continue;
-        };
-        let Some(kind) = source_kinds.get(symbol).copied() else {
-            result.violations.push(StaticViolation {
-                id: "SC9003".into(),
-                rule: format!("{primitive}-target-unresolved"),
-                message: format!(
-                    "cannot prove that the target is a branded Solid source accepted by {primitive}"
-                ),
-                location: target_location,
-                analysis_context: String::new(),
-                fixes: vec![],
-            });
-            continue;
-        };
-        if primitive == "affects" {
-            if kind == ReactiveSourceKind::Accessor && call.arguments.len() == 2 {
-                result.violations.push(StaticViolation {
-                    id: "SC7004".into(),
-                    rule: "affects-keys-on-accessor".into(),
-                    message: "affects() keys are only valid on store targets".into(),
-                    location: location(file.path.as_str(), call.callee),
-                    analysis_context: String::new(),
-                    fixes: vec![],
-                });
-            }
-            continue;
-        }
-        if file
-            .ast
-            .functions
-            .iter()
-            .any(|function| function.body.contains(call.span))
-        {
-            result.write_action_obligations.push((
-                "write",
-                file.path.to_string(),
-                u64::from(call.callee.start),
-                u64::from(call.callee.end),
-            ));
-        }
-        let callee = location(file.path.as_str(), call.callee);
-        let Some(multiplicity) = reachable_calls.get(&callee).copied() else {
-            continue;
-        };
-        let Some((name, declaration)) = accessors.get(symbol) else {
-            continue;
-        };
-        for _ in 0..multiplicity {
-            result.writes.push(ReactiveWrite {
-                setter: format!("refresh({name})"),
-                location: location(
-                    file.path.as_str(),
-                    Span::new(
-                        call.span.start,
-                        call.arguments
-                            .last()
-                            .map_or(call.span.end, |argument| argument.span.end),
-                    ),
-                ),
-                declaration: declaration.clone(),
-                execution: semantic_execution_role(
-                    file,
-                    call.callee,
-                    &allowed,
-                    entities,
-                    symbol_names,
-                ),
-                allowed_by_option: source_owned_write.get(symbol).copied().unwrap_or(false),
-                context: analysis_context(file, call.span, entities, symbol_names),
-            });
-        }
-    }
-    result
 }
 
 fn callback_function<'a>(
@@ -3617,166 +3422,6 @@ fn function_called_at<'a>(
         }
     }
     None
-}
-
-#[allow(clippy::too_many_arguments)]
-fn collect_returned_directive_creations(
-    facts: &ProjectFacts,
-    file: &solid_facts::FileFacts,
-    function: &solid_ast_facts::FunctionFact,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-    visiting: &mut HashSet<(String, Span)>,
-    creations: &mut Vec<PrimitiveCreation>,
-    seen: &mut HashSet<(String, u64, u64)>,
-) {
-    let key = (file.path.to_string(), function.span);
-    if !visiting.insert(key.clone()) {
-        return;
-    }
-    for returned in function
-        .expression_return
-        .iter()
-        .chain(file.ast.returns.iter().filter(|returned| {
-            containing_ast_function(&file.ast.functions, returned.span)
-                .is_some_and(|owner| owner.span == function.span)
-        }))
-    {
-        match returned.value {
-            solid_ast_facts::ReturnValueKind::Function => {
-                if let Some(returned_function) = file
-                    .ast
-                    .functions
-                    .iter()
-                    .find(|candidate| candidate.span == returned.span)
-                {
-                    collect_directive_function_creations(
-                        facts,
-                        file,
-                        returned_function,
-                        entities,
-                        symbol_names,
-                        visiting,
-                        creations,
-                        seen,
-                    );
-                }
-            }
-            solid_ast_facts::ReturnValueKind::Call => {
-                if let Some(callee) = returned.callee
-                    && let Some((target_file, target)) =
-                        function_called_at(facts, file, callee, entities)
-                {
-                    collect_returned_directive_creations(
-                        facts,
-                        target_file,
-                        target,
-                        entities,
-                        symbol_names,
-                        visiting,
-                        creations,
-                        seen,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-    visiting.remove(&key);
-}
-
-#[allow(clippy::too_many_arguments)]
-fn collect_directive_function_creations(
-    facts: &ProjectFacts,
-    file: &solid_facts::FileFacts,
-    function: &solid_ast_facts::FunctionFact,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-    visiting: &mut HashSet<(String, Span)>,
-    creations: &mut Vec<PrimitiveCreation>,
-    seen: &mut HashSet<(String, u64, u64)>,
-) {
-    let key = (file.path.to_string(), function.span);
-    if !visiting.insert(key.clone()) {
-        return;
-    }
-    for call in file.ast.calls.iter().filter(|call| {
-        containing_ast_function(&file.ast.functions, call.span)
-            .is_some_and(|owner| owner.span == function.span)
-    }) {
-        if let Some(primitive) = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        )
-        .filter(|primitive| is_created_primitive(primitive))
-        {
-            push_directive_creation(
-                creations,
-                seen,
-                primitive,
-                file.path.as_str(),
-                call.callee,
-                true,
-            );
-        } else if let Some((target_file, target)) =
-            function_called_at(facts, file, call.callee, entities)
-        {
-            collect_directive_function_creations(
-                facts,
-                target_file,
-                target,
-                entities,
-                symbol_names,
-                visiting,
-                creations,
-                seen,
-            );
-        }
-    }
-    visiting.remove(&key);
-}
-
-fn is_created_primitive(primitive: &str) -> bool {
-    matches!(
-        primitive,
-        "createSignal"
-            | "createMemo"
-            | "createStore"
-            | "createProjection"
-            | "createOptimistic"
-            | "createOptimisticStore"
-            | "createEffect"
-            | "createRenderEffect"
-            | "createTrackedEffect"
-            | "createReaction"
-            | "createRoot"
-            | "createOwner"
-    )
-}
-
-fn push_directive_creation(
-    creations: &mut Vec<PrimitiveCreation>,
-    seen: &mut HashSet<(String, u64, u64)>,
-    primitive: String,
-    path: &str,
-    span: Span,
-    returned_closure: bool,
-) {
-    let location = location(path, span);
-    if seen.insert((
-        location.path.clone(),
-        location.start_byte,
-        location.end_byte,
-    )) {
-        creations.push(PrimitiveCreation {
-            primitive,
-            location,
-            returned_closure,
-        });
-    }
 }
 
 const OWNER_CONTEXT_OWNED: u8 = 1;
@@ -4791,7 +4436,6 @@ fn push_owner_requirement(
         });
     }
 }
-
 fn containing_leaf_owner(
     file: &solid_facts::FileFacts,
     span: Span,
@@ -5418,84 +5062,135 @@ fn discover_interprocedural_graph(
     contribution
 }
 
-#[allow(clippy::too_many_arguments)]
-fn merge_interprocedural_graph(
-    path: &str,
-    contribution: &InterproceduralGraphContribution,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-    by_symbol: &HashMap<String, usize>,
-    summaries: &mut [SummaryReads],
-    callback_summaries: &mut [Vec<ContractCallback>],
-    edges: &mut [Vec<usize>],
-    invoked_parameters: &mut [Vec<usize>],
-) {
-    let node_index = |span| {
-        nodes_by_path.get(path).and_then(|indices| {
-            indices
-                .iter()
-                .rev()
-                .find(|index| nodes[**index].span == span)
-                .copied()
-        })
-    };
-    for (owner, read) in &contribution.direct_reads {
-        if let Some(owner) = node_index(*owner) {
-            summaries[owner].push_unique(read.clone());
-        }
-    }
-    for (owner, target) in &contribution.edges {
-        let Some(owner) = node_index(*owner) else {
-            continue;
+struct InterproceduralGraphAssembly<'a> {
+    nodes: &'a [SummaryNode],
+    nodes_by_path: &'a HashMap<String, Vec<usize>>,
+    by_symbol: &'a HashMap<String, usize>,
+    summaries: &'a mut [SummaryReads],
+    callback_summaries: &'a mut [Vec<ContractCallback>],
+    edges: &'a mut [Vec<usize>],
+    invoked_parameters: &'a mut [Vec<usize>],
+}
+
+impl InterproceduralGraphAssembly<'_> {
+    fn merge(&mut self, path: &str, contribution: &InterproceduralGraphContribution) {
+        let node_index = |span| {
+            self.nodes_by_path.get(path).and_then(|indices| {
+                indices
+                    .iter()
+                    .rev()
+                    .find(|index| self.nodes[**index].span == span)
+                    .copied()
+            })
         };
-        let target = match target {
-            InterproceduralGraphTarget::Symbol(symbol) => by_symbol.get(symbol).copied(),
-            InterproceduralGraphTarget::LocalSpan(span) => node_index(*span),
-        };
-        if let Some(target) = target {
-            edges[owner].push(target);
+        for (owner, read) in &contribution.direct_reads {
+            if let Some(owner) = node_index(*owner) {
+                self.summaries[owner].push_unique(read.clone());
+            }
         }
-    }
-    for (owner, parameter) in &contribution.invoked_parameters {
-        if let Some(owner) = node_index(*owner) {
-            invoked_parameters[owner].push(*parameter);
+        for (owner, target) in &contribution.edges {
+            let Some(owner) = node_index(*owner) else {
+                continue;
+            };
+            let target = match target {
+                InterproceduralGraphTarget::Symbol(symbol) => self.by_symbol.get(symbol).copied(),
+                InterproceduralGraphTarget::LocalSpan(span) => node_index(*span),
+            };
+            if let Some(target) = target {
+                self.edges[owner].push(target);
+            }
         }
-    }
-    for (owner, callback) in &contribution.callbacks {
-        if let Some(owner) = node_index(*owner) {
-            push_contract_callback(&mut callback_summaries[owner], callback.clone());
+        for (owner, parameter) in &contribution.invoked_parameters {
+            if let Some(owner) = node_index(*owner) {
+                self.invoked_parameters[owner].push(*parameter);
+            }
+        }
+        for (owner, callback) in &contribution.callbacks {
+            if let Some(owner) = node_index(*owner) {
+                push_contract_callback(&mut self.callback_summaries[owner], callback.clone());
+            }
         }
     }
 }
 
-fn interprocedural_result_dependency_state(
-    dependency: &InterproceduralResultDependency,
-    nodes: &[SummaryNode],
-    indexes: &HashMap<(String, Span), usize>,
-    by_symbol: &HashMap<String, usize>,
-    summaries: &[SummaryReads],
-    invoked_parameters: &[Vec<usize>],
-    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
-) -> InterproceduralResultDependencyState {
-    match dependency {
-        InterproceduralResultDependency::Symbol(symbol) => {
-            if let Some(index) = by_symbol.get(symbol) {
-                InterproceduralResultDependencyState::Function {
-                    name: nodes[*index].name.clone(),
-                    summary: summaries[*index].to_vec(),
-                    invoked_parameters: invoked_parameters[*index].clone(),
+#[derive(Clone, Copy)]
+struct InterproceduralResultView<'a> {
+    nodes: &'a [SummaryNode],
+    indexes: &'a HashMap<(String, Span), usize>,
+    by_symbol: &'a HashMap<String, usize>,
+    summaries: &'a [SummaryReads],
+    invoked_parameters: &'a [Vec<usize>],
+    returned_bindings: &'a HashMap<String, Vec<SummaryRead>>,
+}
+
+impl InterproceduralResultView<'_> {
+    fn dependency_state(
+        &self,
+        dependency: &InterproceduralResultDependency,
+    ) -> InterproceduralResultDependencyState {
+        match dependency {
+            InterproceduralResultDependency::Symbol(symbol) => {
+                if let Some(index) = self.by_symbol.get(symbol) {
+                    InterproceduralResultDependencyState::Function {
+                        name: self.nodes[*index].name.clone(),
+                        summary: self.summaries[*index].to_vec(),
+                        invoked_parameters: self.invoked_parameters[*index].clone(),
+                    }
+                } else if let Some(summary) = self.returned_bindings.get(symbol) {
+                    InterproceduralResultDependencyState::Returned(summary.clone())
+                } else {
+                    InterproceduralResultDependencyState::Missing
                 }
-            } else if let Some(summary) = returned_bindings.get(symbol) {
-                InterproceduralResultDependencyState::Returned(summary.clone())
-            } else {
-                InterproceduralResultDependencyState::Missing
+            }
+            InterproceduralResultDependency::InlineFunction(path, span) => self
+                .indexes
+                .get(&(path.clone(), *span))
+                .map_or(InterproceduralResultDependencyState::Missing, |index| {
+                    InterproceduralResultDependencyState::Inline(self.summaries[*index].to_vec())
+                }),
+        }
+    }
+
+    fn dependency_matches(
+        &self,
+        retained: &InterproceduralResultDependencyState,
+        dependency: &InterproceduralResultDependency,
+    ) -> bool {
+        match dependency {
+            InterproceduralResultDependency::Symbol(symbol) => {
+                if let Some(index) = self.by_symbol.get(symbol) {
+                    matches!(
+                        retained,
+                        InterproceduralResultDependencyState::Function {
+                            name,
+                            summary,
+                            invoked_parameters: previous_parameters,
+                        } if name == &self.nodes[*index].name
+                            && summary.as_slice() == &self.summaries[*index][..]
+                            && previous_parameters == &self.invoked_parameters[*index]
+                    )
+                } else if let Some(summary) = self.returned_bindings.get(symbol) {
+                    matches!(
+                        retained,
+                        InterproceduralResultDependencyState::Returned(previous)
+                            if previous == summary
+                    )
+                } else {
+                    matches!(retained, InterproceduralResultDependencyState::Missing)
+                }
+            }
+            InterproceduralResultDependency::InlineFunction(path, span) => {
+                if let Some(index) = self.indexes.get(&(path.clone(), *span)) {
+                    matches!(
+                        retained,
+                        InterproceduralResultDependencyState::Inline(previous)
+                            if previous.as_slice() == &self.summaries[*index][..]
+                    )
+                } else {
+                    matches!(retained, InterproceduralResultDependencyState::Missing)
+                }
             }
         }
-        InterproceduralResultDependency::InlineFunction(path, span) => indexes
-            .get(&(path.clone(), *span))
-            .map_or(InterproceduralResultDependencyState::Missing, |index| {
-                InterproceduralResultDependencyState::Inline(summaries[*index].to_vec())
-            }),
     }
 }
 
@@ -5522,66 +5217,31 @@ fn remove_interprocedural_dependency_user(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn interprocedural_result_dependency_matches(
-    retained: &InterproceduralResultDependencyState,
-    dependency: &InterproceduralResultDependency,
-    nodes: &[SummaryNode],
-    indexes: &HashMap<(String, Span), usize>,
-    by_symbol: &HashMap<String, usize>,
-    summaries: &[SummaryReads],
-    invoked_parameters: &[Vec<usize>],
-    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
-) -> bool {
-    match dependency {
-        InterproceduralResultDependency::Symbol(symbol) => {
-            if let Some(index) = by_symbol.get(symbol) {
-                matches!(
-                    retained,
-                    InterproceduralResultDependencyState::Function {
-                        name,
-                        summary,
-                        invoked_parameters: previous_parameters,
-                    } if name == &nodes[*index].name
-                        && summary.as_slice() == &summaries[*index][..]
-                        && previous_parameters == &invoked_parameters[*index]
-                )
-            } else if let Some(summary) = returned_bindings.get(symbol) {
-                matches!(
-                    retained,
-                    InterproceduralResultDependencyState::Returned(previous)
-                        if previous == summary
-                )
-            } else {
-                matches!(retained, InterproceduralResultDependencyState::Missing)
-            }
-        }
-        InterproceduralResultDependency::InlineFunction(path, span) => {
-            if let Some(index) = indexes.get(&(path.clone(), *span)) {
-                matches!(
-                    retained,
-                    InterproceduralResultDependencyState::Inline(previous)
-                        if previous.as_slice() == &summaries[*index][..]
-                )
-            } else {
-                matches!(retained, InterproceduralResultDependencyState::Missing)
-            }
-        }
-    }
+struct InterproceduralResultReadContext<'a> {
+    result: InterproceduralResultView<'a>,
+    contract_callbacks: &'a HashMap<String, Vec<ContractCallback>>,
+    entities: &'a EntitySymbols,
+    symbol_names: &'a HashMap<String, String>,
 }
 
-#[allow(clippy::too_many_arguments)]
 fn interprocedural_result_reads_for_file(
     file: &solid_facts::FileFacts,
-    nodes: &[SummaryNode],
-    by_symbol: &HashMap<String, usize>,
-    summaries: &[SummaryReads],
-    invoked_parameters: &[Vec<usize>],
-    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
-    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
+    context: &InterproceduralResultReadContext<'_>,
 ) -> (Vec<ReactiveRead>, HashSet<InterproceduralResultDependency>) {
+    let InterproceduralResultReadContext {
+        result:
+            InterproceduralResultView {
+                nodes,
+                by_symbol,
+                summaries,
+                invoked_parameters,
+                returned_bindings,
+                ..
+            },
+        contract_callbacks,
+        entities,
+        symbol_names,
+    } = context;
     let mut result = Vec::new();
     let mut dependencies = HashSet::new();
     let mut seen = HashSet::new();
@@ -5834,19 +5494,22 @@ fn retained_reactive_sources(
     cache.as_ref().expect("reactive sources retained").clone()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn direct_reference_contributions(
     source: &CachedReactiveSource,
-    references_by_source: &HashMap<String, Vec<Location>>,
-    project_indexes: &ProjectIndexes<'_>,
+    context: &InterproceduralContext<'_>,
     nodes: &[SummaryNode],
     nodes_by_path: &HashMap<String, Vec<usize>>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-    source_primitives: &HashMap<String, String>,
-    bundled_returns: &HashMap<String, ContractReturn>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
 ) -> Vec<DirectReferenceContribution> {
+    let InterproceduralContext {
+        references_by_source,
+        project_indexes,
+        entities,
+        symbol_names,
+        source_primitives,
+        bundled_returns,
+        source_kinds,
+        ..
+    } = context;
     let mut contributions = Vec::new();
     for reference in references_by_source
         .get(source.symbol.as_str())
@@ -5977,55 +5640,51 @@ impl InterproceduralContext<'_> {
         interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
     ) -> InterproceduralResult {
         interprocedural_reads(
-            self.facts,
-            self.project_indexes,
-            self.accessors,
-            self.contracted_accessor_symbols,
-            self.returned_source_symbols,
-            self.summary_source_symbols,
-            self.source_phases,
-            self.source_kinds,
-            self.contract_reads,
-            self.contract_callbacks,
-            self.contract_returns,
-            self.bundled_returns,
-            self.source_primitives,
-            self.entities,
-            self.references_by_source,
-            self.symbol_names,
-            self.changed_semantic_symbols,
-            self.retained_source_paths,
-            typed_accessor_cache,
-            interprocedural_graph_cache,
-            interprocedural_result_cache,
+            self,
+            InterproceduralCaches {
+                typed_accessors: typed_accessor_cache,
+                graph: interprocedural_graph_cache,
+                results: interprocedural_result_cache,
+            },
         )
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+struct InterproceduralCaches<'a> {
+    typed_accessors: Option<&'a mut HashMap<String, CachedTypedAccessors>>,
+    graph: Option<&'a mut HashMap<String, CachedInterproceduralGraph>>,
+    results: Option<&'a mut CachedInterproceduralResults>,
+}
+
 fn interprocedural_reads(
-    facts: &ProjectFacts,
-    project_indexes: &ProjectIndexes<'_>,
-    accessors: &HashMap<String, (String, Location)>,
-    contracted_accessor_symbols: &HashSet<String>,
-    returned_source_symbols: &HashSet<String>,
-    summary_source_symbols: &HashSet<String>,
-    source_phases: &HashMap<String, u8>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
-    contract_reads: &HashMap<String, Vec<(String, String, Location, String)>>,
-    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
-    contract_returns: &HashMap<String, (ContractReturn, Location)>,
-    bundled_returns: &HashMap<String, ContractReturn>,
-    source_primitives: &HashMap<String, String>,
-    entities: &EntitySymbols,
-    references_by_source: &HashMap<String, Vec<Location>>,
-    symbol_names: &HashMap<String, String>,
-    changed_semantic_symbols: Option<&HashSet<String>>,
-    retained_source_paths: &HashSet<String>,
-    typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
-    mut interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
-    mut interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
+    context: &InterproceduralContext<'_>,
+    caches: InterproceduralCaches<'_>,
 ) -> InterproceduralResult {
+    let InterproceduralContext {
+        facts,
+        project_indexes,
+        accessors,
+        contracted_accessor_symbols,
+        returned_source_symbols,
+        summary_source_symbols,
+        source_phases,
+        source_kinds,
+        contract_reads,
+        contract_callbacks,
+        contract_returns,
+        bundled_returns,
+        source_primitives,
+        entities,
+        references_by_source: _,
+        symbol_names,
+        changed_semantic_symbols,
+        retained_source_paths,
+    } = context;
+    let InterproceduralCaches {
+        typed_accessors: typed_accessor_cache,
+        graph: mut interprocedural_graph_cache,
+        results: mut interprocedural_result_cache,
+    } = caches;
     let mut phase_started = Instant::now();
     let mut nodes = Vec::new();
     let mut graph_node_reused_paths = HashSet::new();
@@ -6079,83 +5738,64 @@ fn interprocedural_reads(
     let mut invoked_parameters = vec![Vec::<usize>::new(); nodes.len()];
     let mut graph_reused_files = 0;
     let mut graph_recomputed_files = 0;
-    match interprocedural_graph_cache {
-        None => {
-            for file in &facts.files {
-                graph_recomputed_files += 1;
-                let contribution = discover_interprocedural_graph(
-                    file,
-                    &nodes,
-                    &nodes_by_path,
-                    entities,
-                    contract_reads,
-                    contract_callbacks,
-                );
-                merge_interprocedural_graph(
-                    file.path.as_str(),
-                    &contribution,
-                    &nodes,
-                    &nodes_by_path,
-                    &by_symbol,
-                    &mut summaries,
-                    &mut callback_summaries,
-                    &mut edges,
-                    &mut invoked_parameters,
-                );
-            }
-        }
-        Some(cache) => {
-            for file in &facts.files {
-                if graph_node_reused_paths.contains(file.path.as_str())
-                    && let Some(cached) = cache.get(file.path.as_str())
-                {
-                    graph_reused_files += 1;
-                    merge_interprocedural_graph(
-                        file.path.as_str(),
-                        &cached.contribution,
+    {
+        let mut graph = InterproceduralGraphAssembly {
+            nodes: &nodes,
+            nodes_by_path: &nodes_by_path,
+            by_symbol: &by_symbol,
+            summaries: &mut summaries,
+            callback_summaries: &mut callback_summaries,
+            edges: &mut edges,
+            invoked_parameters: &mut invoked_parameters,
+        };
+        match interprocedural_graph_cache {
+            None => {
+                for file in &facts.files {
+                    graph_recomputed_files += 1;
+                    let contribution = discover_interprocedural_graph(
+                        file,
                         &nodes,
                         &nodes_by_path,
-                        &by_symbol,
-                        &mut summaries,
-                        &mut callback_summaries,
-                        &mut edges,
-                        &mut invoked_parameters,
+                        entities,
+                        contract_reads,
+                        contract_callbacks,
                     );
-                    continue;
+                    graph.merge(file.path.as_str(), &contribution);
                 }
-                graph_recomputed_files += 1;
-                let contribution = discover_interprocedural_graph(
-                    file,
-                    &nodes,
-                    &nodes_by_path,
-                    entities,
-                    contract_reads,
-                    contract_callbacks,
-                );
-                merge_interprocedural_graph(
-                    file.path.as_str(),
-                    &contribution,
-                    &nodes,
-                    &nodes_by_path,
-                    &by_symbol,
-                    &mut summaries,
-                    &mut callback_summaries,
-                    &mut edges,
-                    &mut invoked_parameters,
-                );
-                cache.insert(
-                    file.path.to_string(),
-                    CachedInterproceduralGraph {
-                        nodes: nodes_by_path
-                            .get(file.path.as_str())
-                            .into_iter()
-                            .flatten()
-                            .map(|index| nodes[*index].clone())
-                            .collect(),
-                        contribution,
-                        compiler: file.compiler.clone(),
-                    },
-                );
+            }
+            Some(cache) => {
+                for file in &facts.files {
+                    if graph_node_reused_paths.contains(file.path.as_str())
+                        && let Some(cached) = cache.get(file.path.as_str())
+                    {
+                        graph_reused_files += 1;
+                        graph.merge(file.path.as_str(), &cached.contribution);
+                        continue;
+                    }
+                    graph_recomputed_files += 1;
+                    let contribution = discover_interprocedural_graph(
+                        file,
+                        &nodes,
+                        &nodes_by_path,
+                        entities,
+                        contract_reads,
+                        contract_callbacks,
+                    );
+                    graph.merge(file.path.as_str(), &contribution);
+                    cache.insert(
+                        file.path.to_string(),
+                        CachedInterproceduralGraph {
+                            nodes: nodes_by_path
+                                .get(file.path.as_str())
+                                .into_iter()
+                                .flatten()
+                                .map(|index| nodes[*index].clone())
+                                .collect(),
+                            contribution,
+                            compiler: file.compiler.clone(),
+                        },
+                    );
+                }
             }
         }
     }
@@ -6189,18 +5829,7 @@ fn interprocedural_reads(
     let direct_index = phase_started.elapsed();
     let direct_references_started = Instant::now();
     for contributions in parallel_slice_results(reactive_sources, |source| {
-        direct_reference_contributions(
-            source,
-            references_by_source,
-            project_indexes,
-            &nodes,
-            &nodes_by_path,
-            entities,
-            symbol_names,
-            source_primitives,
-            bundled_returns,
-            source_kinds,
-        )
+        direct_reference_contributions(source, context, &nodes, &nodes_by_path)
     }) {
         for contribution in contributions {
             if contribution.unique {
@@ -6523,6 +6152,20 @@ fn interprocedural_reads(
     let mut result = Vec::with_capacity(result_capacity);
     let mut result_reused_files = 0;
     let mut result_recomputed_files = 0;
+    let result_view = InterproceduralResultView {
+        nodes: &nodes,
+        indexes: &indexes,
+        by_symbol: &by_symbol,
+        summaries: &summaries,
+        invoked_parameters: &invoked_parameters,
+        returned_bindings: &returned_bindings,
+    };
+    let result_read_context = InterproceduralResultReadContext {
+        result: result_view,
+        contract_callbacks,
+        entities,
+        symbol_names,
+    };
     if let Some(cache) = interprocedural_result_cache.as_deref_mut() {
         let current_paths = facts
             .files
@@ -6550,18 +6193,7 @@ fn interprocedural_reads(
         let changed_dependencies = cache
             .dependency_states
             .iter()
-            .filter(|(dependency, retained)| {
-                !interprocedural_result_dependency_matches(
-                    retained,
-                    dependency,
-                    &nodes,
-                    &indexes,
-                    &by_symbol,
-                    &summaries,
-                    &invoked_parameters,
-                    &returned_bindings,
-                )
-            })
+            .filter(|(dependency, retained)| !result_view.dependency_matches(retained, dependency))
             .map(|(dependency, _)| dependency.clone())
             .collect::<HashSet<_>>();
         for file in &facts.files {
@@ -6576,17 +6208,8 @@ fn interprocedural_reads(
                 continue;
             }
             result_recomputed_files += 1;
-            let (reads, dependencies) = interprocedural_result_reads_for_file(
-                file,
-                &nodes,
-                &by_symbol,
-                &summaries,
-                &invoked_parameters,
-                &returned_bindings,
-                contract_callbacks,
-                entities,
-                symbol_names,
-            );
+            let (reads, dependencies) =
+                interprocedural_result_reads_for_file(file, &result_read_context);
             result.extend(reads.iter().cloned());
             if let Some(previous) = cache.files.remove(file.path.as_str()) {
                 for dependency in previous.dependencies.difference(&dependencies) {
@@ -6617,37 +6240,15 @@ fn interprocedural_reads(
             if changed_dependencies.contains(dependency)
                 || !cache.dependency_states.contains_key(dependency)
             {
-                cache.dependency_states.insert(
-                    dependency.clone(),
-                    interprocedural_result_dependency_state(
-                        dependency,
-                        &nodes,
-                        &indexes,
-                        &by_symbol,
-                        &summaries,
-                        &invoked_parameters,
-                        &returned_bindings,
-                    ),
-                );
+                cache
+                    .dependency_states
+                    .insert(dependency.clone(), result_view.dependency_state(dependency));
             }
         }
     } else {
         for file in &facts.files {
             result_recomputed_files += 1;
-            result.extend(
-                interprocedural_result_reads_for_file(
-                    file,
-                    &nodes,
-                    &by_symbol,
-                    &summaries,
-                    &invoked_parameters,
-                    &returned_bindings,
-                    contract_callbacks,
-                    entities,
-                    symbol_names,
-                )
-                .0,
-            );
+            result.extend(interprocedural_result_reads_for_file(file, &result_read_context).0);
         }
     }
     let factory_instances = returned_bindings
@@ -6656,35 +6257,37 @@ fn interprocedural_reads(
         .count();
     let result_reads = phase_started.elapsed();
     let export_started = Instant::now();
+    let contract_graph = ContractGraph {
+        nodes: &nodes,
+        nodes_by_path: &nodes_by_path,
+        by_symbol: &by_symbol,
+        entities,
+    };
+    let contract_analysis = ContractAnalysis {
+        summaries: &summaries,
+        returned: &returned,
+        callbacks: &callback_summaries,
+        semantics: ContractSemantics {
+            bundled_returns,
+            source_kinds,
+            source_primitives,
+        },
+    };
     let exports = if let Some(cache) = interprocedural_result_cache {
         contract_export_summaries_incremental(
             &mut cache.contract_exports,
             facts,
-            &nodes,
-            &nodes_by_path,
-            &by_symbol,
+            &contract_graph,
             &reverse_edges,
             &graph_node_reused_paths,
-            changed_semantic_symbols,
-            &summaries,
-            &returned,
-            &callback_summaries,
-            bundled_returns,
-            source_kinds,
-            source_primitives,
-            entities,
+            *changed_semantic_symbols,
+            &contract_analysis,
         )
     } else {
         Arc::new(contract_export_summaries(
             facts,
-            &nodes,
-            &summaries,
-            &returned,
-            &callback_summaries,
-            bundled_returns,
-            source_kinds,
-            source_primitives,
-            entities,
+            &contract_graph,
+            &contract_analysis,
         ))
     };
     let export_summaries = export_started.elapsed();
@@ -6893,15 +6496,32 @@ fn source_function_exported(
         })
 }
 
-#[allow(clippy::too_many_arguments)]
+struct ContractSemantics<'a> {
+    bundled_returns: &'a HashMap<String, ContractReturn>,
+    source_kinds: &'a HashMap<String, ReactiveSourceKind>,
+    source_primitives: &'a HashMap<String, String>,
+}
+
+struct ContractGraph<'a> {
+    nodes: &'a [SummaryNode],
+    nodes_by_path: &'a HashMap<String, Vec<usize>>,
+    by_symbol: &'a HashMap<String, usize>,
+    entities: &'a EntitySymbols,
+}
+
+struct ContractAnalysis<'a> {
+    summaries: &'a [SummaryReads],
+    returned: &'a [SummaryReads],
+    callbacks: &'a [Vec<ContractCallback>],
+    semantics: ContractSemantics<'a>,
+}
+
 fn contract_export_function(
     node: &SummaryNode,
     summary: &SummaryReads,
     returned_summary: &SummaryReads,
     callbacks: &[ContractCallback],
-    bundled_returns: &HashMap<String, ContractReturn>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
-    source_primitives: &HashMap<String, String>,
+    semantics: &ContractSemantics<'_>,
 ) -> ContractExport {
     let reactive_reads = summary
         .iter()
@@ -6913,9 +6533,10 @@ fn contract_export_function(
                     "accessor".into()
                 }
             }),
-            label: source_primitives
+            label: semantics
+                .source_primitives
                 .get(&read.symbol)
-                .and_then(|primitive| bundled_returns.get(primitive))
+                .and_then(|primitive| semantics.bundled_returns.get(primitive))
                 .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
         })
         .collect::<Vec<_>>();
@@ -6930,14 +6551,15 @@ fn contract_export_function(
                 Some(best) => Some(best),
             });
     let returns = first_returned.map(|read| ContractReturn {
-        kind: if source_kinds.get(&read.symbol) == Some(&ReactiveSourceKind::Store) {
+        kind: if semantics.source_kinds.get(&read.symbol) == Some(&ReactiveSourceKind::Store) {
             "store-path".into()
         } else {
             "accessor".into()
         },
-        label: source_primitives
+        label: semantics
+            .source_primitives
             .get(&read.symbol)
-            .and_then(|primitive| bundled_returns.get(primitive))
+            .and_then(|primitive| semantics.bundled_returns.get(primitive))
             .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
     });
     let mut callback_summary = callbacks.to_vec();
@@ -6955,16 +6577,12 @@ fn contract_export_function(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn contract_export_fragment(
     file: &solid_facts::FileFacts,
     project_directory: Option<&Path>,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-    by_symbol: &HashMap<String, usize>,
+    graph: &ContractGraph<'_>,
     node_keys: &[ContractNodeKey],
     node_contracts: &HashMap<ContractNodeKey, ContractExport>,
-    entities: &EntitySymbols,
 ) -> ContractExportFragment {
     let mut fragment = ContractExportFragment::default();
     if project_directory
@@ -6972,16 +6590,17 @@ fn contract_export_fragment(
     {
         return fragment;
     }
-    for index in nodes_by_path
+    for index in graph
+        .nodes_by_path
         .get(file.path.as_str())
         .into_iter()
         .flatten()
         .copied()
     {
-        let node = &nodes[index];
+        let node = &graph.nodes[index];
         if node.exported
             && let (Some(name), Some(symbol)) = (&node.name, &node.symbol)
-            && let Some(target) = by_symbol.get(symbol).copied()
+            && let Some(target) = graph.by_symbol.get(symbol).copied()
             && let Some(summary) = node_contracts.get(&node_keys[target])
         {
             fragment.dependencies.insert(node_keys[target].clone());
@@ -6995,9 +6614,10 @@ fn contract_export_fragment(
             .chain(export.declarations.iter())
             .filter(|specifier| !specifier.type_only)
         {
-            let target = entities
+            let target = graph
+                .entities
                 .get(&location(file.path.as_str(), specifier.local.span))
-                .and_then(|symbol| by_symbol.get(symbol))
+                .and_then(|symbol| graph.by_symbol.get(symbol))
                 .copied();
             let summary = target
                 .and_then(|index| {
@@ -7018,9 +6638,10 @@ fn contract_export_fragment(
                 })
         }) {
             for name in &binding.names {
-                let target = entities
+                let target = graph
+                    .entities
                     .get(&location(file.path.as_str(), name.span))
-                    .and_then(|symbol| by_symbol.get(symbol))
+                    .and_then(|symbol| graph.by_symbol.get(symbol))
                     .copied();
                 let summary = target
                     .and_then(|index| {
@@ -7035,26 +6656,18 @@ fn contract_export_fragment(
     fragment
 }
 
-#[allow(clippy::too_many_arguments)]
 fn contract_export_summaries_incremental(
     cache: &mut CachedContractExports,
     facts: &ProjectFacts,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-    by_symbol: &HashMap<String, usize>,
+    graph: &ContractGraph<'_>,
     reverse_edges: &[Vec<usize>],
     graph_node_reused_paths: &HashSet<&str>,
     changed_semantic_symbols: Option<&HashSet<String>>,
-    summaries: &[SummaryReads],
-    returned_summaries: &[SummaryReads],
-    callbacks: &[Vec<ContractCallback>],
-    bundled_returns: &HashMap<String, ContractReturn>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
-    source_primitives: &HashMap<String, String>,
-    entities: &EntitySymbols,
+    analysis: &ContractAnalysis<'_>,
 ) -> Arc<BTreeMap<String, ContractExport>> {
     let mut ordinals = HashMap::<&str, usize>::new();
-    let node_keys = nodes
+    let node_keys = graph
+        .nodes
         .iter()
         .map(|node| {
             let ordinal = ordinals.entry(node.path.as_str()).or_default();
@@ -7067,16 +6680,17 @@ fn contract_export_summaries_incremental(
         })
         .collect::<Vec<_>>();
     let current_keys = node_keys.iter().cloned().collect::<HashSet<_>>();
-    let mut dirty = nodes
+    let mut dirty = graph
+        .nodes
         .iter()
         .enumerate()
         .filter_map(|(index, node)| {
             (!graph_node_reused_paths.contains(node.path.as_str())
                 || !cache.nodes.contains_key(&node_keys[index])
                 || changed_semantic_symbols.is_some_and(|changed| {
-                    summaries[index]
+                    analysis.summaries[index]
                         .iter()
-                        .chain(returned_summaries[index].iter())
+                        .chain(analysis.returned[index].iter())
                         .any(|read| changed.contains(&read.symbol))
                 }))
             .then_some(index)
@@ -7093,13 +6707,11 @@ fn contract_export_summaries_incremental(
     let mut changed_nodes = HashSet::<ContractNodeKey>::new();
     for index in dirty_set {
         let contract = contract_export_function(
-            &nodes[index],
-            &summaries[index],
-            &returned_summaries[index],
-            &callbacks[index],
-            bundled_returns,
-            source_kinds,
-            source_primitives,
+            &graph.nodes[index],
+            &analysis.summaries[index],
+            &analysis.returned[index],
+            &analysis.callbacks[index],
+            &analysis.semantics,
         );
         let key = node_keys[index].clone();
         if cache.nodes.get(&key) != Some(&contract) {
@@ -7142,16 +6754,8 @@ fn contract_export_summaries_incremental(
         if !rebuild {
             continue;
         }
-        let fragment = contract_export_fragment(
-            file,
-            project_directory,
-            nodes,
-            nodes_by_path,
-            by_symbol,
-            &node_keys,
-            &cache.nodes,
-            entities,
-        );
+        let fragment =
+            contract_export_fragment(file, project_directory, graph, &node_keys, &cache.nodes);
         fragments_changed |= cache.files.get(file.path.as_str()) != Some(&fragment);
         cache.files.insert(file.path.to_string(), fragment);
     }
@@ -7184,38 +6788,29 @@ fn contract_export_summaries_incremental(
     aggregate
 }
 
-#[allow(clippy::too_many_arguments)]
 fn contract_export_summaries(
     facts: &ProjectFacts,
-    nodes: &[SummaryNode],
-    summaries: &[SummaryReads],
-    returned_summaries: &[SummaryReads],
-    callbacks: &[Vec<ContractCallback>],
-    bundled_returns: &HashMap<String, ContractReturn>,
-    source_kinds: &HashMap<String, ReactiveSourceKind>,
-    source_primitives: &HashMap<String, String>,
-    entities: &EntitySymbols,
+    graph: &ContractGraph<'_>,
+    analysis: &ContractAnalysis<'_>,
 ) -> BTreeMap<String, ContractExport> {
     let project_directory = Path::new(&facts.project_id).parent();
-    let mut by_symbol = HashMap::<String, ContractExport>::with_capacity(nodes.len());
-    for (index, node) in nodes.iter().enumerate() {
+    let mut by_symbol = HashMap::<String, ContractExport>::with_capacity(graph.nodes.len());
+    for (index, node) in graph.nodes.iter().enumerate() {
         let Some(symbol) = &node.symbol else {
             continue;
         };
         let contribution = contract_export_function(
             node,
-            &summaries[index],
-            &returned_summaries[index],
-            &callbacks[index],
-            bundled_returns,
-            source_kinds,
-            source_primitives,
+            &analysis.summaries[index],
+            &analysis.returned[index],
+            &analysis.callbacks[index],
+            &analysis.semantics,
         );
         by_symbol.insert(symbol.clone(), contribution);
     }
 
     let mut exports = BTreeMap::new();
-    for node in nodes.iter().filter(|node| {
+    for node in graph.nodes.iter().filter(|node| {
         node.exported
             && project_directory
                 .is_none_or(|directory| Path::new(&node.path).starts_with(directory))
@@ -7237,7 +6832,8 @@ fn contract_export_summaries(
                 .chain(export.declarations.iter())
                 .filter(|specifier| !specifier.type_only)
             {
-                let summary = entities
+                let summary = graph
+                    .entities
                     .get(&location(file.path.as_str(), specifier.local.span))
                     .and_then(|symbol| by_symbol.get(symbol))
                     .cloned();
@@ -7259,7 +6855,8 @@ fn contract_export_summaries(
             }) {
                 for name in &binding.names {
                     if !exports.contains_key(&name.name) {
-                        let summary = entities
+                        let summary = graph
+                            .entities
                             .get(&location(file.path.as_str(), name.span))
                             .and_then(|symbol| by_symbol.get(symbol))
                             .cloned()
@@ -7687,19 +7284,40 @@ fn discover_reachability_file(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn reachable_call_multiplicity_incremental(
-    facts: &ProjectFacts,
-    indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-    cache: &mut HashMap<String, CachedReachabilityFile>,
-    multiplicity_by_path: &mut HashMap<String, Vec<usize>>,
-    calls: &mut HashMap<Location, usize>,
-    function_symbols: &mut HashSet<String>,
+struct ReachabilityInputs<'a> {
+    facts: &'a ProjectFacts,
+    indexes: &'a ProjectIndexes<'a>,
+    entities: &'a EntitySymbols,
+    symbol_names: &'a HashMap<String, String>,
     typescript_unchanged: bool,
-    typescript_delta: Option<&SourceDiscoveryTypeScriptDelta>,
+    typescript_delta: Option<&'a SourceDiscoveryTypeScriptDelta>,
+}
+
+struct ReachabilityState<'a> {
+    files: &'a mut HashMap<String, CachedReachabilityFile>,
+    multiplicity_by_path: &'a mut HashMap<String, Vec<usize>>,
+    calls: &'a mut HashMap<Location, usize>,
+    function_symbols: &'a mut HashSet<String>,
+}
+
+fn reachable_call_multiplicity_incremental(
+    inputs: ReachabilityInputs<'_>,
+    state: ReachabilityState<'_>,
 ) -> (u64, u64) {
+    let ReachabilityInputs {
+        facts,
+        indexes,
+        entities,
+        symbol_names,
+        typescript_unchanged,
+        typescript_delta,
+    } = inputs;
+    let ReachabilityState {
+        files: cache,
+        multiplicity_by_path,
+        calls,
+        function_symbols,
+    } = state;
     let current_paths = facts
         .files
         .iter()
@@ -9914,25 +9532,22 @@ mod tests {
         let returned_bindings = HashMap::new();
         let missing = InterproceduralResultDependencyState::Missing;
 
-        assert!(interprocedural_result_dependency_matches(
-            &missing,
-            &dependency,
-            &nodes,
-            &indexes,
-            &HashMap::new(),
-            &summaries,
-            &invoked_parameters,
-            &returned_bindings,
-        ));
-        assert!(!interprocedural_result_dependency_matches(
-            &missing,
-            &dependency,
-            &nodes,
-            &indexes,
-            &HashMap::from([("helper".into(), 0)]),
-            &summaries,
-            &invoked_parameters,
-            &returned_bindings,
-        ));
+        let missing_by_symbol = HashMap::new();
+        let missing_view = InterproceduralResultView {
+            nodes: &nodes,
+            indexes: &indexes,
+            by_symbol: &missing_by_symbol,
+            summaries: &summaries,
+            invoked_parameters: &invoked_parameters,
+            returned_bindings: &returned_bindings,
+        };
+        assert!(missing_view.dependency_matches(&missing, &dependency));
+
+        let by_symbol = HashMap::from([("helper".into(), 0)]);
+        let present_view = InterproceduralResultView {
+            by_symbol: &by_symbol,
+            ..missing_view
+        };
+        assert!(!present_view.dependency_matches(&missing, &dependency));
     }
 }

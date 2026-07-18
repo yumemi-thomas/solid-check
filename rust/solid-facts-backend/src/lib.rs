@@ -1,9 +1,12 @@
 //! Rust-led orchestration of Oxc AST facts, Solid execution facts, and
 //! TypeScript-Go semantic facts.
 
+mod cache;
 mod demand_plan;
 mod diagnostics;
+mod transport;
 
+pub use cache::{CacheStats, FactsCache};
 pub use diagnostics::{
     DiagnosticAnalysis, DiagnosticTimings, Metrics, PackageSummary, Snapshot, SnapshotEvidence,
     SnapshotFinding, SnapshotFix, SnapshotTextEdit, SourceLocation, analysis_metrics,
@@ -198,50 +201,6 @@ impl CompilerFactsProvider for NativeCompilerFacts {
         let encoded = analyze_execution_map(&request.source, &options)
             .map_err(|error| BackendError::NativeCompiler(error.to_string()))?;
         ExecutionMap::from_json(&encoded, &request.source).map_err(Into::into)
-    }
-}
-
-#[derive(Default)]
-pub struct FactsCache {
-    ast: HashMap<String, Arc<solid_ast_facts::AstFacts>>,
-    compiler: HashMap<String, Arc<ExecutionMap>>,
-    semantic_demands: HashMap<String, Vec<solid_ts_facts::v3::EntityDemand>>,
-    structural_functions: HashMap<String, Vec<solid_ts_facts::SourceFunction>>,
-    semantic_table: Option<(u64, solid_ts_facts::FactTable)>,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct CacheStats {
-    pub ast_entries: usize,
-    pub compiler_entries: usize,
-}
-
-impl FactsCache {
-    #[must_use]
-    pub fn stats(&self) -> CacheStats {
-        CacheStats {
-            ast_entries: self.ast.len(),
-            compiler_entries: self.compiler.len(),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.ast.clear();
-        self.compiler.clear();
-        self.semantic_demands.clear();
-        self.structural_functions.clear();
-        self.semantic_table = None;
-    }
-
-    pub fn invalidate_path(&mut self, path: &str) {
-        let prefix = format!("{path}\0");
-        self.ast.retain(|key, _| !key.starts_with(&prefix));
-        self.compiler.retain(|key, _| !key.starts_with(&prefix));
-        self.semantic_demands
-            .retain(|key, _| !key.starts_with(&prefix));
-        self.structural_functions
-            .retain(|key, _| !key.starts_with(&prefix));
-        self.semantic_table = None;
     }
 }
 
@@ -815,7 +774,6 @@ fn update_session(
     *generation = next_generation;
     Ok(response.affected)
 }
-
 pub fn build_project(
     project_id: impl Into<String>,
     generation: u64,
@@ -1790,7 +1748,7 @@ impl TypeFactsSidecar {
         let bad_frame_path = std::env::var_os("SOLID_TYPEFACTS_BAD_FRAME");
         let reader = std::thread::spawn(move || {
             loop {
-                let payload = match read_typefacts_frame(&mut output) {
+                let payload = match transport::read_frame(&mut output) {
                     Ok(payload) => payload,
                     Err(error) => {
                         fail_pending_responses(&reader_pending, error.to_string());
@@ -1893,7 +1851,7 @@ impl TypeFactsSidecar {
             .lock()
             .map_err(|_| BackendError::Process("TypeFacts pending map poisoned".into()))?
             .insert(request_id, sender);
-        let request_bytes = match write_typefacts_frame(&self.writer, &request) {
+        let request_bytes = match transport::write_frame(&self.writer, &request) {
             Ok(bytes) => bytes,
             Err(error) => {
                 if let Ok(mut pending) = self.pending.lock() {
@@ -2541,7 +2499,7 @@ impl TypeFactsCancellation {
         let request_id = self
             .next_request_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let _ = write_typefacts_frame(
+        let _ = transport::write_frame(
             &writer,
             &solid_ts_facts::v3::Request {
                 schema: solid_ts_facts::v3::TYPE_FACTS_SCHEMA_V3,
@@ -2561,36 +2519,6 @@ impl TypeFactsCancellation {
         )?;
         Ok(true)
     }
-}
-
-fn write_typefacts_frame(
-    writer: &std::sync::Arc<std::sync::Mutex<BufWriter<ChildStdin>>>,
-    value: &solid_ts_facts::v3::Request,
-) -> Result<usize, BackendError> {
-    let payload = solid_ts_facts::encode_sidecar_request(value)?;
-    let length = u32::try_from(payload.len())
-        .map_err(|_| BackendError::Process("TypeFacts request exceeds u32 framing".into()))?;
-    let mut writer = writer
-        .lock()
-        .map_err(|_| BackendError::Process("TypeFacts writer poisoned".into()))?;
-    writer.write_all(&length.to_le_bytes())?;
-    writer.write_all(&payload)?;
-    writer.flush()?;
-    Ok(payload.len())
-}
-
-fn read_typefacts_frame(output: &mut ChildStdout) -> Result<Vec<u8>, BackendError> {
-    let mut prefix = [0_u8; 4];
-    std::io::Read::read_exact(output, &mut prefix)?;
-    let length = u32::from_le_bytes(prefix) as usize;
-    if length > solid_ts_facts::MAX_MESSAGE_BYTES {
-        return Err(BackendError::Process(format!(
-            "TypeFacts response exceeds message limit: {length}"
-        )));
-    }
-    let mut payload = vec![0; length];
-    std::io::Read::read_exact(output, &mut payload)?;
-    Ok(payload)
 }
 
 fn fail_pending_responses(pending: &PendingResponses, message: String) {

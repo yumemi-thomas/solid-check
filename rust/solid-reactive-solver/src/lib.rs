@@ -35,6 +35,29 @@ pub struct Finding {
     pub fixes: Vec<solid_reactive_ir::Fix>,
 }
 
+impl Finding {
+    fn new(rule: Rule, message: String, primary_location: Location) -> Self {
+        let metadata = rule.metadata();
+        Self {
+            id: metadata.code.into(),
+            rule: metadata.name.into(),
+            kind: if metadata.uncertifiable {
+                "uncertifiable".into()
+            } else {
+                "violation".into()
+            },
+            message,
+            severity: metadata.severity.into(),
+            analysis_context: String::new(),
+            subject_kind: String::new(),
+            primary_location,
+            related_locations: vec![],
+            evidence: vec![],
+            fixes: vec![],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SolveTimings {
     pub total: Duration,
@@ -61,17 +84,15 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             )
         })
         .map(|read| Finding {
-            id: "SC1001".into(),
-            rule: "strict-read-untracked".into(),
-            kind: "violation".into(),
-            message: strict_read_message(read),
-            severity: "warning".into(),
             analysis_context: read.context.clone(),
             subject_kind: read.kind.clone(),
-            primary_location: read.location.clone(),
             related_locations: strict_read_related_locations(read),
             evidence: strict_read_evidence(read),
-            fixes: vec![],
+            ..Finding::new(
+                Rule::StrictReadUntracked,
+                strict_read_message(read),
+                read.location.clone(),
+            )
         })
         .collect::<Vec<_>>();
     findings.extend(
@@ -100,16 +121,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     )
                 };
                 Finding {
-                    id: "SC2001".into(),
-                    rule: "reactive-write-in-owned-scope".into(),
-                    kind: "violation".into(),
-                    message: format!(
-                        "{operation} is called inside owned scope {context}; move the write to an event handler, action, onSettled, tracked effect, or untracked callback"
-                    ),
-                    severity: "error".into(),
                     analysis_context: context.into(),
-                    subject_kind: String::new(),
-                    primary_location: write.location.clone(),
                     related_locations: vec![write.declaration.clone()],
                     evidence: vec![
                         EvidenceStep {
@@ -122,31 +134,34 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                             location: Some(write.location.clone()),
                         },
                     ],
-                    fixes: vec![],
+                    ..Finding::new(
+                        Rule::ReactiveWriteInOwnedScope,
+                        format!(
+                            "{operation} is called inside owned scope {context}; move the write to an event handler, action, onSettled, tracked effect, or untracked callback"
+                        ),
+                        write.location.clone(),
+                    )
                 }
             }),
     );
     findings.extend(program.leaf_operations.iter().map(|operation| {
-        let (id, rule, message) = match operation.primitive.as_str() {
+        let (rule, message) = match operation.primitive.as_str() {
             "onCleanup" => (
-                "SC3001",
-                "cleanup-in-forbidden-scope",
+                Rule::CleanupInForbiddenScope,
                 format!(
                     "onCleanup cannot be used inside {}; return a cleanup function instead",
                     operation.owner
                 ),
             ),
             "flush" => (
-                "SC3003",
-                "flush-in-forbidden-scope",
+                Rule::FlushInForbiddenScope,
                 format!(
                     "flush cannot be called inside {} because the leaf owner is not reentrant",
                     operation.owner
                 ),
             ),
             _ => (
-                "SC3002",
-                "primitive-in-leaf-owner",
+                Rule::PrimitiveInLeafOwner,
                 format!(
                     "cannot create reactive primitive {} inside leaf owner {}",
                     operation.primitive, operation.owner
@@ -154,15 +169,6 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             ),
         };
         Finding {
-            id: id.into(),
-            rule: rule.into(),
-            kind: "violation".into(),
-            message: message.clone(),
-            severity: "error".into(),
-            analysis_context: String::new(),
-            subject_kind: String::new(),
-            primary_location: operation.location.clone(),
-            related_locations: vec![],
             evidence: vec![EvidenceStep {
                 message: format!(
                     "the call is lexically contained by the {} callback",
@@ -171,6 +177,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 location: Some(operation.location.clone()),
             }],
             fixes: operation.fix.clone().into_iter().collect(),
+            ..Finding::new(rule, message, operation.location.clone())
         }
     }));
     findings.extend(
@@ -178,23 +185,18 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             .invalid_cleanup_returns
             .iter()
             .map(|invalid| Finding {
-                id: "SC3004".into(),
-                rule: "invalid-cleanup-return".into(),
-                kind: "violation".into(),
-                message: format!(
-                    "{} callback returns a non-function cleanup value; return a cleanup function or undefined",
-                    invalid.primitive
-                ),
-                severity: "error".into(),
-                analysis_context: String::new(),
-                subject_kind: String::new(),
-                primary_location: invalid.location.clone(),
-                related_locations: vec![],
                 evidence: vec![EvidenceStep {
                     message: "the callback statically returns a non-function value, including an implicit Promise from an async callback".into(),
                     location: Some(invalid.location.clone()),
                 }],
-                fixes: vec![],
+                ..Finding::new(
+                    Rule::InvalidCleanupReturn,
+                    format!(
+                        "{} callback returns a non-function cleanup value; return a cleanup function or undefined",
+                        invalid.primitive
+                    ),
+                    invalid.location.clone(),
+                )
             }),
     );
     findings.extend(
@@ -202,18 +204,6 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             .unresolved_cleanup_returns
             .iter()
             .map(|unresolved| Finding {
-                id: "SC9002".into(),
-                rule: "cleanup-return-unresolved".into(),
-                kind: "uncertifiable".into(),
-                message: format!(
-                    "cannot prove that {} callback returns only a cleanup function or undefined",
-                    unresolved.primitive
-                ),
-                severity: "error".into(),
-                analysis_context: String::new(),
-                subject_kind: String::new(),
-                primary_location: unresolved.location.clone(),
-                related_locations: vec![],
                 evidence: vec![EvidenceStep {
                     message: format!(
                         "cannot prove that {} callback returns only a cleanup function or undefined",
@@ -221,48 +211,41 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     ),
                     location: Some(unresolved.location.clone()),
                 }],
-                fixes: vec![],
+                ..Finding::new(
+                    Rule::CleanupReturnUnresolved,
+                    format!(
+                        "cannot prove that {} callback returns only a cleanup function or undefined",
+                        unresolved.primitive
+                    ),
+                    unresolved.location.clone(),
+                )
             }),
     );
-    findings.extend(program.static_violations.iter().map(|violation| Finding {
-        id: violation.id.clone(),
-        rule: violation.rule.clone(),
-        kind: if violation.id.starts_with("SC9") {
-            "uncertifiable".into()
-        } else {
-            "violation".into()
-        },
-        message: violation.message.clone(),
-        severity: "error".into(),
-        analysis_context: violation.analysis_context.clone(),
-        subject_kind: String::new(),
-        primary_location: violation.location.clone(),
-        related_locations: vec![],
-        evidence: vec![EvidenceStep {
-            message: if violation.rule == "component-props-destructure" {
-                "the destructuring pattern is bound to proven component props".into()
-            } else if violation.rule == "package-contract-export-missing" {
-                "the imported package has a contract, but this export has no effect summary".into()
-            } else {
-                "the invalid API shape is statically present at this call".into()
-            },
-            location: Some(violation.location.clone()),
-        }],
-        fixes: violation.fixes.clone(),
+    findings.extend(program.static_violations.iter().map(|violation| {
+        let rule = Rule::from_identity(&violation.id, &violation.rule).unwrap_or_else(|| {
+            panic!(
+                "diagnostic identity is missing from the rule catalog: {} [{}]",
+                violation.id, violation.rule
+            )
+        });
+        Finding {
+            analysis_context: violation.analysis_context.clone(),
+            evidence: vec![EvidenceStep {
+                message: if violation.rule == "component-props-destructure" {
+                    "the destructuring pattern is bound to proven component props".into()
+                } else if violation.rule == "package-contract-export-missing" {
+                    "the imported package has a contract, but this export has no effect summary"
+                        .into()
+                } else {
+                    "the invalid API shape is statically present at this call".into()
+                },
+                location: Some(violation.location.clone()),
+            }],
+            fixes: violation.fixes.clone(),
+            ..Finding::new(rule, violation.message.clone(), violation.location.clone())
+        }
     }));
     findings.extend(program.directive_creations.iter().map(|creation| Finding {
-        id: "SC6001".into(),
-        rule: "primitive-in-directive-application".into(),
-        kind: "violation".into(),
-        message: format!(
-            "cannot create reactive primitive {} in a directive application callback; create it during directive setup",
-            creation.primitive
-        ),
-        severity: "error".into(),
-        analysis_context: String::new(),
-        subject_kind: String::new(),
-        primary_location: creation.location.clone(),
-        related_locations: vec![],
         evidence: vec![EvidenceStep {
             message: if creation.returned_closure {
                 "the primitive is created inside the callback returned to a compiler-recognized ref application".into()
@@ -271,113 +254,95 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             },
             location: Some(creation.location.clone()),
         }],
-        fixes: vec![],
+        ..Finding::new(
+            Rule::PrimitiveInDirectiveApplication,
+            format!(
+                "cannot create reactive primitive {} in a directive application callback; create it during directive setup",
+                creation.primitive
+            ),
+            creation.location.clone(),
+        )
     }));
     findings.extend(program.missing_owners.iter().filter_map(|requirement| {
         if !requirement.report {
             return None;
         }
-        let (id, rule, message, severity) = match requirement.operation.as_str() {
+        let (rule, message) = match requirement.operation.as_str() {
             "cleanup" => (
-                "SC4002",
-                "no-owner-cleanup",
+                Rule::NoOwnerCleanup,
                 "onCleanup called without a reactive owner will never run",
-                "warning",
             ),
             "boundary" => (
-                "SC4003",
-                "no-owner-boundary",
+                Rule::NoOwnerBoundary,
                 "boundary created without a reactive owner will never be disposed",
-                "warning",
             ),
             "settled-cleanup" => (
-                "SC3005",
-                "settled-cleanup-unowned",
+                Rule::SettledCleanupUnowned,
                 "onSettled returns a cleanup in an unowned or children-forbidden scope, so the cleanup cannot be honored",
-                "error",
             ),
             _ => (
-                "SC4001",
-                "no-owner-effect",
+                Rule::NoOwnerEffect,
                 "effect created without a reactive owner will never be disposed",
-                "warning",
             ),
         };
         let uncertain = requirement.uncertain;
         Some(Finding {
-            id: id.into(),
-            rule: rule.into(),
             kind: if uncertain {
                 "uncertifiable".into()
             } else {
                 "violation".into()
             },
-            message: if uncertain {
-                format!(
-                    "{message}; caller ownership for this exported function cannot be proven inside the project"
-                )
-            } else {
-                message.into()
-            },
             severity: if uncertain {
                 "error".into()
             } else {
-                severity.into()
+                rule.metadata().severity.into()
             },
-            analysis_context: String::new(),
-            subject_kind: String::new(),
-            primary_location: requirement.location.clone(),
-            related_locations: vec![],
             evidence: vec![EvidenceStep {
                 message: "no containing component, computation, or root owner dominates this operation".into(),
                 location: Some(requirement.location.clone()),
             }],
-            fixes: vec![],
+            ..Finding::new(
+                rule,
+                if uncertain {
+                    format!(
+                        "{message}; caller ownership for this exported function cannot be proven inside the project"
+                    )
+                } else {
+                    message.into()
+                },
+                requirement.location.clone(),
+            )
         })
     }));
     findings.extend(program.async_reads.iter().filter_map(|read| {
-        let (id, rule, message, severity) = if let Some(owner) = &read.leaf_owner {
+        let (rule, message) = if let Some(owner) = &read.leaf_owner {
             (
-                "SC5002",
-                "pending-async-forbidden-scope",
+                Rule::PendingAsyncForbiddenScope,
                 format!(
                     "pending async accessor {:?} is read inside {}, which cannot suspend",
                     read.accessor, owner
                 ),
-                "warning",
             )
         } else if read.execution == ExecutionRole::UntrackedRendering {
             (
-                "SC5001",
-                "pending-async-untracked-read",
+                Rule::PendingAsyncUntrackedRead,
                 format!(
                     "pending async accessor {:?} is read outside a tracking scope",
                     read.accessor
                 ),
-                "error",
             )
         } else if read.execution == ExecutionRole::TrackedJsx && !read.under_loading {
             (
-                "SC5003",
-                "async-outside-loading-boundary",
+                Rule::AsyncOutsideLoadingBoundary,
                 format!(
                     "async accessor {:?} is rendered without a dominating Loading boundary",
                     read.accessor
                 ),
-                "error",
             )
         } else {
             return None;
         };
         Some(Finding {
-            id: id.into(),
-            rule: rule.into(),
-            kind: "violation".into(),
-            message: message.clone(),
-            severity: severity.into(),
-            analysis_context: String::new(),
-            subject_kind: String::new(),
-            primary_location: read.location.clone(),
             related_locations: vec![read.declaration.clone()],
             evidence: vec![
                 EvidenceStep {
@@ -389,7 +354,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     location: Some(read.location.clone()),
                 },
             ],
-            fixes: vec![],
+            ..Finding::new(rule, message, read.location.clone())
         })
     }));
     findings.extend(
@@ -398,38 +363,21 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             .iter()
             .filter(|action| !allowed_write_role(action.execution))
             .map(|action| Finding {
-                id: "SC2002".into(),
-                rule: "action-called-in-owned-scope".into(),
-                kind: "violation".into(),
-                message: format!(
-                    "action {:?} is called inside owned scope {}; invoke it from an event, effect callback, onSettled, or another imperative scope",
-                    action.action, action.context
-                ),
-                severity: "error".into(),
-                analysis_context: String::new(),
-                subject_kind: String::new(),
-                primary_location: action.location.clone(),
-                related_locations: vec![],
                 evidence: vec![EvidenceStep {
                     message: "invoking an action starts a write transaction while an owner is active"
                         .into(),
                     location: Some(action.location.clone()),
                 }],
-                fixes: vec![],
+                ..Finding::new(
+                    Rule::ActionCalledInOwnedScope,
+                    format!(
+                        "action {:?} is called inside owned scope {}; invoke it from an event, effect callback, onSettled, or another imperative scope",
+                        action.action, action.context
+                    ),
+                    action.location.clone(),
+                )
             }),
     );
-    for finding in &mut findings {
-        let rule = Rule::from_identity(&finding.id, &finding.rule).unwrap_or_else(|| {
-            panic!(
-                "diagnostic identity is missing from the rule catalog: {} [{}]",
-                finding.id, finding.rule
-            )
-        });
-        finding.severity = rule.metadata().severity.into();
-        if rule.metadata().uncertifiable {
-            finding.kind = "uncertifiable".into();
-        }
-    }
     let finding_construction = construction_started.elapsed();
     let ordering_started = Instant::now();
     findings.sort_by(|left, right| {

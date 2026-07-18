@@ -1,3 +1,5 @@
+mod daemon_cache;
+
 use std::{
     fs,
     io::{self, IsTerminal, Read, Write},
@@ -529,6 +531,7 @@ mod daemon {
     };
 
     use super::{Request, go_compatible_json};
+    use crate::daemon_cache::{CachedAnswer, CachedSnapshot, ContractFile};
 
     #[derive(Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -584,23 +587,6 @@ mod daemon {
         dirs: BTreeMap<PathBuf, Option<SystemTime>>,
         tsconfig_hash: [u8; 32],
         last: Option<CachedAnswer>,
-    }
-
-    /// The previous answer plus everything needed to prove it still holds:
-    /// the generation it was computed at, the requested contract overrides,
-    /// the imported package roots (fixed for a generation), and the resolved
-    /// contract files with their content hashes. Bundled contracts are
-    /// compiled into the binary and need no validation.
-    type CachedSnapshot = (String, Vec<u8>);
-    type ContractFile = (PathBuf, [u8; 32]);
-
-    struct CachedAnswer {
-        generation: u64,
-        explicit: Vec<String>,
-        modules: Vec<String>,
-        contract_files: Vec<ContractFile>,
-        status: String,
-        body: Vec<u8>,
     }
 
     enum Sync {
@@ -843,21 +829,8 @@ mod daemon {
         let Some(cached) = &state.last else {
             return Ok(None);
         };
-        if cached.generation != state.session.generation()
-            || cached.explicit != check.contract_paths
-        {
-            return Ok(None);
-        }
         let current = contract_files(state, &cached.modules, &check.contract_paths)?;
-        if current.len() != cached.contract_files.len()
-            || current
-                .iter()
-                .zip(&cached.contract_files)
-                .any(|(now, then)| now != then)
-        {
-            return Ok(None);
-        }
-        Ok(Some((cached.status.clone(), cached.body.clone())))
+        Ok(cached.snapshot_if_current(state.session.generation(), &check.contract_paths, &current))
     }
 
     /// The current on-disk contract inputs: discovered files for the module

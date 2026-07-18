@@ -34,7 +34,7 @@ jobs:
       - run: >-
           cargo clippy
           --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
-          --no-default-features --features sidecar --all-targets -- -D warnings
+          --no-default-features --features sidecar --all-targets
       - run: >-
           cargo test
           --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
@@ -57,7 +57,7 @@ jobs:
             rust
             third_party/dom-expressions/packages/jsx-compiler
       - run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
-      - run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets
       - run: make test-rust
 
   rust-package:

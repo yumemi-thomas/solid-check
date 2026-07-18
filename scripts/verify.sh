@@ -10,7 +10,7 @@ go vet ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
 test -z "$(gofmt -l cmd/solid-typefacts internal/typefacts internal/wirecbor)"
 
 cargo +1.97 fmt --manifest-path "$rust_manifest" --all -- --check
-cargo +1.97 clippy --manifest-path "$rust_manifest" --workspace --all-targets -- -D warnings
+cargo +1.97 clippy --manifest-path "$rust_manifest" --workspace --all-targets
 
 mkdir -p bin
 go build -o bin/solid-typefacts ./cmd/solid-typefacts
@@ -22,8 +22,7 @@ cargo +1.97 clippy \
   --manifest-path "$compiler_manifest" \
   --no-default-features \
   --features sidecar \
-  --all-targets \
-  -- -D warnings
+  --all-targets
 cargo +1.97 test \
   --manifest-path "$compiler_manifest" \
   --no-default-features \

@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
+autobins = false
 
 [dependencies]
 serde.workspace = true
@@ -25,12 +26,8 @@ name = "solid_facts_backend"
 path = "src/lib.rs"
 
 [[bin]]
-name = "solid-facts-backend"
-path = "src/main.rs"
-
-[[bin]]
 name = "solid-check-rust"
-path = "src/bin/solid-check-rust.rs"
+path = "src/main.rs"
 
 [[bin]]
 name = "solid-check-session-bench"
