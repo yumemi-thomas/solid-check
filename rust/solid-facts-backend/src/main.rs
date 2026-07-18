@@ -591,11 +591,14 @@ mod daemon {
     /// the imported package roots (fixed for a generation), and the resolved
     /// contract files with their content hashes. Bundled contracts are
     /// compiled into the binary and need no validation.
+    type CachedSnapshot = (String, Vec<u8>);
+    type ContractFile = (PathBuf, [u8; 32]);
+
     struct CachedAnswer {
         generation: u64,
         explicit: Vec<String>,
         modules: Vec<String>,
-        contract_files: Vec<(PathBuf, [u8; 32])>,
+        contract_files: Vec<ContractFile>,
         status: String,
         body: Vec<u8>,
     }
@@ -836,7 +839,7 @@ mod daemon {
     fn cached_answer(
         state: &State,
         check: &CheckRequest,
-    ) -> Result<Option<(String, Vec<u8>)>, Box<dyn Error>> {
+    ) -> Result<Option<CachedSnapshot>, Box<dyn Error>> {
         let Some(cached) = &state.last else {
             return Ok(None);
         };
@@ -863,7 +866,7 @@ mod daemon {
         state: &State,
         modules: &[String],
         explicit: &[String],
-    ) -> Result<Vec<(PathBuf, [u8; 32])>, Box<dyn Error>> {
+    ) -> Result<Vec<ContractFile>, Box<dyn Error>> {
         let directory = state
             .project
             .parent()

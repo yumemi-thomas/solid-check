@@ -1,7 +1,11 @@
+mod rules;
+
 use serde::{Deserialize, Serialize};
 use solid_reactive_ir::{ExecutionRole, Program};
 use solid_ts_facts::Location;
 use std::time::{Duration, Instant};
+
+pub use rules::{Rule, RuleMetadata};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -414,6 +418,18 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 fixes: vec![],
             }),
     );
+    for finding in &mut findings {
+        let rule = Rule::from_identity(&finding.id, &finding.rule).unwrap_or_else(|| {
+            panic!(
+                "diagnostic identity is missing from the rule catalog: {} [{}]",
+                finding.id, finding.rule
+            )
+        });
+        finding.severity = rule.metadata().severity.into();
+        if rule.metadata().uncertifiable {
+            finding.kind = "uncertifiable".into();
+        }
+    }
     let finding_construction = construction_started.elapsed();
     let ordering_started = Instant::now();
     findings.sort_by(|left, right| {

@@ -1,0 +1,162 @@
+//! Stable diagnostic identities. Analysis decides whether a rule applies;
+//! this catalog owns its externally visible code, name, and severity.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Rule {
+    StrictReadUntracked,
+    ReactiveReadAfterAwait,
+    ComponentPropsDestructure,
+    ReactiveWriteInOwnedScope,
+    ActionCalledInOwnedScope,
+    CleanupInForbiddenScope,
+    PrimitiveInLeafOwner,
+    FlushInForbiddenScope,
+    InvalidCleanupReturn,
+    SettledCleanupUnowned,
+    NoOwnerEffect,
+    NoOwnerCleanup,
+    NoOwnerBoundary,
+    PendingAsyncUntrackedRead,
+    PendingAsyncForbiddenScope,
+    AsyncOutsideLoadingBoundary,
+    PrimitiveInDirectiveApplication,
+    MissingEffectFunction,
+    SyncNodeReceivedAsync,
+    InvalidRefreshTarget,
+    InvalidAffectsTarget,
+    AffectsKeysOnAccessor,
+    PackageContractExportMissing,
+    CleanupReturnUnresolved,
+    RefreshTargetUnresolved,
+    AffectsTargetUnresolved,
+    ExecutionMapIncomplete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuleMetadata {
+    pub code: &'static str,
+    pub name: &'static str,
+    pub severity: &'static str,
+    pub uncertifiable: bool,
+}
+
+impl Rule {
+    pub const ALL: [Self; 27] = [
+        Self::StrictReadUntracked,
+        Self::ReactiveReadAfterAwait,
+        Self::ComponentPropsDestructure,
+        Self::ReactiveWriteInOwnedScope,
+        Self::ActionCalledInOwnedScope,
+        Self::CleanupInForbiddenScope,
+        Self::PrimitiveInLeafOwner,
+        Self::FlushInForbiddenScope,
+        Self::InvalidCleanupReturn,
+        Self::SettledCleanupUnowned,
+        Self::NoOwnerEffect,
+        Self::NoOwnerCleanup,
+        Self::NoOwnerBoundary,
+        Self::PendingAsyncUntrackedRead,
+        Self::PendingAsyncForbiddenScope,
+        Self::AsyncOutsideLoadingBoundary,
+        Self::PrimitiveInDirectiveApplication,
+        Self::MissingEffectFunction,
+        Self::SyncNodeReceivedAsync,
+        Self::InvalidRefreshTarget,
+        Self::InvalidAffectsTarget,
+        Self::AffectsKeysOnAccessor,
+        Self::PackageContractExportMissing,
+        Self::CleanupReturnUnresolved,
+        Self::RefreshTargetUnresolved,
+        Self::AffectsTargetUnresolved,
+        Self::ExecutionMapIncomplete,
+    ];
+
+    #[must_use]
+    pub const fn metadata(self) -> RuleMetadata {
+        let (code, name, severity, uncertifiable) = match self {
+            Self::StrictReadUntracked => ("SC1001", "strict-read-untracked", "warning", false),
+            Self::ReactiveReadAfterAwait => ("SC1002", "reactive-read-after-await", "error", false),
+            Self::ComponentPropsDestructure => {
+                ("SC1003", "component-props-destructure", "error", false)
+            }
+            Self::ReactiveWriteInOwnedScope => {
+                ("SC2001", "reactive-write-in-owned-scope", "error", false)
+            }
+            Self::ActionCalledInOwnedScope => {
+                ("SC2002", "action-called-in-owned-scope", "error", false)
+            }
+            Self::CleanupInForbiddenScope => {
+                ("SC3001", "cleanup-in-forbidden-scope", "error", false)
+            }
+            Self::PrimitiveInLeafOwner => ("SC3002", "primitive-in-leaf-owner", "error", false),
+            Self::FlushInForbiddenScope => ("SC3003", "flush-in-forbidden-scope", "error", false),
+            Self::InvalidCleanupReturn => ("SC3004", "invalid-cleanup-return", "error", false),
+            Self::SettledCleanupUnowned => ("SC3005", "settled-cleanup-unowned", "error", false),
+            Self::NoOwnerEffect => ("SC4001", "no-owner-effect", "warning", false),
+            Self::NoOwnerCleanup => ("SC4002", "no-owner-cleanup", "warning", false),
+            Self::NoOwnerBoundary => ("SC4003", "no-owner-boundary", "warning", false),
+            Self::PendingAsyncUntrackedRead => {
+                ("SC5001", "pending-async-untracked-read", "error", false)
+            }
+            Self::PendingAsyncForbiddenScope => {
+                ("SC5002", "pending-async-forbidden-scope", "warning", false)
+            }
+            Self::AsyncOutsideLoadingBoundary => {
+                ("SC5003", "async-outside-loading-boundary", "error", false)
+            }
+            Self::PrimitiveInDirectiveApplication => (
+                "SC6001",
+                "primitive-in-directive-application",
+                "error",
+                false,
+            ),
+            Self::MissingEffectFunction => ("SC7001", "missing-effect-function", "error", false),
+            Self::SyncNodeReceivedAsync => ("SC7002", "sync-node-received-async", "error", false),
+            Self::InvalidRefreshTarget => ("SC7003", "invalid-refresh-target", "error", false),
+            Self::InvalidAffectsTarget => ("SC7003", "invalid-affects-target", "error", false),
+            Self::AffectsKeysOnAccessor => ("SC7004", "affects-keys-on-accessor", "error", false),
+            Self::PackageContractExportMissing => {
+                ("SC9001", "package-contract-export-missing", "error", true)
+            }
+            Self::CleanupReturnUnresolved => ("SC9002", "cleanup-return-unresolved", "error", true),
+            Self::RefreshTargetUnresolved => ("SC9003", "refresh-target-unresolved", "error", true),
+            Self::AffectsTargetUnresolved => ("SC9003", "affects-target-unresolved", "error", true),
+            Self::ExecutionMapIncomplete => ("SC9004", "execution-map-incomplete", "error", true),
+        };
+        RuleMetadata {
+            code,
+            name,
+            severity,
+            uncertifiable,
+        }
+    }
+
+    #[must_use]
+    pub fn from_identity(code: &str, name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|rule| rule.metadata().code == code && rule.metadata().name == name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::Rule;
+
+    #[test]
+    fn diagnostic_identities_are_unique_and_well_formed() {
+        let identities = Rule::ALL
+            .into_iter()
+            .map(|rule| {
+                let metadata = rule.metadata();
+                assert!(metadata.code.starts_with("SC"));
+                assert_eq!(metadata.code.len(), 6);
+                assert!(!metadata.name.is_empty());
+                (metadata.code, metadata.name)
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(identities.len(), Rule::ALL.len());
+    }
+}

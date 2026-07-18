@@ -1,3 +1,5 @@
+mod indexes;
+
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::Path,
@@ -5,148 +7,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use indexes::{CachedAstFileIndex, EntitySymbols, ProjectIndexes};
 use serde::{Deserialize, Serialize};
 use solid_facts::{FileFacts, ProjectFacts};
 use solid_facts_core::{SourceHash, Span};
 use solid_ts_facts::{Declaration, EntityFact, FactTable, FileFact, Location, SymbolFact};
 use thiserror::Error;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct EntitySymbols {
-    by_path: HashMap<String, HashMap<(u64, u64), String>>,
-}
-
-impl EntitySymbols {
-    fn get(&self, location: &Location) -> Option<&String> {
-        self.by_path
-            .get(location.path.as_str())
-            .and_then(|entities| entities.get(&(location.start_byte, location.end_byte)))
-    }
-}
-
-struct ProjectIndexes<'a> {
-    files_by_path: HashMap<&'a str, &'a FileFacts>,
-    ast_files_by_path: HashMap<&'a str, &'a CachedAstFileIndex>,
-    typescript: &'a FactTable,
-    symbols_by_id: HashMap<&'a str, &'a SymbolFact>,
-}
-
-impl<'a> ProjectIndexes<'a> {
-    fn new(facts: &'a ProjectFacts, ast_indexes: &'a HashMap<String, CachedAstFileIndex>) -> Self {
-        let files_by_path = facts
-            .files
-            .iter()
-            .map(|file| (file.path.as_str(), file))
-            .collect();
-        let ast_files_by_path = facts
-            .files
-            .iter()
-            .filter_map(|file| {
-                ast_indexes
-                    .get(file.path.as_str())
-                    .map(|index| (file.path.as_str(), index))
-            })
-            .collect();
-        let symbols_by_id = facts
-            .typescript
-            .symbols
-            .iter()
-            .map(|symbol| (symbol.id.as_str(), symbol))
-            .collect();
-        Self {
-            files_by_path,
-            ast_files_by_path,
-            typescript: &facts.typescript,
-            symbols_by_id,
-        }
-    }
-
-    fn typescript_file(&self, path: &str) -> Option<&'a FileFact> {
-        self.typescript
-            .files
-            .binary_search_by(|file| file.path.as_str().cmp(path))
-            .ok()
-            .map(|index| &self.typescript.files[index])
-    }
-
-    fn entities_for_path(&self, path: &str) -> &'a [EntityFact] {
-        let start = self
-            .typescript
-            .entities
-            .partition_point(|entity| entity.location.path.as_str() < path);
-        let end = self
-            .typescript
-            .entities
-            .partition_point(|entity| entity.location.path.as_str() <= path);
-        &self.typescript.entities[start..end]
-    }
-}
-
-struct CachedAstFileIndex {
-    ast: Arc<solid_ast_facts::AstFacts>,
-    calls_by_span: HashMap<Span, usize>,
-    calls_by_callee: HashMap<Span, Vec<usize>>,
-    direct_calls_by_callee: HashMap<Span, usize>,
-    functions_by_span: HashMap<Span, usize>,
-}
-
-impl CachedAstFileIndex {
-    fn new(file: &FileFacts) -> Self {
-        let mut calls_by_span = HashMap::new();
-        let mut calls_by_callee = HashMap::<Span, Vec<_>>::new();
-        let mut direct_calls_by_callee = HashMap::new();
-        for (index, call) in file.ast.calls.iter().enumerate() {
-            calls_by_span.entry(call.span).or_insert(index);
-            calls_by_callee.entry(call.callee).or_default().push(index);
-            if call.direct_callee {
-                direct_calls_by_callee.entry(call.callee).or_insert(index);
-            }
-        }
-        let mut functions_by_span = HashMap::new();
-        for (index, function) in file.ast.functions.iter().enumerate() {
-            functions_by_span.entry(function.span).or_insert(index);
-        }
-        Self {
-            ast: file.ast.clone(),
-            calls_by_span,
-            calls_by_callee,
-            direct_calls_by_callee,
-            functions_by_span,
-        }
-    }
-
-    fn call(&self, index: usize) -> &solid_ast_facts::CallFact {
-        &self.ast.calls[index]
-    }
-
-    fn function(&self, index: usize) -> &solid_ast_facts::FunctionFact {
-        &self.ast.functions[index]
-    }
-
-    fn call_by_span(&self, span: Span) -> Option<&solid_ast_facts::CallFact> {
-        self.calls_by_span.get(&span).map(|index| self.call(*index))
-    }
-
-    fn direct_call_by_callee(&self, span: Span) -> Option<&solid_ast_facts::CallFact> {
-        self.direct_calls_by_callee
-            .get(&span)
-            .map(|index| self.call(*index))
-    }
-
-    fn calls_by_callee(&self, span: Span) -> impl Iterator<Item = &solid_ast_facts::CallFact> {
-        self.calls_by_callee
-            .get(&span)
-            .into_iter()
-            .flatten()
-            .map(|index| self.call(*index))
-    }
-
-    fn function_by_span(&self, span: Span) -> Option<&solid_ast_facts::FunctionFact> {
-        self.functions_by_span
-            .get(&span)
-            .map(|index| self.function(*index))
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -983,6 +849,18 @@ pub struct IncrementalBuilder {
     source_discovery_domain: Option<(String, Vec<String>)>,
 }
 
+#[derive(Default)]
+struct BuildCaches<'a> {
+    ast_indexes: Option<&'a mut HashMap<String, CachedAstFileIndex>>,
+    source_discovery: Option<&'a mut HashMap<String, CachedSourceDiscovery>>,
+    typed_accessors: Option<&'a mut HashMap<String, CachedTypedAccessors>>,
+    interprocedural_graph: Option<&'a mut HashMap<String, CachedInterproceduralGraph>>,
+    interprocedural_results: Option<&'a mut CachedInterproceduralResults>,
+    typescript_indexes: Option<&'a mut Option<CachedTypeScriptIndexes>>,
+    reachability: Option<&'a mut Option<CachedReachability>>,
+    late_stages: Option<&'a mut Option<CachedLateStages>>,
+}
+
 impl IncrementalBuilder {
     pub fn build(&mut self, facts: &ProjectFacts) -> Result<(Program, BuildTimings), BuildError> {
         self.build_with_contracts(facts, &[])
@@ -1033,14 +911,16 @@ impl IncrementalBuilder {
         let (program, mut timings) = build_with_contracts_measured_incremental(
             facts,
             contracts,
-            Some(&mut self.ast_indexes),
-            Some(&mut self.source_discovery),
-            Some(&mut self.typed_accessors),
-            Some(&mut self.interprocedural_graph),
-            Some(&mut self.interprocedural_results),
-            Some(&mut self.typescript_indexes),
-            Some(&mut self.reachability),
-            Some(&mut self.late_stages),
+            BuildCaches {
+                ast_indexes: Some(&mut self.ast_indexes),
+                source_discovery: Some(&mut self.source_discovery),
+                typed_accessors: Some(&mut self.typed_accessors),
+                interprocedural_graph: Some(&mut self.interprocedural_graph),
+                interprocedural_results: Some(&mut self.interprocedural_results),
+                typescript_indexes: Some(&mut self.typescript_indexes),
+                reachability: Some(&mut self.reachability),
+                late_stages: Some(&mut self.late_stages),
+            },
         )?;
         self.retained = Some(RetainedBuild {
             identity,
@@ -1666,23 +1546,24 @@ pub fn build_with_contracts_measured(
     facts: &ProjectFacts,
     contracts: &[PackageContract],
 ) -> Result<(Program, BuildTimings), BuildError> {
-    build_with_contracts_measured_incremental(
-        facts, contracts, None, None, None, None, None, None, None, None,
-    )
+    build_with_contracts_measured_incremental(facts, contracts, BuildCaches::default())
 }
 
 fn build_with_contracts_measured_incremental(
     facts: &ProjectFacts,
     contracts: &[PackageContract],
-    ast_indexes_cache: Option<&mut HashMap<String, CachedAstFileIndex>>,
-    source_discovery_cache: Option<&mut HashMap<String, CachedSourceDiscovery>>,
-    typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
-    interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
-    interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
-    typescript_indexes_cache: Option<&mut Option<CachedTypeScriptIndexes>>,
-    reachability_cache: Option<&mut Option<CachedReachability>>,
-    mut late_stage_cache: Option<&mut Option<CachedLateStages>>,
+    caches: BuildCaches<'_>,
 ) -> Result<(Program, BuildTimings), BuildError> {
+    let BuildCaches {
+        ast_indexes: ast_indexes_cache,
+        source_discovery: source_discovery_cache,
+        typed_accessors: typed_accessor_cache,
+        interprocedural_graph: interprocedural_graph_cache,
+        interprocedural_results: interprocedural_result_cache,
+        typescript_indexes: typescript_indexes_cache,
+        reachability: reachability_cache,
+        late_stages: mut late_stage_cache,
+    } = caches;
     let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
     let total_started = Instant::now();
     let mut stage_started = Instant::now();
@@ -1841,10 +1722,10 @@ fn build_with_contracts_measured_incremental(
     let entities = &typescript_indexes.entities;
     let substage_started = Instant::now();
     let mut symbol_names = typescript_indexes.symbol_names.clone();
-    add_solid_namespace_names(facts, &entities, &mut symbol_names);
+    add_solid_namespace_names(facts, entities, &mut symbol_names);
     build_timings.symbol_name_indexes = substage_started.elapsed();
     let substage_started = Instant::now();
-    let resolved_contracts = resolve_contract_imports(facts, contracts, &entities);
+    let resolved_contracts = resolve_contract_imports(facts, contracts, entities);
     build_timings.contract_resolution = substage_started.elapsed();
     let owned_reachable_calls;
     let reachable_calls = if let Some(cache) = reachability_cache {
@@ -2047,7 +1928,7 @@ fn build_with_contracts_measured_incremental(
                         file.path.as_str(),
                         call.callee,
                         call.static_callee.as_deref(),
-                        &entities,
+                        entities,
                         &symbol_names,
                     );
                     if primitive.as_deref() == Some("action") {
@@ -2219,7 +2100,7 @@ fn build_with_contracts_measured_incremental(
                         .ast_files_by_path
                         .get(file.path.as_str())
                         .expect("project index contains every source file"),
-                    &entities,
+                    entities,
                     &symbol_names,
                     &resolved_contracts,
                     &bundled_returns,
@@ -2350,7 +2231,7 @@ fn build_with_contracts_measured_incremental(
                             file.path.as_str(),
                             call.callee,
                             call.static_callee.as_deref(),
-                            &entities,
+                            entities,
                             &symbol_names,
                         );
                         if primitive.as_deref() != Some("merge") {
@@ -2388,7 +2269,7 @@ fn build_with_contracts_measured_incremental(
                 file.path.as_str(),
                 element.name.span,
                 Some(&element.name.name),
-                &entities,
+                entities,
                 &symbol_names,
             );
             if !matches!(control_flow.as_deref(), Some("Show" | "Match" | "Switch")) {
@@ -2472,7 +2353,7 @@ fn build_with_contracts_measured_incremental(
                             file,
                             function,
                             parameter,
-                            &entities,
+                            entities,
                         )
                         .into_iter()
                         .collect(),
@@ -2564,7 +2445,7 @@ fn build_with_contracts_measured_incremental(
                                 file.path.as_str(),
                                 candidate.callee,
                                 candidate.static_callee.as_deref(),
-                                &entities,
+                                entities,
                                 &symbol_names,
                             )?;
                             matches!(
@@ -2604,9 +2485,9 @@ fn build_with_contracts_measured_incremental(
     finish_stage!(static_prepass, "static-prepass");
     let local_access_context = LocalAccessContext {
         facts,
-        entities: &entities,
+        entities,
         symbol_names: &symbol_names,
-        reachable_calls: &reachable_calls,
+        reachable_calls,
         accessors: &accessors,
         accessor_origins: &accessor_origins,
         setters: &setters,
@@ -2645,7 +2526,7 @@ fn build_with_contracts_measured_incremental(
         contract_returns: &contract_returns,
         bundled_returns: &bundled_returns,
         source_primitives: &source_primitives,
-        entities: &entities,
+        entities,
         references_by_source: &typescript_indexes.references_by_source,
         symbol_names: &symbol_names,
         changed_semantic_symbols: typescript_indexes
@@ -2657,12 +2538,14 @@ fn build_with_contracts_measured_incremental(
     let run_local_access = || {
         local_access_context.build(
             local_access_cache,
-            late_stages_reusable,
-            typescript_unchanged,
-            typescript_indexes.source_discovery_delta.as_ref(),
-            &changed_source_symbols,
-            &retained_source_paths,
-            late_stages_reusable,
+            LocalAccessReuse {
+                aggregate_reusable: late_stages_reusable,
+                typescript_unchanged,
+                source_discovery_delta: typescript_indexes.source_discovery_delta.as_ref(),
+                changed_source_symbols: &changed_source_symbols,
+                retained_source_paths: &retained_source_paths,
+                global_async_context_unchanged: late_stages_reusable,
+            },
         )
     };
     let (local_access, interprocedural, local_access_elapsed, interprocedural_elapsed, reused) =
@@ -2777,14 +2660,14 @@ fn build_with_contracts_measured_incremental(
     let contract_exports = interprocedural.exports;
     leaf_operations.extend(
         parallel_file_results(&facts.files, |file| {
-            leaf_owner_operations_for_file(file, &entities, &symbol_names)
+            leaf_owner_operations_for_file(file, entities, &symbol_names)
         })
         .into_iter()
         .flatten(),
     );
     finish_stage!(leaf_and_cleanup, "leaf-and-cleanup");
     for (invalid, unresolved) in parallel_file_results(&facts.files, |file| {
-        cleanup_returns_for_file(facts, file, &entities, &symbol_names)
+        cleanup_returns_for_file(facts, file, entities, &symbol_names)
     }) {
         invalid_cleanup_returns.extend(invalid);
         unresolved_cleanup_returns.extend(unresolved);
@@ -2794,7 +2677,7 @@ fn build_with_contracts_measured_incremental(
         static_directive_checks_for_file(
             facts,
             file,
-            &entities,
+            entities,
             &symbol_names,
             &source_kinds,
             &source_owned_write,
@@ -2815,7 +2698,7 @@ fn build_with_contracts_measured_incremental(
                     file.path.as_str(),
                     call.callee,
                     call.static_callee.as_deref(),
-                    &entities,
+                    entities,
                     &symbol_names,
                 )
                 .filter(|primitive| is_created_primitive(primitive))
@@ -2842,13 +2725,13 @@ fn build_with_contracts_measured_incremental(
                 .filter(|call| callback.span.contains(call.span))
             {
                 if let Some((target_file, target)) =
-                    function_called_at(facts, file, call.callee, &entities)
+                    function_called_at(facts, file, call.callee, entities)
                 {
                     collect_returned_directive_creations(
                         facts,
                         target_file,
                         target,
-                        &entities,
+                        entities,
                         &symbol_names,
                         &mut HashSet::new(),
                         &mut directive_creations,
@@ -2873,11 +2756,11 @@ fn build_with_contracts_measured_incremental(
         build_timings.owner_fixed_point_reused = true;
         build_timings.owner_reused_files = u64::try_from(facts.files.len()).unwrap_or(u64::MAX);
     } else {
-        if let Some(cache) = late_stage_cache.as_deref_mut().and_then(Option::as_mut) {
+        if let Some(cache) = late_stage_cache.and_then(Option::as_mut) {
             let (requirements, timings) = find_missing_owners_incremental(
                 facts,
                 &project_indexes,
-                &entities,
+                entities,
                 &symbol_names,
                 &retained_source_paths,
                 &mut cache.owner_files,
@@ -2893,7 +2776,7 @@ fn build_with_contracts_measured_incremental(
             missing_owners.extend(find_missing_owners(
                 facts,
                 &project_indexes,
-                &entities,
+                entities,
                 &symbol_names,
             ));
             build_timings.owner_recomputed_files =
@@ -3327,7 +3210,7 @@ fn static_directive_checks_for_file(
             if kind == ReactiveSourceKind::Accessor && call.arguments.len() == 2 {
                 result.violations.push(StaticViolation {
                     id: "SC7004".into(),
-                    rule: "invalid-affects-target".into(),
+                    rule: "affects-keys-on-accessor".into(),
                     message: "affects() keys are only valid on store targets".into(),
                     location: location(file.path.as_str(), call.callee),
                     analysis_context: String::new(),
@@ -5535,6 +5418,7 @@ fn discover_interprocedural_graph(
     contribution
 }
 
+#[allow(clippy::too_many_arguments)]
 fn merge_interprocedural_graph(
     path: &str,
     contribution: &InterproceduralGraphContribution,
@@ -5951,7 +5835,6 @@ fn retained_reactive_sources(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn direct_reference_contributions(
     source: &CachedReactiveSource,
     references_by_source: &HashMap<String, Vec<Location>>,
@@ -6119,6 +6002,7 @@ impl InterproceduralContext<'_> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn interprocedural_reads(
     facts: &ProjectFacts,
     project_indexes: &ProjectIndexes<'_>,
@@ -6736,7 +6620,7 @@ fn interprocedural_reads(
                 cache.dependency_states.insert(
                     dependency.clone(),
                     interprocedural_result_dependency_state(
-                        &dependency,
+                        dependency,
                         &nodes,
                         &indexes,
                         &by_symbol,
@@ -7803,6 +7687,7 @@ fn discover_reachability_file(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reachable_call_multiplicity_incremental(
     facts: &ProjectFacts,
     indexes: &ProjectIndexes<'_>,
@@ -8500,17 +8385,29 @@ struct LocalAccessContext<'a> {
     prop_sources: &'a HashMap<String, (String, Location)>,
 }
 
+struct LocalAccessReuse<'a> {
+    aggregate_reusable: bool,
+    typescript_unchanged: bool,
+    source_discovery_delta: Option<&'a SourceDiscoveryTypeScriptDelta>,
+    changed_source_symbols: &'a HashSet<String>,
+    retained_source_paths: &'a HashSet<String>,
+    global_async_context_unchanged: bool,
+}
+
 impl LocalAccessContext<'_> {
     fn build(
         &self,
-        mut cache: Option<&mut CachedLocalAccesses>,
-        aggregate_reusable: bool,
-        typescript_unchanged: bool,
-        source_discovery_delta: Option<&SourceDiscoveryTypeScriptDelta>,
-        changed_source_symbols: &HashSet<String>,
-        retained_source_paths: &HashSet<String>,
-        global_async_context_unchanged: bool,
+        cache: Option<&mut CachedLocalAccesses>,
+        reuse: LocalAccessReuse<'_>,
     ) -> LocalAccessBuild {
+        let LocalAccessReuse {
+            aggregate_reusable,
+            typescript_unchanged,
+            source_discovery_delta,
+            changed_source_symbols,
+            retained_source_paths,
+            global_async_context_unchanged,
+        } = reuse;
         if aggregate_reusable
             && let Some(cached) = cache.as_deref().and_then(|cache| cache.aggregate.as_ref())
         {
@@ -8525,7 +8422,7 @@ impl LocalAccessContext<'_> {
         let mut result = LocalAccessResult::default();
         let mut reused_files = 0;
         let mut recomputed_files = 0;
-        if let Some(cache) = cache.as_deref_mut() {
+        if let Some(cache) = cache {
             let exact_typescript_delta = typescript_unchanged || source_discovery_delta.is_some();
             let mut candidate_dependencies = changed_source_symbols.clone();
             if let Some(delta) = source_discovery_delta {
@@ -8651,12 +8548,11 @@ impl LocalAccessContext<'_> {
                     .iter()
                     .map(|element| element.name.span),
             )
-            .map(|span| {
+            .filter_map(|span| {
                 self.entities
                     .get(&location(file.path.as_str(), span))
                     .cloned()
             })
-            .flatten()
             .collect()
     }
 
@@ -9244,10 +9140,9 @@ fn patch_typescript_indexes(
     for id in &changes.symbol_ids {
         if let Some(old_root) = cache.aliases.get(id)
             && let Some(members) = cache.symbols_by_root.get_mut(old_root)
+            && let Ok(index) = members.binary_search(id)
         {
-            if let Ok(index) = members.binary_search(id) {
-                members.remove(index);
-            }
+            members.remove(index);
         }
     }
     for id in &changes.symbol_ids {

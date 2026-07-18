@@ -1,6 +1,7 @@
 //! Rust-led orchestration of Oxc AST facts, Solid execution facts, and
 //! TypeScript-Go semantic facts.
 
+mod demand_plan;
 mod diagnostics;
 
 pub use diagnostics::{
@@ -1253,162 +1254,7 @@ pub fn build_project_cached(
 fn semantic_demands(
     files: &[FileFacts],
 ) -> Result<Vec<solid_ts_facts::v3::EntityDemand>, BackendError> {
-    let mut demands = Vec::new();
-    for file in files {
-        let path = file.path.to_string();
-        let structural_accessors = structural_accessor_spans(file);
-        let mut symbol_spans = HashMap::new();
-        let mut add_symbol = |span, references| {
-            symbol_spans
-                .entry(span)
-                .and_modify(|current| *current |= references)
-                .or_insert(references);
-        };
-        for import in &file.ast.imports {
-            for binding in import
-                .bindings
-                .iter()
-                .filter(|binding| !binding.local.name.is_empty())
-            {
-                add_symbol(binding.local.span, true);
-            }
-        }
-        for binding in &file.ast.bindings {
-            for name in &binding.names {
-                add_symbol(name.span, true);
-            }
-            if let Some(initializer) = &binding.initializer_identifier {
-                add_symbol(initializer.span, true);
-            }
-        }
-        for function in &file.ast.functions {
-            if let Some(name) = &function.name {
-                add_symbol(name.span, true);
-            }
-            for name in function
-                .parameters
-                .iter()
-                .flat_map(|parameter| &parameter.names)
-            {
-                add_symbol(name.span, true);
-            }
-        }
-        for export in &file.ast.exports {
-            for item in export.specifiers.iter().chain(&export.declarations) {
-                add_symbol(item.local.span, true);
-            }
-        }
-        for element in &file.ast.jsx_elements {
-            add_symbol(element.name.span, false);
-        }
-        for returned in &file.ast.returns {
-            if let Some(callee) = returned.callee {
-                demands.push(solid_ts_facts::v3::EntityDemand {
-                    location: typefacts_location(&path, callee),
-                    query_location: None,
-                    symbol: false,
-                    type_descriptor: false,
-                    resolved_call: true,
-                    references: false,
-                    r#async: false,
-                    structural_accessor: false,
-                });
-            }
-            if returned.value == solid_ast_facts::ReturnValueKind::Identifier {
-                add_symbol(returned.span, false);
-            }
-        }
-        for call in &file.ast.calls {
-            for argument in &call.arguments {
-                if argument.value == solid_ast_facts::ArgumentValueKind::Identifier {
-                    add_symbol(argument.span, false);
-                }
-            }
-        }
-        for member in &file.ast.members {
-            add_symbol(member.object, false);
-        }
-        for (span, references) in symbol_spans {
-            demands.push(solid_ts_facts::v3::EntityDemand {
-                location: typefacts_location(&path, span),
-                query_location: None,
-                symbol: true,
-                type_descriptor: false,
-                resolved_call: false,
-                references,
-                r#async: false,
-                structural_accessor: structural_accessors.contains(&span),
-            });
-        }
-        for location in file.compiler_seed_locations()? {
-            demands.push(solid_ts_facts::v3::EntityDemand {
-                location,
-                query_location: None,
-                symbol: true,
-                type_descriptor: false,
-                resolved_call: false,
-                references: false,
-                r#async: false,
-                structural_accessor: false,
-            });
-        }
-        for span in &file.ast.awaits {
-            demands.push(solid_ts_facts::v3::EntityDemand {
-                location: typefacts_location(&path, *span),
-                query_location: None,
-                symbol: false,
-                type_descriptor: false,
-                resolved_call: false,
-                references: false,
-                r#async: true,
-                structural_accessor: false,
-            });
-        }
-        if let Some(call) = file.ast.calls.first() {
-            demands.push(solid_ts_facts::v3::EntityDemand {
-                location: typefacts_location(&path, call.span),
-                query_location: None,
-                symbol: false,
-                type_descriptor: false,
-                resolved_call: false,
-                references: false,
-                r#async: true,
-                structural_accessor: false,
-            });
-        }
-        for call in &file.ast.calls {
-            let callee = typefacts_location(&path, call.callee);
-            let query = callee_property_location(&file.source, &callee);
-            demands.push(solid_ts_facts::v3::EntityDemand {
-                location: callee.clone(),
-                query_location: Some(query),
-                symbol: true,
-                type_descriptor: call.arguments.is_empty(),
-                resolved_call: false,
-                references: false,
-                r#async: false,
-                structural_accessor: false,
-            });
-        }
-    }
-    demands.sort_by(|left, right| {
-        (
-            &left.location.path,
-            left.location.start_byte,
-            left.location.end_byte,
-            left.query_location.as_ref().map(|value| value.start_byte),
-            left.query_location.as_ref().map(|value| value.end_byte),
-        )
-            .cmp(&(
-                &right.location.path,
-                right.location.start_byte,
-                right.location.end_byte,
-                right.query_location.as_ref().map(|value| value.start_byte),
-                right.query_location.as_ref().map(|value| value.end_byte),
-            ))
-    });
-    demands.dedup();
-    Ok(demands)
+    demand_plan::plan(files)
 }
 
 fn structural_accessor_spans(file: &FileFacts) -> HashSet<Span> {
@@ -2869,22 +2715,50 @@ mod tests {
     }
 
     #[test]
-    fn semantic_demands_include_member_objects_and_async_file_facts() {
+    fn semantic_demand_plan_is_complete_for_downstream_consumers() {
         let file = test_file_facts(
             "src/component.tsx",
             "const value = createMemo(async () => 1); export function Card(props: { title: string }) { return <div>{props.title}{value()}</div>; }",
         );
-        let member = file.ast.members.first().expect("member access");
         let demands = semantic_demands(std::slice::from_ref(&file)).unwrap();
 
-        assert!(demands.iter().any(|demand| {
-            demand.symbol
-                && demand.location == typefacts_location(file.path.as_str(), member.object)
-        }));
+        for member in &file.ast.members {
+            let location = typefacts_location(file.path.as_str(), member.object);
+            assert!(
+                demands
+                    .iter()
+                    .any(|demand| demand.symbol && demand.location == location),
+                "member object {location:?} must retain symbol provenance"
+            );
+        }
+        for call in &file.ast.calls {
+            let location = typefacts_location(file.path.as_str(), call.callee);
+            let demand = demands
+                .iter()
+                .find(|demand| demand.location == location && demand.query_location.is_some())
+                .expect("every call callee needs a symbol/type query");
+            assert!(demand.symbol);
+            assert_eq!(demand.type_descriptor, call.arguments.is_empty());
+        }
         assert!(
             demands
                 .iter()
                 .any(|demand| { demand.r#async && demand.location.path == file.path.as_str() })
+        );
+        assert!(
+            demands.windows(2).all(|pair| pair[0] != pair[1]),
+            "the transport plan must not contain duplicate queries"
+        );
+        let mut reversed = vec![
+            file.clone(),
+            test_file_facts("src/a.ts", "export const a = 1;"),
+        ];
+        let planned = semantic_demands(&reversed).unwrap();
+        reversed.reverse();
+        assert_eq!(
+            planned,
+            semantic_demands(&reversed).unwrap(),
+            "query order must not depend on source traversal order"
         );
     }
 

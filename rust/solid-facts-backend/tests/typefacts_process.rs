@@ -23,6 +23,72 @@ fn decode_findings(output: &[u8]) -> Vec<serde_json::Value> {
         .clone()
 }
 
+fn diagnostic_fixture(name: &str) -> Option<Vec<serde_json::Value>> {
+    let typefacts = env::var("SOLID_TYPEFACTS_BIN").ok()?;
+    let compiler = env::var("SOLID_COMPILER_FACTS_BIN").ok()?;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join(format!("internal/reactiveir/testdata/{name}/tsconfig.json"));
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+        .env("SOLID_TYPEFACTS_BIN", typefacts)
+        .env("SOLID_COMPILER_FACTS_BIN", compiler)
+        .args(["--format", "json", "--project"])
+        .arg(project)
+        .output()
+        .expect("run Rust diagnostic CLI");
+    assert!(
+        output.status.success(),
+        "fixture {name}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(decode_findings(&output.stdout))
+}
+
+fn findings_for_rule<'a>(
+    findings: &'a [serde_json::Value],
+    rule: &str,
+) -> Vec<&'a serde_json::Value> {
+    findings
+        .iter()
+        .filter(|finding| finding["rule"] == rule)
+        .collect()
+}
+
+fn assert_rule_findings<'a>(
+    findings: &'a [serde_json::Value],
+    rule: &str,
+    expected: usize,
+) -> Vec<&'a serde_json::Value> {
+    let selected = findings_for_rule(findings, rule);
+    assert_eq!(selected.len(), expected, "rule {rule}: {selected:#?}");
+    for finding in &selected {
+        assert!(
+            finding["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("SC")),
+            "rule {rule} must have a stable diagnostic code"
+        );
+        assert!(
+            finding["message"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()),
+            "rule {rule} must explain the violation"
+        );
+        assert!(
+            finding["primaryLocation"]["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with(".ts") || path.ends_with(".tsx")),
+            "rule {rule} must point to source"
+        );
+        assert!(
+            finding["evidence"]
+                .as_array()
+                .is_some_and(|evidence| !evidence.is_empty()),
+            "rule {rule} must carry evidence"
+        );
+    }
+    selected
+}
+
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -341,114 +407,42 @@ fn pipelined_open_matches_sequential_sources_and_analyzes() {
 
 #[test]
 fn rust_cli_reports_expected_write_scope_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("write-scope") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/write-scope/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(
-        output.status.success(),
-        "stderr = {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let findings = decode_findings(&output.stdout);
-    let writes = findings
-        .iter()
-        .filter(|finding| finding["rule"] == "reactive-write-in-owned-scope")
-        .count();
-    let actions = findings
-        .iter()
-        .filter(|finding| finding["rule"] == "action-called-in-owned-scope")
-        .count();
+    let writes = findings_for_rule(&findings, "reactive-write-in-owned-scope").len();
+    let actions = findings_for_rule(&findings, "action-called-in-owned-scope").len();
     assert_eq!((writes, actions), (12, 2));
+    assert!(findings.iter().all(|finding| {
+        finding["primaryLocation"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with(".tsx"))
+            && finding["message"].as_str().is_some_and(|message| {
+                message.contains("owned scope") || message.contains("action")
+            })
+    }));
 }
 
 #[test]
 fn rust_cli_reports_expected_leaf_owner_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("leaf-owner") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/leaf-owner/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(output.status.success());
-    let findings = decode_findings(&output.stdout);
     for (rule, expected) in [
         ("cleanup-in-forbidden-scope", 3),
         ("primitive-in-leaf-owner", 3),
         ("flush-in-forbidden-scope", 2),
         ("invalid-cleanup-return", 6),
     ] {
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == rule)
-                .count(),
-            expected,
-            "rule {rule}"
-        );
+        assert_rule_findings(&findings, rule, expected);
     }
 }
 
 #[test]
 fn rust_cli_reports_expected_static_api_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("static-api") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/static-api/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(output.status.success());
-    let findings = decode_findings(&output.stdout);
     for (rule, expected) in [
         ("missing-effect-function", 2),
         ("sync-node-received-async", 6),
@@ -456,154 +450,54 @@ fn rust_cli_reports_expected_static_api_rule_counts() {
         ("invalid-affects-target", 2),
         ("reactive-write-in-owned-scope", 1),
     ] {
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == rule)
-                .count(),
-            expected,
-            "rule {rule}"
-        );
+        assert_rule_findings(&findings, rule, expected);
     }
 }
 
 #[test]
 fn rust_cli_reports_expected_directive_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("directive-phases") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/directive-phases/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(output.status.success());
-    let findings = decode_findings(&output.stdout);
     for (rule, expected) in [
         ("reactive-write-in-owned-scope", 1),
         ("primitive-in-directive-application", 3),
     ] {
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == rule)
-                .count(),
-            expected,
-            "rule {rule}"
-        );
+        assert_rule_findings(&findings, rule, expected);
     }
 }
 
 #[test]
 fn rust_cli_reports_expected_owner_presence_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("owner-presence") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/owner-presence/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(output.status.success());
-    let findings = decode_findings(&output.stdout);
     for (rule, expected) in [
         ("no-owner-effect", 7),
         ("no-owner-cleanup", 2),
         ("no-owner-boundary", 3),
         ("settled-cleanup-unowned", 2),
     ] {
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == rule)
-                .count(),
-            expected,
-            "rule {rule}"
-        );
+        assert_rule_findings(&findings, rule, expected);
     }
 }
 
 #[test]
 fn rust_cli_reports_expected_async_boundary_rule_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
+    let Some(findings) = diagnostic_fixture("async-boundary") else {
+        return;
     };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("SOLID_COMPILER_FACTS_BIN", compiler)
-        .args([
-            "--format",
-            "json",
-            "--project",
-            &root
-                .join("internal/reactiveir/testdata/async-boundary/tsconfig.json")
-                .to_string_lossy(),
-        ])
-        .output()
-        .expect("run Rust diagnostic CLI");
-    assert!(output.status.success());
-    let findings = decode_findings(&output.stdout);
     for (rule, expected) in [
         ("pending-async-untracked-read", 1),
         ("pending-async-forbidden-scope", 1),
         ("async-outside-loading-boundary", 7),
     ] {
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == rule)
-                .count(),
-            expected,
-            "rule {rule}"
-        );
+        assert_rule_findings(&findings, rule, expected);
     }
 }
 
 #[test]
 fn rust_cli_reports_expected_interprocedural_primary_locations() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (fixture, expected_count, message) in [
         ("interprocedural", 1, "readCount"),
         ("callback-forwarding", 1, "invoke"),
@@ -612,27 +506,10 @@ fn rust_cli_reports_expected_interprocedural_primary_locations() {
         ("returned-closure", 1, "readCount"),
         ("store-flow", 1, "\"state.count\""),
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-            .env("SOLID_TYPEFACTS_BIN", &typefacts)
-            .env("SOLID_COMPILER_FACTS_BIN", &compiler)
-            .args([
-                "--format",
-                "json",
-                "--project",
-                &root
-                    .join(format!(
-                        "internal/reactiveir/testdata/{fixture}/tsconfig.json"
-                    ))
-                    .to_string_lossy(),
-            ])
-            .output()
-            .expect("run Rust diagnostic CLI");
-        assert!(output.status.success(), "fixture {fixture}");
-        let findings = decode_findings(&output.stdout);
-        let strict = findings
-            .iter()
-            .filter(|finding| finding["rule"] == "strict-read-untracked")
-            .collect::<Vec<_>>();
+        let Some(findings) = diagnostic_fixture(fixture) else {
+            return;
+        };
+        let strict = findings_for_rule(&findings, "strict-read-untracked");
         assert_eq!(
             strict.len(),
             expected_count,
@@ -658,38 +535,12 @@ fn rust_cli_reports_expected_interprocedural_primary_locations() {
 
 #[test]
 fn rust_cli_reports_expected_control_flow_and_effect_phase_counts() {
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let compiler = match env::var("SOLID_COMPILER_FACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (fixture, expected) in [("control-flow", 0), ("execution-phases", 1)] {
-        let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-            .env("SOLID_TYPEFACTS_BIN", &typefacts)
-            .env("SOLID_COMPILER_FACTS_BIN", &compiler)
-            .args([
-                "--format",
-                "json",
-                "--project",
-                &root
-                    .join(format!(
-                        "internal/reactiveir/testdata/{fixture}/tsconfig.json"
-                    ))
-                    .to_string_lossy(),
-            ])
-            .output()
-            .expect("run Rust diagnostic CLI");
-        assert!(output.status.success(), "fixture {fixture}");
-        let findings = decode_findings(&output.stdout);
+        let Some(findings) = diagnostic_fixture(fixture) else {
+            return;
+        };
         assert_eq!(
-            findings
-                .iter()
-                .filter(|finding| finding["rule"] == "strict-read-untracked")
-                .count(),
+            findings_for_rule(&findings, "strict-read-untracked").len(),
             expected,
             "fixture {fixture}: {findings:#?}"
         );
