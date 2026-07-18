@@ -8,7 +8,6 @@
 - [Semantic inventory](semantic-inventory.md) — diagnostics and proof boundaries
 - [Glossary](glossary.md) — canonical domain language
 - [Package contracts](package-contracts.md) — published reactivity summaries
-- [ESLint rule audit](eslint-rule-audit.md) — compatibility mapping
 - [Zed integration](zed.md) — editor setup
 - [Monorepo policy](monorepo.md) — upstream and dependency policy
 

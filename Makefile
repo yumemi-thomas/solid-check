@@ -4,7 +4,7 @@ COMPILER_MANIFEST := third_party/dom-expressions/packages/jsx-compiler/Cargo.tom
 COMPILER_BIN := third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
 RUST_MANIFEST := rust/Cargo.toml
 
-.PHONY: build build-typefacts build-compiler build-rust package test test-go test-rust test-cli test-eslint test-compiler test-zed verify conformance clean
+.PHONY: build build-typefacts build-compiler build-rust package test test-go test-rust test-cli test-compiler test-zed verify conformance clean
 
 build: build-rust
 
@@ -25,7 +25,7 @@ package: build-typefacts
 	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --release --manifest-path $(RUST_MANIFEST) --workspace
 	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" node scripts/package-rust.mjs --output dist/solid-check
 
-test: test-go test-rust test-cli test-eslint test-compiler test-zed
+test: test-go test-rust test-cli test-compiler test-zed
 
 test-go:
 	go test ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
@@ -36,9 +36,6 @@ test-rust: build-typefacts build-compiler
 test-cli:
 	npm ci --ignore-scripts --prefix packages/cli
 	npm test --prefix packages/cli
-
-test-eslint:
-	node --test packages/eslint-plugin-solid-check/test/*.test.cjs
 
 test-compiler:
 	cargo +$(RUST_TOOLCHAIN) test --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar

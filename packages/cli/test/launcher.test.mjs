@@ -20,11 +20,10 @@ exit 7
 
   const result = spawnSync(process.execPath, [
     new URL("../bin/solid-check.mjs", import.meta.url).pathname,
-    "oxlint",
     "--project",
     "tsconfig.json",
-    "--",
-    "src"
+    "--format",
+    "json"
   ], {
     encoding: "utf8",
     env: {
@@ -38,10 +37,9 @@ exit 7
   assert.equal(result.stdout, "native stdout\n");
   assert.equal(result.stderr, "native stderr\n");
   assert.deepEqual(readFileSync(capture, "utf8").trim().split("\n"), [
-    "oxlint",
     "--project",
     "tsconfig.json",
-    "--",
-    "src"
+    "--format",
+    "json"
   ]);
 });

@@ -29,8 +29,6 @@ cargo +1.97 test \
   --no-default-features \
   --features sidecar
 
-node --check packages/eslint-plugin-solid-check/index.cjs
-node --test packages/eslint-plugin-solid-check/test/*.test.cjs
 npm ci --ignore-scripts --prefix packages/cli
 npm test --prefix packages/cli
 

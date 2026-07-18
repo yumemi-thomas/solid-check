@@ -29,5 +29,5 @@ Use these terms in code, diagnostics, contracts, and design discussions.
 - Do not call an unresolved obligation safe.
 - Do not expose TypeScript, Oxc, or solver-specific node terminology through
   the certification package.
-- Use “adapter” for CLI, LSP, and ESLint integrations; none owns reactive
+- Use “adapter” for CLI and LSP integrations; neither owns reactive
   analysis.

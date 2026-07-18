@@ -2,17 +2,15 @@ use std::{
     fs,
     io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
-    process::Command,
     time::Instant,
-    time::SystemTime,
 };
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solid_facts_backend::{
-    BackendError, CompilerSidecar, Snapshot, SourceFile, TypeFactsSidecar,
-    analyze_project_measured_with, build_project, build_project_native_measured,
-    bundled_solid_js_contract, default_typefacts_executable, read_package_contract,
+    BackendError, CompilerSidecar, SourceFile, TypeFactsSidecar, analyze_project_measured_with,
+    build_project, build_project_native_measured, bundled_solid_js_contract,
+    default_typefacts_executable, read_package_contract,
 };
 
 #[derive(Deserialize)]
@@ -46,10 +44,6 @@ struct Request {
     declaration_artifact: String,
     #[serde(default)]
     implementation_artifact: String,
-    #[serde(default)]
-    oxlint: bool,
-    #[serde(default)]
-    oxlint_args: Vec<String>,
     #[serde(default)]
     help: bool,
     #[serde(default)]
@@ -173,9 +167,6 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             return Ok(0);
         }
         let snapshot = analysis.snapshot;
-        if request.oxlint {
-            return run_oxlint(&request.oxlint_args, &snapshot);
-        }
         match request.format.as_str() {
             "json" => {
                 let mut stdout = io::stdout().lock();
@@ -224,12 +215,6 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
 
 fn request_from_args() -> Result<Request, Box<dyn std::error::Error>> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
-    if arguments
-        .first()
-        .is_some_and(|argument| argument == "oxlint")
-    {
-        return request_from_oxlint_args(&arguments[1..]);
-    }
     let mut project = PathBuf::from("tsconfig.json");
     let mut compiler = std::env::var("SOLID_COMPILER_FACTS_BIN").unwrap_or_default();
     let mut typefacts = default_typefacts_executable();
@@ -344,76 +329,8 @@ fn request_from_args() -> Result<Request, Box<dyn std::error::Error>> {
         package_version,
         declaration_artifact,
         implementation_artifact,
-        oxlint: false,
-        oxlint_args: vec![],
         help,
         serve,
-    })
-}
-
-fn request_from_oxlint_args(arguments: &[String]) -> Result<Request, Box<dyn std::error::Error>> {
-    let mut project = PathBuf::from("tsconfig.json");
-    let mut compiler = std::env::var("SOLID_COMPILER_FACTS_BIN").unwrap_or_default();
-    let mut typefacts = default_typefacts_executable();
-    let mut contract_paths = Vec::new();
-    let mut oxlint_args = Vec::new();
-    let mut index = 0;
-    while index < arguments.len() {
-        let argument = &arguments[index];
-        if argument == "--" {
-            oxlint_args.extend_from_slice(&arguments[index + 1..]);
-            break;
-        }
-        if let Some(value) = argument.strip_prefix("--project=") {
-            project = value.into();
-        } else if let Some(value) = argument.strip_prefix("--contract=") {
-            contract_paths.push(value.into());
-        } else if let Some(value) = argument.strip_prefix("--typefacts=") {
-            typefacts = value.into();
-        } else if let Some(value) = argument.strip_prefix("--compiler=") {
-            compiler = value.into();
-        } else if matches!(
-            argument.as_str(),
-            "--project" | "-project" | "--contract" | "-contract" | "--typefacts" | "--compiler"
-        ) {
-            index += 1;
-            let value = arguments
-                .get(index)
-                .ok_or_else(|| format!("{argument} needs a value"))?;
-            match argument.as_str() {
-                "--project" | "-project" => project = value.into(),
-                "--contract" | "-contract" => contract_paths.push(value.clone()),
-                "--typefacts" => typefacts = value.clone(),
-                "--compiler" => compiler = value.clone(),
-                _ => unreachable!(),
-            }
-        } else {
-            oxlint_args.push(argument.clone());
-        }
-        index += 1;
-    }
-    let project = project.canonicalize()?;
-    Ok(Request {
-        project_id: project.to_string_lossy().into_owned(),
-        generation: 1,
-        sources: vec![],
-        compiler_executable: compiler,
-        compiler_args: vec![],
-        typefacts_executable: typefacts,
-        typefacts_args: vec!["-project".into(), project.to_string_lossy().into_owned()],
-        contract_paths,
-        format: "json".into(),
-        certify: false,
-        validate_contract_paths: vec![],
-        emit_contract: String::new(),
-        package_name: String::new(),
-        package_version: String::new(),
-        declaration_artifact: String::new(),
-        implementation_artifact: String::new(),
-        oxlint: true,
-        oxlint_args,
-        help: false,
-        serve: false,
     })
 }
 
@@ -438,39 +355,6 @@ fn print_help() {
                                         clients use it when SOLID_CHECK_DAEMON=1\n\
            -h, --help                   Print help"
     );
-}
-
-fn run_oxlint(
-    arguments: &[String],
-    snapshot: &Snapshot,
-) -> Result<i32, Box<dyn std::error::Error>> {
-    let unique = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)?
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "solid-check-oxlint-{}-{unique}.json",
-        std::process::id()
-    ));
-    let mut encoded = go_compatible_json(snapshot, false)?;
-    encoded.push(b'\n');
-    fs::write(&path, encoded)?;
-    let executable = std::env::var("OXLINT_BIN").unwrap_or_else(|_| "oxlint".into());
-    let mut command = Command::new(executable);
-    if !arguments.iter().any(|argument| {
-        argument == "--format"
-            || argument == "-f"
-            || argument.starts_with("--format=")
-            || argument.starts_with("-f=")
-    }) {
-        command.arg("--format=default");
-    }
-    let status = command
-        .args(arguments)
-        .env("SOLID_CHECK_SNAPSHOT_PATH", &path)
-        .status();
-    let _ = fs::remove_file(path);
-    let status = status?;
-    Ok(status.code().unwrap_or(2))
 }
 
 fn emit_package_contract(
@@ -672,7 +556,6 @@ mod daemon {
         request.sources.is_empty()
             && request.compiler_executable.is_empty()
             && request.emit_contract.is_empty()
-            && !request.oxlint
             && matches!(request.format.as_str(), "json" | "text")
     }
 

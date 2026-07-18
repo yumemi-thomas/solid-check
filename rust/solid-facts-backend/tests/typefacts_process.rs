@@ -1146,49 +1146,6 @@ fn rust_cli_emits_and_consumes_package_contracts() {
     fs::remove_dir_all(directory).unwrap();
 }
 
-#[cfg(unix)]
-#[test]
-fn rust_cli_passes_its_snapshot_to_oxlint() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
-        Ok(value) => value,
-        Err(_) => return,
-    };
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let directory = temporary_directory("oxlint");
-    let executable = directory.join("oxlint");
-    fs::write(
-        &executable,
-        "#!/bin/sh\n\
-         test -f \"$SOLID_CHECK_SNAPSHOT_PATH\" || exit 91\n\
-         grep -q 'SC1001' \"$SOLID_CHECK_SNAPSHOT_PATH\" || exit 92\n\
-         case \" $* \" in *' --format=default '*) exit 7;; *) exit 93;; esac\n",
-    )
-    .unwrap();
-    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
-    let tracer = root.join("internal/reactiveir/testdata/tracer/tsconfig.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
-        .env("SOLID_TYPEFACTS_BIN", typefacts)
-        .env("OXLINT_BIN", executable)
-        .args([
-            "oxlint",
-            "--project",
-            &tracer.to_string_lossy(),
-            "--",
-            "src",
-        ])
-        .output()
-        .unwrap();
-    assert_eq!(
-        output.status.code(),
-        Some(7),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    fs::remove_dir_all(directory).unwrap();
-}
-
 #[test]
 fn in_process_compiler_matches_the_sidecar_snapshot() {
     let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {

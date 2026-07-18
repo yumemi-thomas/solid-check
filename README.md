@@ -13,7 +13,6 @@ the versioned TypeFacts protocol.
 - `rust/solid-ast-facts` and `rust/solid-compiler-facts`: Oxc and Solid compiler facts
 - `cmd/solid-typefacts` and `internal/typefacts`: retained TypeScript-Go service
 - `packages/cli`: npm launcher and native package layout
-- `packages/eslint-plugin-solid-check`: snapshot-backed ESLint/Oxlint adapter
 - `packages/zed-solid-check`: Zed extension
 - `third_party/dom-expressions`: controlled Solid compiler fork
 

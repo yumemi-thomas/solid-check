@@ -82,13 +82,9 @@ The failing command exits non-zero and uses Oxlint's `default` formatter, so it
 shows the source frame, highlighted destructuring pattern, canonical `SC1003`
 identifier, proof evidence, and summary.
 
-The app installs the private workspace `solid-check` package and invokes its
-real npm binary. There is no app-specific lint launcher, native binary path, or
-compiler-sidecar environment variable. In this source checkout the package
-locates and, when missing, builds the repository development binaries.
-`solid-check oxlint` analyzes once, injects a temporary snapshot into the child
-process, and deletes it when Oxlint exits. Nothing is downloaded or executed
-from a published package.
+The app installs the private workspace `solid-check` package for project-level
+certification and runs Oxlint independently for syntax linting. There is no
+ESLint compatibility adapter or shared snapshot between the two tools.
 
 ## Zed
 

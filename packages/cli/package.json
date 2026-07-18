@@ -7,12 +7,8 @@
     "solid-check": "bin/solid-check.mjs",
     "solid-checkd": "bin/solid-checkd.mjs"
   },
-  "exports": {
-    "./eslint": "./eslint.cjs"
-  },
   "files": [
     "bin",
-    "eslint.cjs",
     "native",
     "native-manifest.json"
   ],
@@ -21,9 +17,6 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "eslint-plugin-solid-check": "file:../eslint-plugin-solid-check"
   },
   "license": "MIT"
 }
