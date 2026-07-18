@@ -1,0 +1,10043 @@
+use std::{
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use serde::{Deserialize, Serialize};
+use solid_facts::{FileFacts, ProjectFacts};
+use solid_facts_core::{SourceHash, Span};
+use solid_ts_facts::{Declaration, EntityFact, FactTable, FileFact, Location, SymbolFact};
+use thiserror::Error;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EntitySymbols {
+    by_path: HashMap<String, HashMap<(u64, u64), String>>,
+}
+
+impl EntitySymbols {
+    fn get(&self, location: &Location) -> Option<&String> {
+        self.by_path
+            .get(location.path.as_str())
+            .and_then(|entities| entities.get(&(location.start_byte, location.end_byte)))
+    }
+}
+
+struct ProjectIndexes<'a> {
+    files_by_path: HashMap<&'a str, &'a FileFacts>,
+    ast_files_by_path: HashMap<&'a str, &'a CachedAstFileIndex>,
+    typescript: &'a FactTable,
+    symbols_by_id: HashMap<&'a str, &'a SymbolFact>,
+}
+
+impl<'a> ProjectIndexes<'a> {
+    fn new(facts: &'a ProjectFacts, ast_indexes: &'a HashMap<String, CachedAstFileIndex>) -> Self {
+        let files_by_path = facts
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file))
+            .collect();
+        let ast_files_by_path = facts
+            .files
+            .iter()
+            .filter_map(|file| {
+                ast_indexes
+                    .get(file.path.as_str())
+                    .map(|index| (file.path.as_str(), index))
+            })
+            .collect();
+        let symbols_by_id = facts
+            .typescript
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect();
+        Self {
+            files_by_path,
+            ast_files_by_path,
+            typescript: &facts.typescript,
+            symbols_by_id,
+        }
+    }
+
+    fn typescript_file(&self, path: &str) -> Option<&'a FileFact> {
+        self.typescript
+            .files
+            .binary_search_by(|file| file.path.as_str().cmp(path))
+            .ok()
+            .map(|index| &self.typescript.files[index])
+    }
+
+    fn entities_for_path(&self, path: &str) -> &'a [EntityFact] {
+        let start = self
+            .typescript
+            .entities
+            .partition_point(|entity| entity.location.path.as_str() < path);
+        let end = self
+            .typescript
+            .entities
+            .partition_point(|entity| entity.location.path.as_str() <= path);
+        &self.typescript.entities[start..end]
+    }
+}
+
+struct CachedAstFileIndex {
+    ast: Arc<solid_ast_facts::AstFacts>,
+    calls_by_span: HashMap<Span, usize>,
+    calls_by_callee: HashMap<Span, Vec<usize>>,
+    direct_calls_by_callee: HashMap<Span, usize>,
+    functions_by_span: HashMap<Span, usize>,
+}
+
+impl CachedAstFileIndex {
+    fn new(file: &FileFacts) -> Self {
+        let mut calls_by_span = HashMap::new();
+        let mut calls_by_callee = HashMap::<Span, Vec<_>>::new();
+        let mut direct_calls_by_callee = HashMap::new();
+        for (index, call) in file.ast.calls.iter().enumerate() {
+            calls_by_span.entry(call.span).or_insert(index);
+            calls_by_callee.entry(call.callee).or_default().push(index);
+            if call.direct_callee {
+                direct_calls_by_callee.entry(call.callee).or_insert(index);
+            }
+        }
+        let mut functions_by_span = HashMap::new();
+        for (index, function) in file.ast.functions.iter().enumerate() {
+            functions_by_span.entry(function.span).or_insert(index);
+        }
+        Self {
+            ast: file.ast.clone(),
+            calls_by_span,
+            calls_by_callee,
+            direct_calls_by_callee,
+            functions_by_span,
+        }
+    }
+
+    fn call(&self, index: usize) -> &solid_ast_facts::CallFact {
+        &self.ast.calls[index]
+    }
+
+    fn function(&self, index: usize) -> &solid_ast_facts::FunctionFact {
+        &self.ast.functions[index]
+    }
+
+    fn call_by_span(&self, span: Span) -> Option<&solid_ast_facts::CallFact> {
+        self.calls_by_span.get(&span).map(|index| self.call(*index))
+    }
+
+    fn direct_call_by_callee(&self, span: Span) -> Option<&solid_ast_facts::CallFact> {
+        self.direct_calls_by_callee
+            .get(&span)
+            .map(|index| self.call(*index))
+    }
+
+    fn calls_by_callee(&self, span: Span) -> impl Iterator<Item = &solid_ast_facts::CallFact> {
+        self.calls_by_callee
+            .get(&span)
+            .into_iter()
+            .flatten()
+            .map(|index| self.call(*index))
+    }
+
+    fn function_by_span(&self, span: Span) -> Option<&solid_ast_facts::FunctionFact> {
+        self.functions_by_span
+            .get(&span)
+            .map(|index| self.function(*index))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExecutionRole {
+    TrackedJsx,
+    DeferredCallback,
+    EffectApply,
+    EventCallback,
+    DirectiveApply,
+    UntrackedRendering,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactiveRead {
+    pub kind: String,
+    pub accessor: String,
+    pub location: Location,
+    pub declaration: Location,
+    pub execution: ExecutionRole,
+    pub context: String,
+    pub via: String,
+    pub origin: Option<Location>,
+    pub origin_context: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactiveWrite {
+    pub setter: String,
+    pub location: Location,
+    pub declaration: Location,
+    pub execution: ExecutionRole,
+    pub allowed_by_option: bool,
+    pub context: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionInvocation {
+    pub action: String,
+    pub location: Location,
+    pub declaration: Location,
+    pub execution: ExecutionRole,
+    pub context: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEdit {
+    pub location: Location,
+    pub new_text: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fix {
+    pub message: String,
+    pub applicability: String,
+    pub edits: Vec<TextEdit>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeafOwnerOperation {
+    pub primitive: String,
+    pub owner: String,
+    pub location: Location,
+    pub fix: Option<Fix>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidCleanupReturn {
+    pub primitive: String,
+    pub location: Location,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnresolvedCleanupReturn {
+    pub primitive: String,
+    pub location: Location,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticViolation {
+    pub id: String,
+    pub rule: String,
+    pub message: String,
+    pub location: Location,
+    pub analysis_context: String,
+    pub fixes: Vec<Fix>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrimitiveCreation {
+    pub primitive: String,
+    pub location: Location,
+    pub returned_closure: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerRequirement {
+    pub operation: String,
+    pub location: Location,
+    pub uncertain: bool,
+    pub report: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsyncRead {
+    pub accessor: String,
+    pub location: Location,
+    pub declaration: Location,
+    pub execution: ExecutionRole,
+    pub leaf_owner: Option<String>,
+    pub under_loading: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PackageContract {
+    pub schema_version: u32,
+    pub package: ContractPackage,
+    #[serde(default)]
+    pub compiler_facts_protocol: u32,
+    #[serde(default)]
+    pub artifacts: ContractArtifacts,
+    #[serde(default)]
+    pub exports: BTreeMap<String, ContractExport>,
+    #[serde(default)]
+    pub evidence: ContractEvidence,
+    #[serde(skip)]
+    pub contract_hash: String,
+    #[serde(skip)]
+    pub source_path: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractPackage {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractEvidence {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub generator: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContractExport {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactive_reads: Vec<ContractReactiveRead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns: Option<ContractReturn>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub callbacks: Vec<ContractCallback>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub async_behavior: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractReactiveRead {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractCallback {
+    pub parameter: usize,
+    pub execution: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractReturn {
+    pub kind: String,
+    #[serde(default)]
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractArtifacts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<ContractArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation: Option<ContractArtifact>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContractArtifact {
+    pub path: String,
+    pub hash: String,
+}
+
+impl PackageContract {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 1 {
+            return Err(format!(
+                "package contract schema version {} is unsupported",
+                self.schema_version
+            ));
+        }
+        if self.compiler_facts_protocol > 1 {
+            return Err(format!(
+                "package contract compiler facts protocol {} is unsupported",
+                self.compiler_facts_protocol
+            ));
+        }
+        if self.package.name.is_empty() {
+            return Err("package contract requires package.name".into());
+        }
+        if self.exports.is_empty() {
+            return Err("package contract requires at least one export".into());
+        }
+        if !matches!(
+            self.evidence.kind.as_str(),
+            "generated" | "reviewed" | "trusted"
+        ) {
+            return Err(format!(
+                "package contract evidence kind {:?} is unsupported",
+                self.evidence.kind
+            ));
+        }
+        for (name, artifact) in [
+            ("declaration", self.artifacts.declaration.as_ref()),
+            ("implementation", self.artifacts.implementation.as_ref()),
+        ] {
+            if let Some(artifact) = artifact
+                && (artifact.path.is_empty() || !artifact.hash.starts_with("sha256:"))
+            {
+                return Err(format!("package contract {name} artifact is invalid"));
+            }
+        }
+        for (name, summary) in &self.exports {
+            if name.is_empty() || !matches!(summary.kind.as_str(), "function" | "value") {
+                return Err(format!(
+                    "package contract export {name:?} has unsupported kind {:?}",
+                    summary.kind
+                ));
+            }
+            if summary.kind == "value"
+                && (!summary.reactive_reads.is_empty()
+                    || summary.returns.is_some()
+                    || !summary.callbacks.is_empty()
+                    || !summary.async_behavior.is_empty())
+            {
+                return Err(format!(
+                    "package contract value export {name:?} cannot have function effects"
+                ));
+            }
+            for read in &summary.reactive_reads {
+                if !matches!(read.kind.as_str(), "accessor" | "store-path") || read.label.is_empty()
+                {
+                    return Err(format!(
+                        "package contract export {name:?} has an invalid reactive read"
+                    ));
+                }
+            }
+            if let Some(returned) = &summary.returns
+                && (!matches!(returned.kind.as_str(), "accessor" | "store-path")
+                    || returned.label.is_empty())
+            {
+                return Err(format!(
+                    "package contract export {name:?} has an invalid reactive return"
+                ));
+            }
+            if summary.callbacks.iter().any(|callback| {
+                !matches!(
+                    callback.execution.as_str(),
+                    "inline" | "tracked" | "deferred"
+                )
+            }) {
+                return Err(format!(
+                    "package contract export {name:?} has an invalid callback execution"
+                ));
+            }
+            if !summary.async_behavior.is_empty()
+                && !matches!(
+                    summary.async_behavior.as_str(),
+                    "promise" | "async-iterable"
+                )
+            {
+                return Err(format!(
+                    "package contract export {name:?} has unsupported async behavior {:?}",
+                    summary.async_behavior
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Program {
+    pub reads: Vec<ReactiveRead>,
+    pub writes: Vec<ReactiveWrite>,
+    pub actions: Vec<ActionInvocation>,
+    pub leaf_operations: Vec<LeafOwnerOperation>,
+    pub invalid_cleanup_returns: Vec<InvalidCleanupReturn>,
+    pub unresolved_cleanup_returns: Vec<UnresolvedCleanupReturn>,
+    pub static_violations: Vec<StaticViolation>,
+    pub directive_creations: Vec<PrimitiveCreation>,
+    pub missing_owners: Vec<OwnerRequirement>,
+    pub async_reads: Vec<AsyncRead>,
+    pub contract_exports: Arc<BTreeMap<String, ContractExport>>,
+    pub obligation_counts: ObligationCounts,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BuildTimings {
+    pub total: Duration,
+    pub cache_lookup: Duration,
+    pub reused: bool,
+    pub source_discovery_reused_files: u64,
+    pub source_discovery_recomputed_files: u64,
+    pub typed_accessor_reused_files: u64,
+    pub typed_accessor_recomputed_files: u64,
+    pub interprocedural_graph_reused_files: u64,
+    pub interprocedural_graph_recomputed_files: u64,
+    pub interprocedural_result_reused_files: u64,
+    pub interprocedural_result_recomputed_files: u64,
+    pub typescript_indexes_reused: bool,
+    pub reachability_reused: bool,
+    pub reachability_reused_files: u64,
+    pub reachability_recomputed_files: u64,
+    pub local_accesses_reused: bool,
+    pub local_access_reused_files: u64,
+    pub local_access_recomputed_files: u64,
+    pub interprocedural_reused: bool,
+    pub owner_fixed_point_reused: bool,
+    pub owner_reused_files: u64,
+    pub owner_recomputed_files: u64,
+    pub indexes_and_reachability: Duration,
+    pub project_indexes: Duration,
+    pub alias_and_entity_indexes: Duration,
+    pub alias_roots: Duration,
+    pub entity_symbols: Duration,
+    pub symbol_name_indexes: Duration,
+    pub contract_resolution: Duration,
+    pub reachability: Duration,
+    pub source_discovery: Duration,
+    pub typed_accessors_and_prop_roots: Duration,
+    pub prop_propagation_and_control_flow: Duration,
+    pub static_prepass: Duration,
+    pub local_and_interprocedural: Duration,
+    pub local_reads_and_writes: Duration,
+    pub interprocedural_summaries: Duration,
+    pub interprocedural_graph: Duration,
+    pub interprocedural_direct_summaries: Duration,
+    pub interprocedural_direct_index: Duration,
+    pub interprocedural_direct_references: Duration,
+    pub interprocedural_typed_accessors: Duration,
+    pub interprocedural_propagation: Duration,
+    pub interprocedural_returned_direct: Duration,
+    pub interprocedural_returned_delta: Duration,
+    pub interprocedural_call_summary_delta: Duration,
+    pub interprocedural_factory_propagation: Duration,
+    pub interprocedural_results_and_exports: Duration,
+    pub interprocedural_result_reads: Duration,
+    pub interprocedural_export_summaries: Duration,
+    pub leaf_and_cleanup: Duration,
+    pub static_api: Duration,
+    pub directives: Duration,
+    pub owner_fixed_point: Duration,
+    pub owner_fragment_build: Duration,
+    pub owner_graph_assembly: Duration,
+    pub owner_propagation: Duration,
+    pub owner_requirement_emission: Duration,
+    pub final_ordering: Duration,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BuildIdentity {
+    project_id: String,
+    generation: u64,
+    contracts: Vec<String>,
+}
+
+struct RetainedBuild {
+    identity: BuildIdentity,
+    program: Program,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceSymbolIdentity {
+    id: String,
+    alias_target: String,
+    declarations: Vec<Declaration>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceDiscoveryIdentity {
+    source_hash: SourceHash,
+    entities: Vec<EntityFact>,
+    typescript_file: Option<FileFact>,
+    symbols: Vec<SourceSymbolIdentity>,
+}
+
+#[derive(Clone, Default)]
+struct SourceDiscoveryContribution {
+    accessors: Vec<(String, (String, Location))>,
+    accessor_origins: Vec<(String, (String, String, Location))>,
+    setters: Vec<(String, (String, Location, bool))>,
+    actions: Vec<(String, (String, Location))>,
+    source_kinds: Vec<(String, ReactiveSourceKind)>,
+    source_primitives: Vec<(String, String)>,
+    source_phases: Vec<(String, u8)>,
+    returned_source_symbols: Vec<String>,
+    summary_source_symbols: Vec<String>,
+    source_owned_write: Vec<(String, bool)>,
+    async_sources: Vec<String>,
+    contracted_accessor_symbols: Vec<String>,
+}
+
+struct CachedSourceDiscovery {
+    identity: SourceDiscoveryIdentity,
+    contribution: SourceDiscoveryContribution,
+}
+
+#[derive(Clone)]
+struct TypedAccessorContribution {
+    owner: Span,
+    read: SummaryRead,
+}
+
+struct CachedTypedAccessors {
+    contributions: Vec<TypedAccessorContribution>,
+}
+
+#[derive(Clone)]
+enum InterproceduralGraphTarget {
+    Symbol(String),
+    LocalSpan(Span),
+}
+
+#[derive(Clone, Default)]
+struct InterproceduralGraphContribution {
+    direct_reads: Vec<(Span, SummaryRead)>,
+    edges: Vec<(Span, InterproceduralGraphTarget)>,
+    invoked_parameters: Vec<(Span, usize)>,
+    callbacks: Vec<(Span, ContractCallback)>,
+}
+
+struct CachedInterproceduralGraph {
+    nodes: Vec<SummaryNode>,
+    contribution: InterproceduralGraphContribution,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum InterproceduralResultDependency {
+    Symbol(String),
+    InlineFunction(String, Span),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InterproceduralResultDependencyState {
+    Missing,
+    Function {
+        name: Option<String>,
+        summary: Vec<SummaryRead>,
+        invoked_parameters: Vec<usize>,
+    },
+    Returned(Vec<SummaryRead>),
+    Inline(Vec<SummaryRead>),
+}
+
+struct CachedInterproceduralResultFile {
+    dependencies: HashSet<InterproceduralResultDependency>,
+    reads: Vec<ReactiveRead>,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CachedReactiveSource {
+    symbol: String,
+    display: String,
+    declaration: Location,
+    phase: u8,
+}
+
+#[derive(Default)]
+struct CachedInterproceduralResults {
+    dependency_states:
+        HashMap<InterproceduralResultDependency, InterproceduralResultDependencyState>,
+    dependency_users: HashMap<InterproceduralResultDependency, usize>,
+    files: HashMap<String, CachedInterproceduralResultFile>,
+    reactive_sources: Option<Arc<Vec<CachedReactiveSource>>>,
+    contract_exports: CachedContractExports,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ContractNodeKey {
+    path: String,
+    ordinal: usize,
+}
+
+#[derive(Clone, Default, Eq, PartialEq)]
+struct ContractExportFragment {
+    direct: Vec<(String, ContractExport)>,
+    syntax: Vec<(String, ContractExport, bool)>,
+    dependencies: HashSet<ContractNodeKey>,
+}
+
+#[derive(Default)]
+struct CachedContractExports {
+    nodes: HashMap<ContractNodeKey, ContractExport>,
+    files: HashMap<String, ContractExportFragment>,
+    aggregate: Option<Arc<BTreeMap<String, ContractExport>>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceDiscoverySymbolSemantics {
+    alias_target: String,
+    declarations: Vec<Declaration>,
+}
+
+struct SourceDiscoveryTypeScriptDelta {
+    entity_paths: HashSet<String>,
+    file_paths: HashSet<String>,
+    semantic_symbol_ids: HashSet<String>,
+}
+
+struct CachedTypeScriptIndexes {
+    symbol_alias_targets: HashMap<String, String>,
+    aliases: HashMap<String, String>,
+    symbols_by_root: HashMap<String, Vec<String>>,
+    source_declarations: HashMap<String, Declaration>,
+    entities: EntitySymbols,
+    symbol_names: HashMap<String, String>,
+    references_by_source: HashMap<String, Vec<Location>>,
+    source_discovery_symbol_semantics: HashMap<String, SourceDiscoverySymbolSemantics>,
+    source_discovery_delta: Option<SourceDiscoveryTypeScriptDelta>,
+}
+
+struct CachedReachability {
+    inputs: HashMap<String, (SourceHash, Arc<solid_ast_facts::AstFacts>)>,
+    files: HashMap<String, CachedReachabilityFile>,
+    calls: HashMap<Location, usize>,
+    multiplicity_by_path: HashMap<String, Vec<usize>>,
+    function_symbols: HashSet<String>,
+}
+
+#[derive(Clone)]
+enum ReachabilityTarget {
+    Symbol(String),
+    LocalSpan(Span),
+}
+
+#[derive(Clone)]
+struct ReachabilityEdge {
+    owner: Option<Span>,
+    target: ReachabilityTarget,
+}
+
+struct CachedReachabilityFile {
+    identity: SourceDiscoveryIdentity,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+    functions: Vec<FunctionNode>,
+    roots: Vec<ReachabilityTarget>,
+    edges: Vec<ReachabilityEdge>,
+    callback_edges: Vec<(Option<Span>, Vec<ReachabilityTarget>)>,
+    call_owners: Vec<Option<Span>>,
+    call_owner_indices: Vec<Option<usize>>,
+    topology: ReachabilityTopology,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ReachabilityTopologyTarget {
+    Symbol(String),
+    Local(usize),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReachabilityTopology {
+    function_symbols: Vec<Option<String>>,
+    roots: Vec<ReachabilityTopologyTarget>,
+    edges: Vec<(Option<usize>, ReachabilityTopologyTarget)>,
+    callback_edges: Vec<(Option<usize>, Vec<ReachabilityTopologyTarget>)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LateStageSourceSemantics {
+    callees: Vec<Option<String>>,
+    binding_call_shapes: Vec<Option<bool>>,
+    returned_arrow_shapes: Vec<bool>,
+}
+
+#[derive(Clone)]
+struct LateStageFileInput {
+    source_hash: SourceHash,
+    ast: Arc<solid_ast_facts::AstFacts>,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+    source_semantics: LateStageSourceSemantics,
+}
+
+#[derive(Clone, Default)]
+struct LocalAccessResult {
+    reads: Vec<ReactiveRead>,
+    writes: Vec<ReactiveWrite>,
+    action_invocations: Vec<ActionInvocation>,
+    async_reads: Vec<AsyncRead>,
+    strict_read_obligations: usize,
+    write_action_obligations: HashSet<(&'static str, String, u64, u64)>,
+}
+
+struct LocalAccessBuild {
+    result: LocalAccessResult,
+    reused: bool,
+    reused_files: u64,
+    recomputed_files: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LocalAccessSymbolState {
+    accessor: Option<(String, Location)>,
+    accessor_origin: Option<(String, String, Location)>,
+    setter: Option<(String, Location, bool)>,
+    action: Option<(String, Location)>,
+    source_primitive: Option<String>,
+    async_source: bool,
+    contract_reads: Option<Vec<(String, String, Location, String)>>,
+    source_kind: Option<ReactiveSourceKind>,
+    prop_source: Option<(String, Location)>,
+    symbol_name: Option<String>,
+}
+
+struct CachedLocalAccessFile {
+    source_hash: SourceHash,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+    dependencies: HashSet<String>,
+    call_multiplicities: Vec<(Location, Option<usize>)>,
+    contribution: LocalAccessResult,
+}
+
+#[derive(Default)]
+struct CachedLocalAccesses {
+    aggregate: Option<LocalAccessResult>,
+    files: HashMap<String, CachedLocalAccessFile>,
+    dependency_states: HashMap<String, LocalAccessSymbolState>,
+    prop_sources: HashMap<String, (String, Location)>,
+}
+
+struct CachedLateStages {
+    inputs: HashMap<String, LateStageFileInput>,
+    local_accesses: CachedLocalAccesses,
+    interprocedural: Option<InterproceduralResult>,
+    missing_owners: Option<Vec<OwnerRequirement>>,
+    owner_files: HashMap<String, CachedOwnerFile>,
+}
+
+fn same_reachability_ast(
+    previous: &solid_ast_facts::AstFacts,
+    current: &solid_ast_facts::AstFacts,
+) -> bool {
+    previous.schema == current.schema
+        && previous.source.path == current.source.path
+        && previous.calls == current.calls
+        && previous.bindings == current.bindings
+        && previous.functions == current.functions
+        && previous.imports == current.imports
+        && previous.exports == current.exports
+        && previous.identifiers == current.identifiers
+        && previous.awaits == current.awaits
+        && previous.returns == current.returns
+        && previous.jsx_elements == current.jsx_elements
+        && previous.members == current.members
+        && previous.conditional_tests == current.conditional_tests
+}
+
+fn same_compiler_semantics(
+    previous: &solid_facts::solid_compiler_facts::ExecutionMap,
+    current: &solid_facts::solid_compiler_facts::ExecutionMap,
+) -> bool {
+    previous.compiler_facts_protocol == current.compiler_facts_protocol
+        && previous.tracked_regions == current.tracked_regions
+        && previous.untracked_regions == current.untracked_regions
+        && previous.ownership_regions == current.ownership_regions
+        && previous.callback_roles == current.callback_roles
+        && previous.jsx_operations == current.jsx_operations
+}
+
+fn late_stage_source_semantics(file: &solid_facts::FileFacts) -> LateStageSourceSemantics {
+    let callees = file
+        .ast
+        .calls
+        .iter()
+        .map(|call| {
+            usize::try_from(call.callee.start)
+                .ok()
+                .zip(usize::try_from(call.callee.end).ok())
+                .and_then(|(start, end)| file.source.get(start..end))
+                .map(str::to_owned)
+        })
+        .collect();
+    let binding_call_shapes = file
+        .ast
+        .bindings
+        .iter()
+        .map(|binding| {
+            let initializer = binding.call_initializer?;
+            let call = file
+                .ast
+                .calls
+                .iter()
+                .find(|call| call.span == initializer)?;
+            Some(go_binding_pattern_accepts_call(
+                file.source.as_str(),
+                binding,
+                call,
+            ))
+        })
+        .collect();
+    let returned_arrow_shapes = file
+        .ast
+        .returns
+        .iter()
+        .filter_map(|returned| {
+            (returned.value == solid_ast_facts::ReturnValueKind::Function)
+                .then_some(returned.argument)
+                .flatten()
+        })
+        .map(|argument| go_returned_arrow_pattern_accepts(file.source.as_str(), argument))
+        .collect();
+    LateStageSourceSemantics {
+        callees,
+        binding_call_shapes,
+        returned_arrow_shapes,
+    }
+}
+
+fn late_stage_inputs_match(cache: &CachedLateStages, facts: &ProjectFacts) -> bool {
+    cache.inputs.len() == facts.files.len()
+        && facts.files.iter().all(|file| {
+            cache
+                .inputs
+                .get(file.path.as_str())
+                .is_some_and(|previous| {
+                    previous.source_hash == file.source_hash
+                        || same_reachability_ast(&previous.ast, &file.ast)
+                            && (Arc::ptr_eq(&previous.compiler, &file.compiler)
+                                || same_compiler_semantics(&previous.compiler, &file.compiler))
+                            && previous.source_semantics == late_stage_source_semantics(file)
+                })
+        })
+}
+
+fn current_late_stage_inputs(facts: &ProjectFacts) -> HashMap<String, LateStageFileInput> {
+    facts
+        .files
+        .iter()
+        .map(|file| {
+            (
+                file.path.to_string(),
+                LateStageFileInput {
+                    source_hash: file.source_hash.clone(),
+                    ast: file.ast.clone(),
+                    compiler: file.compiler.clone(),
+                    source_semantics: late_stage_source_semantics(file),
+                },
+            )
+        })
+        .collect()
+}
+
+fn refresh_late_stage_inputs(
+    inputs: &mut HashMap<String, LateStageFileInput>,
+    facts: &ProjectFacts,
+) {
+    let current_paths = facts
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<HashSet<_>>();
+    inputs.retain(|path, _| current_paths.contains(path.as_str()));
+    for file in &facts.files {
+        let unchanged = inputs
+            .get(file.path.as_str())
+            .is_some_and(|input| input.source_hash == file.source_hash);
+        if unchanged {
+            continue;
+        }
+        inputs.insert(
+            file.path.to_string(),
+            LateStageFileInput {
+                source_hash: file.source_hash.clone(),
+                ast: file.ast.clone(),
+                compiler: file.compiler.clone(),
+                source_semantics: late_stage_source_semantics(file),
+            },
+        );
+    }
+}
+
+/// Retains the last coherent Reactive IR generation behind the same build
+/// interface used by fresh analysis. Cross-generation source discovery,
+/// typed-accessor discovery, the symbolic interprocedural graph, and
+/// dependency-validated result reads, local accesses, reachability, and owner
+/// graph fragments are retained per file; propagated order-sensitive
+/// summaries remain complete rebuilds.
+#[derive(Default)]
+pub struct IncrementalBuilder {
+    retained: Option<RetainedBuild>,
+    ast_indexes: HashMap<String, CachedAstFileIndex>,
+    source_discovery: HashMap<String, CachedSourceDiscovery>,
+    typed_accessors: HashMap<String, CachedTypedAccessors>,
+    interprocedural_graph: HashMap<String, CachedInterproceduralGraph>,
+    interprocedural_results: CachedInterproceduralResults,
+    typescript_indexes: Option<CachedTypeScriptIndexes>,
+    reachability: Option<CachedReachability>,
+    late_stages: Option<CachedLateStages>,
+    source_discovery_domain: Option<(String, Vec<String>)>,
+}
+
+impl IncrementalBuilder {
+    pub fn build(&mut self, facts: &ProjectFacts) -> Result<(Program, BuildTimings), BuildError> {
+        self.build_with_contracts(facts, &[])
+    }
+
+    pub fn build_with_contracts(
+        &mut self,
+        facts: &ProjectFacts,
+        contracts: &[PackageContract],
+    ) -> Result<(Program, BuildTimings), BuildError> {
+        let total_started = Instant::now();
+        let lookup_started = Instant::now();
+        let identity = BuildIdentity {
+            project_id: facts.project_id.clone(),
+            generation: facts.generation.get(),
+            contracts: contracts
+                .iter()
+                .map(|contract| format!("{contract:?}"))
+                .collect(),
+        };
+        let source_discovery_domain = (identity.project_id.clone(), identity.contracts.clone());
+        if self.source_discovery_domain.as_ref() != Some(&source_discovery_domain) {
+            self.ast_indexes.clear();
+            self.source_discovery.clear();
+            self.typed_accessors.clear();
+            self.interprocedural_graph.clear();
+            self.interprocedural_results = CachedInterproceduralResults::default();
+            self.typescript_indexes = None;
+            self.reachability = None;
+            self.late_stages = None;
+            self.source_discovery_domain = Some(source_discovery_domain);
+        }
+        let cache_lookup = lookup_started.elapsed();
+        if let Some(retained) = &self.retained
+            && retained.identity == identity
+        {
+            let program = retained.program.clone();
+            return Ok((
+                program,
+                BuildTimings {
+                    total: total_started.elapsed(),
+                    cache_lookup,
+                    reused: true,
+                    ..BuildTimings::default()
+                },
+            ));
+        }
+        let (program, mut timings) = build_with_contracts_measured_incremental(
+            facts,
+            contracts,
+            Some(&mut self.ast_indexes),
+            Some(&mut self.source_discovery),
+            Some(&mut self.typed_accessors),
+            Some(&mut self.interprocedural_graph),
+            Some(&mut self.interprocedural_results),
+            Some(&mut self.typescript_indexes),
+            Some(&mut self.reachability),
+            Some(&mut self.late_stages),
+        )?;
+        self.retained = Some(RetainedBuild {
+            identity,
+            program: program.clone(),
+        });
+        timings.total = total_started.elapsed();
+        timings.cache_lookup = cache_lookup;
+        Ok((program, timings))
+    }
+
+    pub fn clear(&mut self) {
+        self.retained = None;
+        self.ast_indexes.clear();
+        self.source_discovery.clear();
+        self.typed_accessors.clear();
+        self.interprocedural_graph.clear();
+        self.interprocedural_results = CachedInterproceduralResults::default();
+        self.typescript_indexes = None;
+        self.reachability = None;
+        self.late_stages = None;
+        self.source_discovery_domain = None;
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObligationCounts {
+    pub strict_reads: usize,
+    pub writes_and_actions: usize,
+    pub factory_instances: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReactiveSourceKind {
+    Accessor,
+    Store,
+}
+
+#[derive(Clone)]
+struct FunctionNode {
+    path: String,
+    span: Span,
+    body: Span,
+    name: Option<String>,
+    symbol: Option<String>,
+}
+
+impl FunctionBoundary for FunctionNode {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn body(&self) -> Span {
+        self.body
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum BuildError {
+    #[error("fact location offset does not fit Oxc span")]
+    SpanWidth,
+}
+
+#[derive(Clone)]
+struct ResolvedContractBinding {
+    local_name: String,
+    imported_name: String,
+    package_name: String,
+    symbol: String,
+    contract_location: Location,
+    summary: ContractExport,
+}
+
+struct ResolvedContracts {
+    bindings: Vec<ResolvedContractBinding>,
+    by_symbol: HashMap<String, ResolvedContractBinding>,
+    missing_exports: Vec<StaticViolation>,
+}
+
+fn resolve_contract_imports(
+    facts: &ProjectFacts,
+    contracts: &[PackageContract],
+    entities: &EntitySymbols,
+) -> ResolvedContracts {
+    let mut bindings = Vec::new();
+    let mut by_symbol = HashMap::new();
+    let mut missing_exports = Vec::new();
+    for file in &facts.files {
+        for import in &file.ast.imports {
+            if import.type_only {
+                continue;
+            }
+            let Some(contract) = contracts
+                .iter()
+                .filter(|contract| {
+                    import.module == contract.package.name
+                        || import
+                            .module
+                            .strip_prefix(&contract.package.name)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                })
+                .max_by_key(|contract| contract.package.name.len())
+            else {
+                continue;
+            };
+            for binding in &import.bindings {
+                if binding.type_only {
+                    continue;
+                }
+                let Some(imported) = binding.imported.as_deref().or_else(|| {
+                    (binding.kind == solid_ast_facts::ImportKind::Default).then_some("default")
+                }) else {
+                    continue;
+                };
+                let binding_location = location(file.path.as_str(), binding.local.span);
+                let Some(symbol) = entities.get(&binding_location).cloned() else {
+                    continue;
+                };
+                let Some(summary) = contract.exports.get(imported).cloned() else {
+                    if contract.package.name == "solid-js" {
+                        continue;
+                    }
+                    missing_exports.push(StaticViolation {
+                        id: "SC9001".into(),
+                        rule: "package-contract-export-missing".into(),
+                        message: format!(
+                            "package contract for {} does not describe imported export {imported}",
+                            import.module
+                        ),
+                        location: binding_location,
+                        analysis_context: String::new(),
+                        fixes: vec![],
+                    });
+                    continue;
+                };
+                let resolved = ResolvedContractBinding {
+                    local_name: binding.local.name.clone(),
+                    imported_name: imported.into(),
+                    package_name: contract.package.name.clone(),
+                    symbol: symbol.clone(),
+                    contract_location: Location {
+                        path: format!("{}#{imported}", contract.source_path),
+                        start_byte: 0,
+                        end_byte: 0,
+                    },
+                    summary,
+                };
+                // Solid's built-ins have richer native semantics than their
+                // cross-package contract summary (ownership, async
+                // provenance, writes, and cleanup phases). Keep the bundled
+                // contract as evidence and for export completeness, but do
+                // not layer its coarse callbacks/returns over native facts.
+                if contract.package.name != "solid-js" {
+                    bindings.push(resolved.clone());
+                    by_symbol.insert(symbol, resolved);
+                }
+            }
+        }
+    }
+    ResolvedContracts {
+        bindings,
+        by_symbol,
+        missing_exports,
+    }
+}
+
+fn source_discovery_identity(
+    file: &FileFacts,
+    indexes: &ProjectIndexes<'_>,
+) -> SourceDiscoveryIdentity {
+    let entities = indexes.entities_for_path(file.path.as_str()).to_vec();
+    let mut symbol_ids = HashSet::<String>::new();
+    for entity in &entities {
+        if !entity.symbol.is_empty() {
+            symbol_ids.insert(entity.symbol.clone());
+        }
+        if let Some(call) = &entity.resolved_call
+            && !call.target.is_empty()
+        {
+            symbol_ids.insert(call.target.clone());
+        }
+    }
+    let mut pending = symbol_ids.iter().cloned().collect::<Vec<_>>();
+    while let Some(id) = pending.pop() {
+        let Some(symbol) = indexes.symbols_by_id.get(id.as_str()) else {
+            continue;
+        };
+        if !symbol.alias_target.is_empty() && symbol_ids.insert(symbol.alias_target.clone()) {
+            pending.push(symbol.alias_target.clone());
+        }
+    }
+    let mut symbols = symbol_ids
+        .into_iter()
+        .filter_map(|id| {
+            indexes
+                .symbols_by_id
+                .get(id.as_str())
+                .map(|symbol| SourceSymbolIdentity {
+                    id,
+                    alias_target: symbol.alias_target.clone(),
+                    declarations: symbol.declarations.clone(),
+                })
+        })
+        .collect::<Vec<_>>();
+    symbols.sort_by(|left, right| left.id.cmp(&right.id));
+    SourceDiscoveryIdentity {
+        source_hash: file.source_hash.clone(),
+        entities,
+        typescript_file: indexes.typescript_file(file.path.as_str()).cloned(),
+        symbols,
+    }
+}
+
+fn source_discovery_identity_matches(
+    cached: &SourceDiscoveryIdentity,
+    file: &FileFacts,
+    indexes: &ProjectIndexes<'_>,
+    typescript_unchanged: bool,
+    typescript_delta: Option<&SourceDiscoveryTypeScriptDelta>,
+) -> bool {
+    if cached.source_hash != file.source_hash {
+        return false;
+    }
+    if typescript_unchanged {
+        return true;
+    }
+    if let Some(delta) = typescript_delta {
+        if delta.entity_paths.contains(file.path.as_str())
+            || delta.file_paths.contains(file.path.as_str())
+        {
+            return false;
+        }
+        if delta.semantic_symbol_ids.is_empty() {
+            return true;
+        }
+        return cached
+            .symbols
+            .iter()
+            .all(|symbol| !delta.semantic_symbol_ids.contains(symbol.id.as_str()));
+    }
+    let current_entities = indexes.entities_for_path(file.path.as_str());
+    if current_entities.len() != cached.entities.len()
+        || current_entities
+            .iter()
+            .zip(&cached.entities)
+            .any(|(current, retained)| *current != *retained)
+    {
+        return false;
+    }
+    if indexes.typescript_file(file.path.as_str()) != cached.typescript_file.as_ref() {
+        return false;
+    }
+    cached.symbols.iter().all(|retained| {
+        indexes
+            .symbols_by_id
+            .get(retained.id.as_str())
+            .is_some_and(|current| {
+                current.alias_target == retained.alias_target
+                    && current.declarations == retained.declarations
+            })
+    })
+}
+
+fn discover_file_sources(
+    facts: &ProjectFacts,
+    file: &FileFacts,
+    ast_index: &CachedAstFileIndex,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    resolved_contracts: &ResolvedContracts,
+    bundled_returns: &HashMap<String, ContractReturn>,
+) -> SourceDiscoveryContribution {
+    let mut result = SourceDiscoveryContribution::default();
+    for binding in &file.ast.bindings {
+        let Some(initializer) = binding.call_initializer else {
+            continue;
+        };
+        let Some(call) = ast_index.call_by_span(initializer) else {
+            continue;
+        };
+        let contracted = entities
+            .get(&location(file.path.as_str(), call.callee))
+            .and_then(|symbol| resolved_contracts.by_symbol.get(symbol));
+        if let Some(contracted) = contracted
+            && let Some(contracted_return) = contracted.summary.returns.as_ref()
+        {
+            if let Some(name) = binding.names.first() {
+                let declaration = location(file.path.as_str(), name.span);
+                if let Some(symbol) = entities.get(&declaration) {
+                    result.accessors.push((
+                        symbol.clone(),
+                        (name.name.clone(), contracted.contract_location.clone()),
+                    ));
+                    result.contracted_accessor_symbols.push(symbol.clone());
+                    result.accessor_origins.push((
+                        symbol.clone(),
+                        (
+                            contracted_return.label.clone(),
+                            contracted.local_name.clone(),
+                            contracted.contract_location.clone(),
+                        ),
+                    ));
+                    result.source_kinds.push((
+                        symbol.clone(),
+                        if contracted_return.kind == "store-path" {
+                            ReactiveSourceKind::Store
+                        } else {
+                            ReactiveSourceKind::Accessor
+                        },
+                    ));
+                }
+            }
+            continue;
+        }
+        let primitive = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        if primitive.as_deref() == Some("action") {
+            if let Some(name) = binding.names.first() {
+                let location = location(file.path.as_str(), name.span);
+                if let Some(symbol) = entities.get(&location) {
+                    result
+                        .actions
+                        .push((symbol.clone(), (name.name.clone(), location)));
+                }
+            }
+            continue;
+        }
+        if !matches!(
+            primitive.as_deref(),
+            Some(
+                "createSignal"
+                    | "createMemo"
+                    | "createStore"
+                    | "createProjection"
+                    | "createOptimistic"
+                    | "createOptimisticStore"
+            )
+        ) && !primitive
+            .as_deref()
+            .is_some_and(|primitive| bundled_returns.contains_key(primitive))
+        {
+            continue;
+        }
+        let source_name = if binding.shape == solid_ast_facts::BindingShape::Array {
+            binding.array_slots.first().and_then(Option::as_ref)
+        } else {
+            binding.names.first()
+        };
+        if let Some(name) = source_name {
+            let declaration = location(file.path.as_str(), name.span);
+            if let Some(symbol) = entities.get(&declaration) {
+                result
+                    .accessors
+                    .push((symbol.clone(), (name.name.clone(), declaration)));
+                let go_returned_source = binding.shape == solid_ast_facts::BindingShape::Array
+                    && matches!(primitive.as_deref(), Some("createSignal" | "createStore"))
+                    && go_binding_pattern_accepts_call(file.source.as_str(), binding, call);
+                result.source_phases.push((
+                    symbol.clone(),
+                    if go_returned_source && primitive.as_deref() == Some("createStore") {
+                        2
+                    } else if go_returned_source {
+                        0
+                    } else {
+                        1
+                    },
+                ));
+                if go_returned_source {
+                    result.returned_source_symbols.push(symbol.clone());
+                    result.summary_source_symbols.push(symbol.clone());
+                }
+                if binding.shape != solid_ast_facts::BindingShape::Array
+                    && primitive
+                        .as_deref()
+                        .is_some_and(|primitive| bundled_returns.contains_key(primitive))
+                {
+                    result.summary_source_symbols.push(symbol.clone());
+                }
+                if let Some(primitive) = primitive.as_deref()
+                    && let Some(returned) = bundled_returns.get(primitive)
+                {
+                    result.accessor_origins.push((
+                        symbol.clone(),
+                        (
+                            returned.label.clone(),
+                            primitive.into(),
+                            Location {
+                                path: format!("bundled://solid-js.json#{primitive}"),
+                                start_byte: 0,
+                                end_byte: 0,
+                            },
+                        ),
+                    ));
+                }
+                result.source_kinds.push((
+                    symbol.clone(),
+                    if primitive
+                        .as_deref()
+                        .and_then(|primitive| bundled_returns.get(primitive))
+                        .is_some_and(|returned| returned.kind == "store-path")
+                        || matches!(
+                            primitive.as_deref(),
+                            Some("createStore" | "createOptimisticStore" | "createProjection")
+                        )
+                    {
+                        ReactiveSourceKind::Store
+                    } else {
+                        ReactiveSourceKind::Accessor
+                    },
+                ));
+                if let Some(primitive) = primitive.as_deref() {
+                    result
+                        .source_primitives
+                        .push((symbol.clone(), primitive.into()));
+                }
+                result
+                    .source_owned_write
+                    .push((symbol.clone(), call.owned_write_option));
+                if call
+                    .arguments
+                    .first()
+                    .is_some_and(|argument| computation_is_async(facts, file, argument.span))
+                {
+                    result.async_sources.push(symbol.clone());
+                }
+            }
+        }
+        if primitive.as_deref() != Some("createMemo")
+            && let Some(name) = if binding.shape == solid_ast_facts::BindingShape::Array {
+                binding.array_slots.get(1).and_then(Option::as_ref)
+            } else {
+                binding.names.get(1)
+            }
+        {
+            let declaration = location(file.path.as_str(), name.span);
+            if let Some(symbol) = entities.get(&declaration) {
+                result.setters.push((
+                    symbol.clone(),
+                    (name.name.clone(), declaration, call.owned_write_option),
+                ));
+            }
+        }
+    }
+    result
+}
+
+struct SourceDiscoveryMergeTarget<'a> {
+    accessors: &'a mut HashMap<String, (String, Location)>,
+    accessor_origins: &'a mut HashMap<String, (String, String, Location)>,
+    setters: &'a mut HashMap<String, (String, Location, bool)>,
+    actions: &'a mut HashMap<String, (String, Location)>,
+    source_kinds: &'a mut HashMap<String, ReactiveSourceKind>,
+    source_primitives: &'a mut HashMap<String, String>,
+    source_phases: &'a mut HashMap<String, u8>,
+    returned_source_symbols: &'a mut HashSet<String>,
+    summary_source_symbols: &'a mut HashSet<String>,
+    source_owned_write: &'a mut HashMap<String, bool>,
+    async_sources: &'a mut HashSet<String>,
+    contracted_accessor_symbols: &'a mut HashSet<String>,
+}
+
+#[derive(Default)]
+struct SourceDiscoveryAggregate {
+    accessors: HashMap<String, (String, Location)>,
+    accessor_origins: HashMap<String, (String, String, Location)>,
+    setters: HashMap<String, (String, Location, bool)>,
+    actions: HashMap<String, (String, Location)>,
+    source_kinds: HashMap<String, ReactiveSourceKind>,
+    source_primitives: HashMap<String, String>,
+    source_phases: HashMap<String, u8>,
+    returned_source_symbols: HashSet<String>,
+    summary_source_symbols: HashSet<String>,
+    source_owned_write: HashMap<String, bool>,
+    async_sources: HashSet<String>,
+    contracted_accessor_symbols: HashSet<String>,
+}
+
+impl SourceDiscoveryAggregate {
+    fn merge(&mut self, contribution: &SourceDiscoveryContribution) {
+        merge_source_discovery(
+            contribution,
+            SourceDiscoveryMergeTarget {
+                accessors: &mut self.accessors,
+                accessor_origins: &mut self.accessor_origins,
+                setters: &mut self.setters,
+                actions: &mut self.actions,
+                source_kinds: &mut self.source_kinds,
+                source_primitives: &mut self.source_primitives,
+                source_phases: &mut self.source_phases,
+                returned_source_symbols: &mut self.returned_source_symbols,
+                summary_source_symbols: &mut self.summary_source_symbols,
+                source_owned_write: &mut self.source_owned_write,
+                async_sources: &mut self.async_sources,
+                contracted_accessor_symbols: &mut self.contracted_accessor_symbols,
+            },
+        );
+    }
+
+    fn append_to(self, target: SourceDiscoveryMergeTarget<'_>) {
+        target.accessors.extend(self.accessors);
+        target.accessor_origins.extend(self.accessor_origins);
+        target.setters.extend(self.setters);
+        target.actions.extend(self.actions);
+        target.source_kinds.extend(self.source_kinds);
+        target.source_primitives.extend(self.source_primitives);
+        target.source_phases.extend(self.source_phases);
+        target
+            .returned_source_symbols
+            .extend(self.returned_source_symbols);
+        target
+            .summary_source_symbols
+            .extend(self.summary_source_symbols);
+        target.source_owned_write.extend(self.source_owned_write);
+        target.async_sources.extend(self.async_sources);
+        target
+            .contracted_accessor_symbols
+            .extend(self.contracted_accessor_symbols);
+    }
+}
+
+fn merge_source_discovery(
+    contribution: &SourceDiscoveryContribution,
+    target: SourceDiscoveryMergeTarget<'_>,
+) {
+    target
+        .accessors
+        .extend(contribution.accessors.iter().cloned());
+    target
+        .accessor_origins
+        .extend(contribution.accessor_origins.iter().cloned());
+    target.setters.extend(contribution.setters.iter().cloned());
+    target.actions.extend(contribution.actions.iter().cloned());
+    target
+        .source_kinds
+        .extend(contribution.source_kinds.iter().cloned());
+    target
+        .source_primitives
+        .extend(contribution.source_primitives.iter().cloned());
+    target
+        .source_phases
+        .extend(contribution.source_phases.iter().cloned());
+    target
+        .returned_source_symbols
+        .extend(contribution.returned_source_symbols.iter().cloned());
+    target
+        .summary_source_symbols
+        .extend(contribution.summary_source_symbols.iter().cloned());
+    target
+        .source_owned_write
+        .extend(contribution.source_owned_write.iter().cloned());
+    target
+        .async_sources
+        .extend(contribution.async_sources.iter().cloned());
+    target
+        .contracted_accessor_symbols
+        .extend(contribution.contracted_accessor_symbols.iter().cloned());
+}
+
+fn extend_source_discovery_symbols(
+    symbols: &mut HashSet<String>,
+    contribution: &SourceDiscoveryContribution,
+) {
+    symbols.extend(
+        contribution
+            .accessors
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(
+        contribution
+            .accessor_origins
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(
+        contribution
+            .setters
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(
+        contribution
+            .actions
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(
+        contribution
+            .source_kinds
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(
+        contribution
+            .source_primitives
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    symbols.extend(contribution.async_sources.iter().cloned());
+}
+
+pub fn build(facts: &ProjectFacts) -> Result<Program, BuildError> {
+    build_with_contracts(facts, &[])
+}
+
+pub fn build_measured(facts: &ProjectFacts) -> Result<(Program, BuildTimings), BuildError> {
+    build_with_contracts_measured(facts, &[])
+}
+
+pub fn build_with_contracts(
+    facts: &ProjectFacts,
+    contracts: &[PackageContract],
+) -> Result<Program, BuildError> {
+    build_with_contracts_measured(facts, contracts).map(|(program, _)| program)
+}
+
+pub fn build_with_contracts_measured(
+    facts: &ProjectFacts,
+    contracts: &[PackageContract],
+) -> Result<(Program, BuildTimings), BuildError> {
+    build_with_contracts_measured_incremental(
+        facts, contracts, None, None, None, None, None, None, None, None,
+    )
+}
+
+fn build_with_contracts_measured_incremental(
+    facts: &ProjectFacts,
+    contracts: &[PackageContract],
+    ast_indexes_cache: Option<&mut HashMap<String, CachedAstFileIndex>>,
+    source_discovery_cache: Option<&mut HashMap<String, CachedSourceDiscovery>>,
+    typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
+    interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
+    interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
+    typescript_indexes_cache: Option<&mut Option<CachedTypeScriptIndexes>>,
+    reachability_cache: Option<&mut Option<CachedReachability>>,
+    mut late_stage_cache: Option<&mut Option<CachedLateStages>>,
+) -> Result<(Program, BuildTimings), BuildError> {
+    let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
+    let total_started = Instant::now();
+    let mut stage_started = Instant::now();
+    let mut build_timings = BuildTimings::default();
+    macro_rules! finish_stage {
+        ($field:ident, $name:literal) => {{
+            let elapsed = stage_started.elapsed();
+            build_timings.$field = elapsed;
+            if emit_timings {
+                eprintln!(
+                    "{{\"reactiveIrStage\":{},\"elapsedNs\":{}}}",
+                    $name,
+                    elapsed.as_nanos()
+                );
+            }
+            stage_started = Instant::now();
+        }};
+    }
+    let substage_started = Instant::now();
+    let owned_ast_indexes;
+    let ast_indexes = if let Some(cache) = ast_indexes_cache {
+        let current_paths = facts
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<HashSet<_>>();
+        cache.retain(|path, _| current_paths.contains(path.as_str()));
+        for file in &facts.files {
+            if cache
+                .get(file.path.as_str())
+                .is_some_and(|index| Arc::ptr_eq(&index.ast, &file.ast))
+            {
+                continue;
+            }
+            cache.insert(file.path.to_string(), CachedAstFileIndex::new(file));
+        }
+        &*cache
+    } else {
+        owned_ast_indexes = facts
+            .files
+            .iter()
+            .map(|file| (file.path.to_string(), CachedAstFileIndex::new(file)))
+            .collect::<HashMap<_, _>>();
+        &owned_ast_indexes
+    };
+    let project_indexes = ProjectIndexes::new(facts, ast_indexes);
+    build_timings.project_indexes = substage_started.elapsed();
+    let typescript_unchanged = facts
+        .typescript_changes
+        .as_ref()
+        .is_some_and(|changes| changes.unchanged);
+    let late_stages_reusable = typescript_unchanged
+        && late_stage_cache
+            .as_deref()
+            .and_then(Option::as_ref)
+            .is_some_and(|cache| late_stage_inputs_match(cache, facts));
+    if let Some(cache) = late_stage_cache.as_deref_mut() {
+        if late_stages_reusable {
+            if let Some(retained) = cache.as_mut() {
+                for file in &facts.files {
+                    if let Some(input) = retained.inputs.get_mut(file.path.as_str()) {
+                        input.source_hash.clone_from(&file.source_hash);
+                    }
+                }
+            }
+        } else if let Some(retained) = cache.as_mut() {
+            refresh_late_stage_inputs(&mut retained.inputs, facts);
+            retained.local_accesses.aggregate = None;
+            retained.interprocedural = None;
+            retained.missing_owners = None;
+        } else {
+            *cache = Some(CachedLateStages {
+                inputs: current_late_stage_inputs(facts),
+                local_accesses: CachedLocalAccesses::default(),
+                interprocedural: None,
+                missing_owners: None,
+                owner_files: HashMap::new(),
+            });
+        }
+    }
+    let owned_typescript_indexes;
+    let typescript_indexes = if let Some(cache) = typescript_indexes_cache {
+        let patch_timings = (!typescript_unchanged)
+            .then(|| {
+                cache.as_mut().and_then(|cached| {
+                    facts.typescript_changes.as_ref().and_then(|changes| {
+                        patch_typescript_indexes(
+                            cached,
+                            &facts.typescript,
+                            &project_indexes.symbols_by_id,
+                            changes,
+                        )
+                    })
+                })
+            })
+            .flatten();
+        let indexes_patched = patch_timings.is_some();
+        if let Some((alias_roots, entity_symbols)) = patch_timings {
+            build_timings.alias_roots = alias_roots;
+            build_timings.entity_symbols = entity_symbols;
+            build_timings.alias_and_entity_indexes = alias_roots + entity_symbols;
+        }
+        if (!typescript_unchanged && !indexes_patched) || cache.is_none() {
+            let substage_started = Instant::now();
+            let (aliases, source_declarations) =
+                alias_roots_and_source_declarations(&facts.typescript);
+            build_timings.alias_roots = substage_started.elapsed();
+            let entity_symbols_started = Instant::now();
+            let entities = entity_symbols(&facts.typescript, &aliases);
+            build_timings.entity_symbols = entity_symbols_started.elapsed();
+            build_timings.alias_and_entity_indexes = substage_started.elapsed();
+            let symbol_names = symbol_names(&facts.typescript, &aliases);
+            let references_by_source = references_by_source(&facts.typescript, &aliases);
+            *cache = Some(CachedTypeScriptIndexes {
+                symbol_alias_targets: symbol_alias_targets(&facts.typescript),
+                symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
+                aliases,
+                source_declarations,
+                entities,
+                symbol_names,
+                references_by_source,
+                source_discovery_symbol_semantics: source_discovery_symbol_semantics(
+                    &facts.typescript,
+                ),
+                source_discovery_delta: None,
+            });
+        } else {
+            build_timings.typescript_indexes_reused = true;
+        }
+        cache.as_ref().expect("TypeScript indexes initialized")
+    } else {
+        let substage_started = Instant::now();
+        let (aliases, source_declarations) = alias_roots_and_source_declarations(&facts.typescript);
+        build_timings.alias_roots = substage_started.elapsed();
+        let entity_symbols_started = Instant::now();
+        let entities = entity_symbols(&facts.typescript, &aliases);
+        build_timings.entity_symbols = entity_symbols_started.elapsed();
+        build_timings.alias_and_entity_indexes = substage_started.elapsed();
+        let symbol_names = symbol_names(&facts.typescript, &aliases);
+        let references_by_source = references_by_source(&facts.typescript, &aliases);
+        owned_typescript_indexes = CachedTypeScriptIndexes {
+            symbol_alias_targets: symbol_alias_targets(&facts.typescript),
+            symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
+            aliases,
+            source_declarations,
+            entities,
+            symbol_names,
+            references_by_source,
+            source_discovery_symbol_semantics: source_discovery_symbol_semantics(&facts.typescript),
+            source_discovery_delta: None,
+        };
+        &owned_typescript_indexes
+    };
+    let aliases = &typescript_indexes.aliases;
+    let source_declarations = &typescript_indexes.source_declarations;
+    let entities = &typescript_indexes.entities;
+    let substage_started = Instant::now();
+    let mut symbol_names = typescript_indexes.symbol_names.clone();
+    add_solid_namespace_names(facts, &entities, &mut symbol_names);
+    build_timings.symbol_name_indexes = substage_started.elapsed();
+    let substage_started = Instant::now();
+    let resolved_contracts = resolve_contract_imports(facts, contracts, &entities);
+    build_timings.contract_resolution = substage_started.elapsed();
+    let owned_reachable_calls;
+    let reachable_calls = if let Some(cache) = reachability_cache {
+        let can_reuse = typescript_unchanged
+            && cache.as_ref().is_some_and(|cached| {
+                cached.inputs.len() == facts.files.len()
+                    && facts.files.iter().all(|file| {
+                        cached
+                            .inputs
+                            .get(file.path.as_str())
+                            .is_some_and(|(source_hash, ast)| {
+                                source_hash == &file.source_hash
+                                    || same_reachability_ast(ast, &file.ast)
+                            })
+                    })
+            });
+        if can_reuse {
+            let cached = cache.as_mut().expect("checked retained reachability");
+            for file in &facts.files {
+                if let Some((source_hash, _)) = cached.inputs.get_mut(file.path.as_str()) {
+                    source_hash.clone_from(&file.source_hash);
+                }
+                if let Some(retained_file) = cached.files.get_mut(file.path.as_str()) {
+                    retained_file
+                        .identity
+                        .source_hash
+                        .clone_from(&file.source_hash);
+                }
+            }
+            build_timings.reachability_reused = true;
+        } else {
+            let substage_started = Instant::now();
+            let cached = cache.get_or_insert_with(|| CachedReachability {
+                inputs: HashMap::new(),
+                files: HashMap::new(),
+                calls: HashMap::new(),
+                multiplicity_by_path: HashMap::new(),
+                function_symbols: HashSet::new(),
+            });
+            let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
+                facts,
+                &project_indexes,
+                entities,
+                &symbol_names,
+                &mut cached.files,
+                &mut cached.multiplicity_by_path,
+                &mut cached.calls,
+                &mut cached.function_symbols,
+                typescript_unchanged,
+                typescript_indexes.source_discovery_delta.as_ref(),
+            );
+            build_timings.reachability = substage_started.elapsed();
+            build_timings.reachability_reused_files = reused_files;
+            build_timings.reachability_recomputed_files = recomputed_files;
+            cached.inputs = facts
+                .files
+                .iter()
+                .map(|file| {
+                    (
+                        file.path.to_string(),
+                        (file.source_hash.clone(), file.ast.clone()),
+                    )
+                })
+                .collect();
+        }
+        &cache.as_ref().expect("reachability initialized").calls
+    } else {
+        let substage_started = Instant::now();
+        owned_reachable_calls =
+            reachable_call_multiplicity(facts, &project_indexes, entities, &symbol_names);
+        build_timings.reachability = substage_started.elapsed();
+        &owned_reachable_calls
+    };
+    finish_stage!(indexes_and_reachability, "indexes-and-reachability");
+    let mut accessors = HashMap::<String, (String, Location)>::new();
+    let bundled_returns = contracts
+        .iter()
+        .find(|contract| contract.package.name == "solid-js")
+        .map(|contract| {
+            contract
+                .exports
+                .iter()
+                .filter_map(|(name, summary)| {
+                    summary
+                        .returns
+                        .clone()
+                        .map(|returned| (name.clone(), returned))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let mut accessor_origins = HashMap::<String, (String, String, Location)>::new();
+    let mut setters = HashMap::<String, (String, Location, bool)>::new();
+    let mut actions = HashMap::<String, (String, Location)>::new();
+    let mut source_kinds = HashMap::<String, ReactiveSourceKind>::new();
+    let mut source_primitives = HashMap::<String, String>::new();
+    let mut source_phases = HashMap::<String, u8>::new();
+    let mut returned_source_symbols = HashSet::<String>::new();
+    let mut summary_source_symbols = HashSet::<String>::new();
+    let mut source_owned_write = HashMap::<String, bool>::new();
+    let mut async_sources = HashSet::<String>::new();
+    let mut contract_reads = HashMap::<String, Vec<(String, String, Location, String)>>::new();
+    let mut contract_callbacks = HashMap::<String, Vec<ContractCallback>>::new();
+    let mut contract_returns = HashMap::<String, (ContractReturn, Location)>::new();
+    let mut contracted_accessor_symbols = HashSet::<String>::new();
+
+    for contracted in &resolved_contracts.bindings {
+        if !contracted.summary.reactive_reads.is_empty() {
+            contract_reads.insert(
+                contracted.symbol.clone(),
+                contracted
+                    .summary
+                    .reactive_reads
+                    .iter()
+                    .map(|read| {
+                        (
+                            format!("{}.{}", contracted.package_name, contracted.imported_name),
+                            contracted.local_name.clone(),
+                            contracted.contract_location.clone(),
+                            read.kind.clone(),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        if !contracted.summary.callbacks.is_empty() {
+            contract_callbacks.insert(
+                contracted.symbol.clone(),
+                contracted.summary.callbacks.clone(),
+            );
+        }
+        if let Some(returned) = &contracted.summary.returns {
+            contract_returns.insert(
+                contracted.symbol.clone(),
+                (returned.clone(), contracted.contract_location.clone()),
+            );
+            source_kinds.insert(
+                contracted.symbol.clone(),
+                if returned.kind == "store-path" {
+                    ReactiveSourceKind::Store
+                } else {
+                    ReactiveSourceKind::Accessor
+                },
+            );
+        }
+    }
+
+    let mut retained_source_paths = HashSet::<String>::new();
+    let mut changed_source_symbols = HashSet::<String>::new();
+    match source_discovery_cache {
+        None => {
+            for file in &facts.files {
+                for binding in &file.ast.bindings {
+                    let Some(initializer) = binding.call_initializer else {
+                        continue;
+                    };
+                    let Some(call) = project_indexes
+                        .ast_files_by_path
+                        .get(file.path.as_str())
+                        .and_then(|index| index.call_by_span(initializer))
+                    else {
+                        continue;
+                    };
+                    let contracted = entities
+                        .get(&location(file.path.as_str(), call.callee))
+                        .and_then(|symbol| resolved_contracts.by_symbol.get(symbol));
+                    if let Some(contracted) = contracted
+                        && let Some(contracted_return) = contracted.summary.returns.as_ref()
+                    {
+                        let source_name = binding.names.first();
+                        if let Some(name) = source_name {
+                            let declaration = location(file.path.as_str(), name.span);
+                            if let Some(symbol) = entities.get(&declaration) {
+                                accessors.insert(
+                                    symbol.clone(),
+                                    (name.name.clone(), contracted.contract_location.clone()),
+                                );
+                                contracted_accessor_symbols.insert(symbol.clone());
+                                accessor_origins.insert(
+                                    symbol.clone(),
+                                    (
+                                        contracted_return.label.clone(),
+                                        contracted.local_name.clone(),
+                                        contracted.contract_location.clone(),
+                                    ),
+                                );
+                                source_kinds.insert(
+                                    symbol.clone(),
+                                    if contracted_return.kind == "store-path" {
+                                        ReactiveSourceKind::Store
+                                    } else {
+                                        ReactiveSourceKind::Accessor
+                                    },
+                                );
+                            }
+                        }
+                        continue;
+                    }
+                    let primitive = primitive_name(
+                        file.path.as_str(),
+                        call.callee,
+                        call.static_callee.as_deref(),
+                        &entities,
+                        &symbol_names,
+                    );
+                    if primitive.as_deref() == Some("action") {
+                        if let Some(name) = binding.names.first() {
+                            let location = location(file.path.as_str(), name.span);
+                            if let Some(symbol) = entities.get(&location) {
+                                actions.insert(symbol.clone(), (name.name.clone(), location));
+                            }
+                        }
+                        continue;
+                    }
+                    if !matches!(
+                        primitive.as_deref(),
+                        Some(
+                            "createSignal"
+                                | "createMemo"
+                                | "createStore"
+                                | "createProjection"
+                                | "createOptimistic"
+                                | "createOptimisticStore"
+                        )
+                    ) && !primitive
+                        .as_deref()
+                        .is_some_and(|primitive| bundled_returns.contains_key(primitive))
+                    {
+                        continue;
+                    }
+                    let source_name = if binding.shape == solid_ast_facts::BindingShape::Array {
+                        binding.array_slots.first().and_then(Option::as_ref)
+                    } else {
+                        binding.names.first()
+                    };
+                    if let Some(name) = source_name {
+                        let declaration = location(file.path.as_str(), name.span);
+                        if let Some(symbol) = entities.get(&declaration) {
+                            accessors.insert(symbol.clone(), (name.name.clone(), declaration));
+                            let go_returned_source = binding.shape
+                                == solid_ast_facts::BindingShape::Array
+                                && matches!(
+                                    primitive.as_deref(),
+                                    Some("createSignal" | "createStore")
+                                )
+                                && go_binding_pattern_accepts_call(
+                                    file.source.as_str(),
+                                    binding,
+                                    call,
+                                );
+                            source_phases.insert(
+                                symbol.clone(),
+                                if go_returned_source && primitive.as_deref() == Some("createStore")
+                                {
+                                    2
+                                } else if go_returned_source {
+                                    0
+                                } else {
+                                    1
+                                },
+                            );
+                            if go_returned_source {
+                                returned_source_symbols.insert(symbol.clone());
+                                summary_source_symbols.insert(symbol.clone());
+                            }
+                            if binding.shape != solid_ast_facts::BindingShape::Array
+                                && primitive.as_deref().is_some_and(|primitive| {
+                                    bundled_returns.contains_key(primitive)
+                                })
+                            {
+                                summary_source_symbols.insert(symbol.clone());
+                            }
+                            if let Some(primitive) = primitive.as_deref()
+                                && let Some(returned) = bundled_returns.get(primitive)
+                            {
+                                accessor_origins.insert(
+                                    symbol.clone(),
+                                    (
+                                        returned.label.clone(),
+                                        primitive.into(),
+                                        Location {
+                                            path: format!("bundled://solid-js.json#{primitive}"),
+                                            start_byte: 0,
+                                            end_byte: 0,
+                                        },
+                                    ),
+                                );
+                            }
+                            source_kinds.insert(
+                                symbol.clone(),
+                                if primitive
+                                    .as_deref()
+                                    .and_then(|primitive| bundled_returns.get(primitive))
+                                    .is_some_and(|returned| returned.kind == "store-path")
+                                    || matches!(
+                                        primitive.as_deref(),
+                                        Some(
+                                            "createStore"
+                                                | "createOptimisticStore"
+                                                | "createProjection"
+                                        )
+                                    )
+                                {
+                                    ReactiveSourceKind::Store
+                                } else {
+                                    ReactiveSourceKind::Accessor
+                                },
+                            );
+                            if let Some(primitive) = primitive.as_deref() {
+                                source_primitives.insert(symbol.clone(), primitive.into());
+                            }
+                            source_owned_write.insert(symbol.clone(), call.owned_write_option);
+                            if call.arguments.first().is_some_and(|argument| {
+                                computation_is_async(facts, file, argument.span)
+                            }) {
+                                async_sources.insert(symbol.clone());
+                            }
+                        }
+                    }
+                    if primitive.as_deref() != Some("createMemo")
+                        && let Some(name) = if binding.shape == solid_ast_facts::BindingShape::Array
+                        {
+                            binding.array_slots.get(1).and_then(Option::as_ref)
+                        } else {
+                            binding.names.get(1)
+                        }
+                    {
+                        let declaration = location(file.path.as_str(), name.span);
+                        if let Some(symbol) = entities.get(&declaration) {
+                            setters.insert(
+                                symbol.clone(),
+                                (name.name.clone(), declaration, call.owned_write_option),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Some(cache) => {
+            let current_paths = facts
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<HashSet<_>>();
+            cache.retain(|path, _| current_paths.contains(path.as_str()));
+            for file in &facts.files {
+                if let Some(cached) = cache.get(file.path.as_str())
+                    && source_discovery_identity_matches(
+                        &cached.identity,
+                        file,
+                        &project_indexes,
+                        typescript_unchanged,
+                        typescript_indexes.source_discovery_delta.as_ref(),
+                    )
+                {
+                    build_timings.source_discovery_reused_files += 1;
+                    retained_source_paths.insert(file.path.to_string());
+                    continue;
+                }
+                build_timings.source_discovery_recomputed_files += 1;
+                if let Some(cached) = cache.get(file.path.as_str()) {
+                    extend_source_discovery_symbols(
+                        &mut changed_source_symbols,
+                        &cached.contribution,
+                    );
+                }
+                let identity = source_discovery_identity(file, &project_indexes);
+                let contribution = discover_file_sources(
+                    facts,
+                    file,
+                    project_indexes
+                        .ast_files_by_path
+                        .get(file.path.as_str())
+                        .expect("project index contains every source file"),
+                    &entities,
+                    &symbol_names,
+                    &resolved_contracts,
+                    &bundled_returns,
+                );
+                extend_source_discovery_symbols(&mut changed_source_symbols, &contribution);
+                cache.insert(
+                    file.path.to_string(),
+                    CachedSourceDiscovery {
+                        identity,
+                        contribution,
+                    },
+                );
+            }
+            let cache = &*cache;
+            for aggregate in parallel_file_chunk_results(&facts.files, |files| {
+                let mut aggregate = SourceDiscoveryAggregate::default();
+                for file in files {
+                    if let Some(cached) = cache.get(file.path.as_str()) {
+                        aggregate.merge(&cached.contribution);
+                    }
+                }
+                aggregate
+            }) {
+                aggregate.append_to(SourceDiscoveryMergeTarget {
+                    accessors: &mut accessors,
+                    accessor_origins: &mut accessor_origins,
+                    setters: &mut setters,
+                    actions: &mut actions,
+                    source_kinds: &mut source_kinds,
+                    source_primitives: &mut source_primitives,
+                    source_phases: &mut source_phases,
+                    returned_source_symbols: &mut returned_source_symbols,
+                    summary_source_symbols: &mut summary_source_symbols,
+                    source_owned_write: &mut source_owned_write,
+                    async_sources: &mut async_sources,
+                    contracted_accessor_symbols: &mut contracted_accessor_symbols,
+                });
+            }
+        }
+    }
+    finish_stage!(source_discovery, "source-discovery");
+    for entity in &facts.typescript.entities {
+        let Some(descriptor) = &entity.type_descriptor else {
+            continue;
+        };
+        let solid_alias = descriptor.alias_declarations.iter().any(|declaration| {
+            declaration.name == "Accessor"
+                && declaration
+                    .location
+                    .path
+                    .replace('\\', "/")
+                    .to_ascii_lowercase()
+                    .contains("solid-js")
+        });
+        if descriptor.origin_module != "solid-js" && !solid_alias {
+            continue;
+        }
+        let Some(symbol) = entities.get(&entity.location) else {
+            continue;
+        };
+        if resolved_contracts.by_symbol.contains_key(symbol) {
+            continue;
+        }
+        let declaration = source_declarations.get(symbol);
+        let (name, local_location) = declaration.map_or_else(
+            || ("accessor".into(), entity.location.clone()),
+            |declaration| (declaration.name.clone(), declaration.location.clone()),
+        );
+        let declaration_location = descriptor
+            .alias_declarations
+            .iter()
+            .find(|declaration| matches!(declaration.name.as_str(), "Accessor" | "Setter"))
+            .map_or(local_location, |declaration| declaration.location.clone());
+        accessors
+            .entry(symbol.clone())
+            .or_insert((name, declaration_location));
+        source_phases.entry(symbol.clone()).or_insert(1);
+    }
+    let mut prop_sources = HashMap::<String, (String, Location)>::new();
+    for file in &facts.files {
+        for function in &file.ast.functions {
+            if !function
+                .name
+                .as_ref()
+                .and_then(|name| name.name.chars().next())
+                .is_some_and(char::is_uppercase)
+            {
+                continue;
+            }
+            let Some(parameter) = function
+                .parameters
+                .first()
+                .filter(|parameter| parameter.shape == solid_ast_facts::BindingShape::Identifier)
+                .and_then(|parameter| parameter.names.first())
+            else {
+                continue;
+            };
+            let declaration = location(file.path.as_str(), parameter.span);
+            if let Some(symbol) = entities.get(&declaration) {
+                prop_sources.insert(symbol.clone(), (parameter.name.clone(), declaration));
+            }
+        }
+    }
+    finish_stage!(
+        typed_accessors_and_prop_roots,
+        "typed-accessors-and-prop-roots"
+    );
+    loop {
+        let mut changed = false;
+        for file in &facts.files {
+            for binding in &file.ast.bindings {
+                let source = binding
+                    .initializer_identifier
+                    .as_ref()
+                    .and_then(|identifier| {
+                        entities.get(&location(file.path.as_str(), identifier.span))
+                    })
+                    .and_then(|symbol| prop_sources.get(symbol))
+                    .cloned()
+                    .or_else(|| {
+                        let initializer = binding.call_initializer?;
+                        let call = file
+                            .ast
+                            .calls
+                            .iter()
+                            .find(|call| call.span == initializer)?;
+                        let primitive = primitive_name(
+                            file.path.as_str(),
+                            call.callee,
+                            call.static_callee.as_deref(),
+                            &entities,
+                            &symbol_names,
+                        );
+                        if primitive.as_deref() != Some("merge") {
+                            return None;
+                        }
+                        call.arguments.iter().find_map(|argument| {
+                            entities
+                                .get(&location(file.path.as_str(), argument.span))
+                                .and_then(|symbol| prop_sources.get(symbol))
+                                .cloned()
+                        })
+                    });
+                let Some((_, declaration)) = source else {
+                    continue;
+                };
+                for name in &binding.names {
+                    let binding_location = location(file.path.as_str(), name.span);
+                    if let Some(symbol) = entities.get(&binding_location)
+                        && !prop_sources.contains_key(symbol)
+                    {
+                        prop_sources
+                            .insert(symbol.clone(), (name.name.clone(), declaration.clone()));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for file in &facts.files {
+        for element in &file.ast.jsx_elements {
+            let control_flow = primitive_name(
+                file.path.as_str(),
+                element.name.span,
+                Some(&element.name.name),
+                &entities,
+                &symbol_names,
+            );
+            if !matches!(control_flow.as_deref(), Some("Show" | "Match" | "Switch")) {
+                continue;
+            }
+            for function in file
+                .ast
+                .functions
+                .iter()
+                .filter(|function| element.span.contains(function.span))
+            {
+                let Some(parameter) = function
+                    .parameters
+                    .first()
+                    .and_then(|parameter| parameter.names.first())
+                else {
+                    continue;
+                };
+                let declaration = location(file.path.as_str(), parameter.span);
+                if let Some(symbol) = entities.get(&declaration) {
+                    accessors.insert(symbol.clone(), (parameter.name.clone(), declaration));
+                }
+            }
+        }
+    }
+    finish_stage!(
+        prop_propagation_and_control_flow,
+        "prop-propagation-and-control-flow"
+    );
+
+    let mut leaf_operations = Vec::new();
+    let mut invalid_cleanup_returns = Vec::new();
+    let mut unresolved_cleanup_returns = Vec::new();
+    let mut static_violations = resolved_contracts.missing_exports;
+    for file in &facts.files {
+        for span in file.compiler.uncovered_jsx_expressions() {
+            static_violations.push(StaticViolation {
+                id: "SC9004".into(),
+                rule: "execution-map-incomplete".into(),
+                message:
+                    "compiler facts do not classify this JSX expression as tracked, untracked, or a callback"
+                        .into(),
+                location: location(file.path.as_str(), span),
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+        }
+    }
+    let mut directive_creations = Vec::new();
+    let mut missing_owners = Vec::new();
+    let mut seen_static = HashSet::new();
+    for file in &facts.files {
+        for function in &file.ast.functions {
+            if function
+                .name
+                .as_ref()
+                .and_then(|name| name.name.chars().next())
+                .is_some_and(char::is_uppercase)
+                && let Some(parameter) = function
+                    .parameters
+                    .first()
+                    .filter(|parameter| parameter.shape == solid_ast_facts::BindingShape::Object)
+            {
+                let location = location(file.path.as_str(), parameter.pattern);
+                if seen_static.insert((
+                    "component-props-destructure",
+                    location.path.clone(),
+                    location.start_byte,
+                )) {
+                    static_violations.push(StaticViolation {
+                        id: "SC1003".into(),
+                        rule: "component-props-destructure".into(),
+                        message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
+                        location,
+                        analysis_context: function
+                            .name
+                            .as_ref()
+                            .map_or_else(String::new, |name| name.name.clone()),
+                        fixes: component_props_parameter_fix(
+                            facts,
+                            file,
+                            function,
+                            parameter,
+                            &entities,
+                        )
+                        .into_iter()
+                        .collect(),
+                    });
+                }
+            }
+        }
+        for binding in &file.ast.bindings {
+            if binding.shape != solid_ast_facts::BindingShape::Object {
+                continue;
+            }
+            let props = binding
+                .initializer_identifier
+                .as_ref()
+                .and_then(|identifier| entities.get(&location(file.path.as_str(), identifier.span)))
+                .is_some_and(|symbol| prop_sources.contains_key(symbol));
+            if props {
+                let location = location(file.path.as_str(), binding.pattern);
+                if seen_static.insert((
+                    "component-props-destructure",
+                    location.path.clone(),
+                    location.start_byte,
+                )) {
+                    static_violations.push(StaticViolation {
+                        id: "SC1003".into(),
+                        rule: "component-props-destructure".into(),
+                        message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
+                        location,
+                        analysis_context: enclosing_function_label(file, binding.pattern),
+                        fixes: vec![],
+                    });
+                }
+            }
+        }
+    }
+    for typescript_file in &facts.typescript.files {
+        for function in &typescript_file.async_functions {
+            for call in &function.calls_after_await {
+                let Some(symbol) = entities.get(call) else {
+                    continue;
+                };
+                let Some((name, _)) = accessors.get(symbol) else {
+                    continue;
+                };
+                let ast_call = facts
+                    .files
+                    .iter()
+                    .find(|file| file.path.as_str() == call.path)
+                    .and_then(|file| {
+                        file.ast.calls.iter().find(|candidate| {
+                            u64::from(candidate.callee.start) == call.start_byte
+                                && u64::from(candidate.callee.end) == call.end_byte
+                        })
+                    });
+                let display = ast_call
+                    .and_then(|candidate| candidate.static_callee.as_deref())
+                    .unwrap_or(name);
+                let diagnostic_location = Location {
+                    path: call.path.clone(),
+                    start_byte: call.start_byte,
+                    end_byte: call.end_byte.saturating_add(1),
+                };
+                let function_symbol = async_symbol_root(
+                    aliases
+                        .get(&function.symbol)
+                        .map_or(function.symbol.as_str(), String::as_str),
+                    &facts.typescript,
+                );
+                let analysis_context = facts
+                    .files
+                    .iter()
+                    .find_map(|file| {
+                        file.ast.calls.iter().find_map(|candidate| {
+                            let argument = candidate.arguments.first()?;
+                            let lexical = file.path.as_str() == function.expression.path
+                                && argument.span.contains(Span::new(
+                                    u32::try_from(function.expression.start_byte).ok()?,
+                                    u32::try_from(function.expression.end_byte).ok()?,
+                                ));
+                            let semantic = entities
+                                .get(&location(file.path.as_str(), argument.span))
+                                .is_some_and(|symbol| {
+                                    async_symbol_root(symbol, &facts.typescript) == function_symbol
+                                });
+                            if !lexical && !semantic {
+                                return None;
+                            }
+                            let primitive = primitive_name(
+                                file.path.as_str(),
+                                candidate.callee,
+                                candidate.static_callee.as_deref(),
+                                &entities,
+                                &symbol_names,
+                            )?;
+                            matches!(
+                                primitive.as_str(),
+                                "createMemo"
+                                    | "createEffect"
+                                    | "createRenderEffect"
+                                    | "createProjection"
+                                    | "createSignal"
+                                    | "createStore"
+                                    | "createOptimistic"
+                                    | "createOptimisticStore"
+                            )
+                            .then(|| format!("{primitive} async computation"))
+                        })
+                    })
+                    .unwrap_or_default();
+                if seen_static.insert((
+                    "reactive-read-after-await",
+                    call.path.clone(),
+                    call.start_byte,
+                )) {
+                    static_violations.push(StaticViolation {
+                        id: "SC1002".into(),
+                        rule: "reactive-read-after-await".into(),
+                        message: format!(
+                            "reactive accessor {display:?} is read after await, when dependency tracking has ended; read it before await or move it into another tracked computation"
+                        ),
+                        location: diagnostic_location,
+                        analysis_context,
+                        fixes: vec![],
+                    });
+                }
+            }
+        }
+    }
+    finish_stage!(static_prepass, "static-prepass");
+    let local_access_context = LocalAccessContext {
+        facts,
+        entities: &entities,
+        symbol_names: &symbol_names,
+        reachable_calls: &reachable_calls,
+        accessors: &accessors,
+        accessor_origins: &accessor_origins,
+        setters: &setters,
+        actions: &actions,
+        source_primitives: &source_primitives,
+        async_sources: &async_sources,
+        contract_reads: &contract_reads,
+        source_kinds: &source_kinds,
+        prop_sources: &prop_sources,
+    };
+    let cached_interprocedural = late_stages_reusable
+        .then(|| {
+            late_stage_cache
+                .as_deref()
+                .and_then(Option::as_ref)
+                .and_then(|cache| cache.interprocedural.as_ref())
+                .cloned()
+        })
+        .flatten();
+    let local_access_cache = late_stage_cache
+        .as_deref_mut()
+        .and_then(Option::as_mut)
+        .map(|cache| &mut cache.local_accesses);
+    let overlap_late_stages = cached_interprocedural.is_none() && facts.files.len() >= 256;
+    let interprocedural_context = InterproceduralContext {
+        facts,
+        project_indexes: &project_indexes,
+        accessors: &accessors,
+        contracted_accessor_symbols: &contracted_accessor_symbols,
+        returned_source_symbols: &returned_source_symbols,
+        summary_source_symbols: &summary_source_symbols,
+        source_phases: &source_phases,
+        source_kinds: &source_kinds,
+        contract_reads: &contract_reads,
+        contract_callbacks: &contract_callbacks,
+        contract_returns: &contract_returns,
+        bundled_returns: &bundled_returns,
+        source_primitives: &source_primitives,
+        entities: &entities,
+        references_by_source: &typescript_indexes.references_by_source,
+        symbol_names: &symbol_names,
+        changed_semantic_symbols: typescript_indexes
+            .source_discovery_delta
+            .as_ref()
+            .map(|delta| &delta.semantic_symbol_ids),
+        retained_source_paths: &retained_source_paths,
+    };
+    let run_local_access = || {
+        local_access_context.build(
+            local_access_cache,
+            late_stages_reusable,
+            typescript_unchanged,
+            typescript_indexes.source_discovery_delta.as_ref(),
+            &changed_source_symbols,
+            &retained_source_paths,
+            late_stages_reusable,
+        )
+    };
+    let (local_access, interprocedural, local_access_elapsed, interprocedural_elapsed, reused) =
+        std::thread::scope(|scope| {
+            if let Some(mut cached) = cached_interprocedural {
+                let local_started = Instant::now();
+                let local_access = run_local_access();
+                let local_elapsed = local_started.elapsed();
+                cached.timings = InterproceduralTimings::default();
+                return (local_access, cached, local_elapsed, Duration::ZERO, true);
+            }
+            if overlap_late_stages {
+                let interprocedural = scope.spawn(move || {
+                    let started = Instant::now();
+                    let result = interprocedural_context.build(
+                        typed_accessor_cache,
+                        interprocedural_graph_cache,
+                        interprocedural_result_cache,
+                    );
+                    (result, started.elapsed())
+                });
+                let local_started = Instant::now();
+                let local_access = run_local_access();
+                let local_elapsed = local_started.elapsed();
+                let (interprocedural, interprocedural_elapsed) = interprocedural
+                    .join()
+                    .expect("parallel interprocedural analysis worker panicked");
+                (
+                    local_access,
+                    interprocedural,
+                    local_elapsed,
+                    interprocedural_elapsed,
+                    false,
+                )
+            } else {
+                let local_started = Instant::now();
+                let local_access = run_local_access();
+                let local_elapsed = local_started.elapsed();
+                let interprocedural_started = Instant::now();
+                let interprocedural = interprocedural_context.build(
+                    typed_accessor_cache,
+                    interprocedural_graph_cache,
+                    interprocedural_result_cache,
+                );
+                (
+                    local_access,
+                    interprocedural,
+                    local_elapsed,
+                    interprocedural_started.elapsed(),
+                    false,
+                )
+            }
+        });
+    build_timings.local_reads_and_writes = local_access_elapsed;
+    build_timings.interprocedural_summaries = interprocedural_elapsed;
+    build_timings.interprocedural_reused = reused;
+    let local_and_interprocedural_elapsed = stage_started.elapsed();
+    build_timings.local_and_interprocedural = local_and_interprocedural_elapsed;
+    if emit_timings {
+        eprintln!(
+            "{{\"reactiveIrStage\":\"local-reads-and-writes\",\"elapsedNs\":{}}}",
+            local_access_elapsed.as_nanos()
+        );
+        eprintln!(
+            "{{\"reactiveIrStage\":\"interprocedural-summaries\",\"elapsedNs\":{}}}",
+            interprocedural_elapsed.as_nanos()
+        );
+        eprintln!(
+            "{{\"reactiveIrStage\":\"local-and-interprocedural\",\"elapsedNs\":{}}}",
+            local_and_interprocedural_elapsed.as_nanos()
+        );
+    }
+    stage_started = Instant::now();
+    if !reused && let Some(cache) = late_stage_cache.as_deref_mut().and_then(Option::as_mut) {
+        cache.interprocedural = Some(interprocedural.clone());
+    }
+    build_timings.local_accesses_reused = local_access.reused;
+    build_timings.local_access_reused_files = local_access.reused_files;
+    build_timings.local_access_recomputed_files = local_access.recomputed_files;
+    let LocalAccessResult {
+        mut reads,
+        mut writes,
+        mut action_invocations,
+        mut async_reads,
+        mut strict_read_obligations,
+        mut write_action_obligations,
+    } = local_access.result;
+    build_timings.interprocedural_graph = interprocedural.timings.graph;
+    build_timings.interprocedural_direct_summaries = interprocedural.timings.direct_summaries;
+    build_timings.interprocedural_direct_index = interprocedural.timings.direct_index;
+    build_timings.interprocedural_direct_references = interprocedural.timings.direct_references;
+    build_timings.interprocedural_typed_accessors = interprocedural.timings.typed_accessors;
+    build_timings.interprocedural_propagation = interprocedural.timings.propagation;
+    build_timings.interprocedural_returned_direct = interprocedural.timings.returned_direct;
+    build_timings.interprocedural_returned_delta = interprocedural.timings.returned_delta;
+    build_timings.interprocedural_call_summary_delta = interprocedural.timings.call_summary_delta;
+    build_timings.interprocedural_factory_propagation = interprocedural.timings.factory_propagation;
+    build_timings.interprocedural_results_and_exports = interprocedural.timings.results_and_exports;
+    build_timings.interprocedural_result_reads = interprocedural.timings.result_reads;
+    build_timings.interprocedural_export_summaries = interprocedural.timings.export_summaries;
+    build_timings.typed_accessor_reused_files = interprocedural.timings.typed_accessor_reused_files;
+    build_timings.typed_accessor_recomputed_files =
+        interprocedural.timings.typed_accessor_recomputed_files;
+    build_timings.interprocedural_graph_reused_files = interprocedural.timings.graph_reused_files;
+    build_timings.interprocedural_graph_recomputed_files =
+        interprocedural.timings.graph_recomputed_files;
+    build_timings.interprocedural_result_reused_files = interprocedural.timings.result_reused_files;
+    build_timings.interprocedural_result_recomputed_files =
+        interprocedural.timings.result_recomputed_files;
+    strict_read_obligations += interprocedural.reads.len();
+    reads.extend(interprocedural.reads);
+    let contract_exports = interprocedural.exports;
+    leaf_operations.extend(
+        parallel_file_results(&facts.files, |file| {
+            leaf_owner_operations_for_file(file, &entities, &symbol_names)
+        })
+        .into_iter()
+        .flatten(),
+    );
+    finish_stage!(leaf_and_cleanup, "leaf-and-cleanup");
+    for (invalid, unresolved) in parallel_file_results(&facts.files, |file| {
+        cleanup_returns_for_file(facts, file, &entities, &symbol_names)
+    }) {
+        invalid_cleanup_returns.extend(invalid);
+        unresolved_cleanup_returns.extend(unresolved);
+    }
+    finish_stage!(static_api, "static-api");
+    for result in parallel_file_results(&facts.files, |file| {
+        static_directive_checks_for_file(
+            facts,
+            file,
+            &entities,
+            &symbol_names,
+            &source_kinds,
+            &source_owned_write,
+            &accessors,
+            reachable_calls,
+        )
+    }) {
+        static_violations.extend(result.violations);
+        writes.extend(result.writes);
+        write_action_obligations.extend(result.write_action_obligations);
+    }
+    let mut seen_directive_creations = HashSet::new();
+    for file in &facts.files {
+        for call in &file.ast.calls {
+            let role = execution_role(&file.compiler, call.callee, &[]);
+            if role == ExecutionRole::DirectiveApply
+                && let Some(primitive) = primitive_name(
+                    file.path.as_str(),
+                    call.callee,
+                    call.static_callee.as_deref(),
+                    &entities,
+                    &symbol_names,
+                )
+                .filter(|primitive| is_created_primitive(primitive))
+            {
+                push_directive_creation(
+                    &mut directive_creations,
+                    &mut seen_directive_creations,
+                    primitive,
+                    file.path.as_str(),
+                    call.callee,
+                    false,
+                );
+            }
+        }
+        for callback in &file.compiler.callback_roles {
+            if callback.role != solid_facts::solid_compiler_facts::CallbackRoleKind::DirectiveApply
+            {
+                continue;
+            }
+            for call in file
+                .ast
+                .calls
+                .iter()
+                .filter(|call| callback.span.contains(call.span))
+            {
+                if let Some((target_file, target)) =
+                    function_called_at(facts, file, call.callee, &entities)
+                {
+                    collect_returned_directive_creations(
+                        facts,
+                        target_file,
+                        target,
+                        &entities,
+                        &symbol_names,
+                        &mut HashSet::new(),
+                        &mut directive_creations,
+                        &mut seen_directive_creations,
+                    );
+                }
+            }
+        }
+    }
+    finish_stage!(directives, "directives");
+    let cached_missing_owners = late_stages_reusable
+        .then(|| {
+            late_stage_cache
+                .as_deref()
+                .and_then(Option::as_ref)
+                .and_then(|cache| cache.missing_owners.as_ref())
+                .cloned()
+        })
+        .flatten();
+    if let Some(cached) = cached_missing_owners {
+        missing_owners = cached;
+        build_timings.owner_fixed_point_reused = true;
+        build_timings.owner_reused_files = u64::try_from(facts.files.len()).unwrap_or(u64::MAX);
+    } else {
+        if let Some(cache) = late_stage_cache.as_deref_mut().and_then(Option::as_mut) {
+            let (requirements, timings) = find_missing_owners_incremental(
+                facts,
+                &project_indexes,
+                &entities,
+                &symbol_names,
+                &retained_source_paths,
+                &mut cache.owner_files,
+                &mut build_timings,
+            );
+            missing_owners.extend(requirements);
+            build_timings.owner_fragment_build = timings.fragment_build;
+            build_timings.owner_graph_assembly = timings.graph_assembly;
+            build_timings.owner_propagation = timings.propagation;
+            build_timings.owner_requirement_emission = timings.requirement_emission;
+            cache.missing_owners = Some(missing_owners.clone());
+        } else {
+            missing_owners.extend(find_missing_owners(
+                facts,
+                &project_indexes,
+                &entities,
+                &symbol_names,
+            ));
+            build_timings.owner_recomputed_files =
+                u64::try_from(facts.files.len()).unwrap_or(u64::MAX);
+        }
+    }
+    finish_stage!(owner_fixed_point, "owner-fixed-point");
+    reads.sort_by(|left, right| {
+        (
+            &left.location.path,
+            left.location.start_byte,
+            left.location.end_byte,
+        )
+            .cmp(&(
+                &right.location.path,
+                right.location.start_byte,
+                right.location.end_byte,
+            ))
+    });
+    writes.sort_by(|left, right| location_order(&left.location, &right.location));
+    action_invocations.sort_by(|left, right| location_order(&left.location, &right.location));
+    invalid_cleanup_returns.sort_by(|left, right| location_order(&left.location, &right.location));
+    unresolved_cleanup_returns
+        .sort_by(|left, right| location_order(&left.location, &right.location));
+    static_violations.sort_by(|left, right| location_order(&left.location, &right.location));
+    directive_creations.sort_by(|left, right| location_order(&left.location, &right.location));
+    missing_owners.sort_by(|left, right| location_order(&left.location, &right.location));
+    async_reads.sort_by(|left, right| location_order(&left.location, &right.location));
+    finish_stage!(final_ordering, "final-ordering");
+    let _ = stage_started;
+    build_timings.total = total_started.elapsed();
+    Ok((
+        Program {
+            reads,
+            writes,
+            actions: action_invocations,
+            leaf_operations,
+            invalid_cleanup_returns,
+            unresolved_cleanup_returns,
+            static_violations,
+            directive_creations,
+            missing_owners,
+            async_reads,
+            contract_exports,
+            obligation_counts: ObligationCounts {
+                strict_reads: strict_read_obligations,
+                writes_and_actions: write_action_obligations.len(),
+                factory_instances: interprocedural.factory_instances,
+            },
+        },
+        build_timings,
+    ))
+}
+
+fn parallel_file_results<R, F>(files: &[FileFacts], analyze: F) -> Vec<R>
+where
+    R: Send,
+    F: Fn(&FileFacts) -> R + Sync,
+{
+    parallel_slice_results(files, analyze)
+}
+
+fn parallel_slice_results<T, R, F>(items: &[T], analyze: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+{
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(items.len());
+    if workers <= 1 || items.len() < 256 {
+        return items.iter().map(analyze).collect();
+    }
+    let chunk_size = items.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        let handles = items
+            .chunks(chunk_size)
+            .map(|chunk| {
+                let analyze = &analyze;
+                scope.spawn(move || chunk.iter().map(analyze).collect::<Vec<_>>())
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .flat_map(|handle| {
+                handle
+                    .join()
+                    .expect("parallel Reactive IR analysis worker panicked")
+            })
+            .collect()
+    })
+}
+
+fn parallel_file_chunk_results<R, F>(files: &[FileFacts], analyze: F) -> Vec<R>
+where
+    R: Send,
+    F: Fn(&[FileFacts]) -> R + Sync,
+{
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(files.len());
+    if workers <= 1 || files.len() < 256 {
+        return vec![analyze(files)];
+    }
+    let chunk_size = files.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        files
+            .chunks(chunk_size)
+            .map(|chunk| {
+                let analyze = &analyze;
+                scope.spawn(move || analyze(chunk))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .expect("parallel Reactive IR analysis worker panicked")
+            })
+            .collect()
+    })
+}
+
+fn leaf_owner_operations_for_file(
+    file: &FileFacts,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Vec<LeafOwnerOperation> {
+    let mut operations = Vec::new();
+    let function_spans = file
+        .ast
+        .functions
+        .iter()
+        .map(|function| function.span)
+        .collect::<Vec<_>>();
+    for owner_call in &file.ast.calls {
+        let owner = primitive_name(
+            file.path.as_str(),
+            owner_call.callee,
+            owner_call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        let Some(owner @ ("onSettled" | "createTrackedEffect")) = owner.as_deref() else {
+            continue;
+        };
+        let Some(region) = owner_call.arguments.first().map(|argument| argument.span) else {
+            continue;
+        };
+        for call in &file.ast.calls {
+            if call.span == owner_call.span || !region.contains(call.span) {
+                continue;
+            }
+            let primitive = primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                symbol_names,
+            );
+            let Some(primitive) = primitive else {
+                continue;
+            };
+            let forbidden = matches!(
+                primitive.as_str(),
+                "onCleanup"
+                    | "flush"
+                    | "createMemo"
+                    | "createEffect"
+                    | "createRenderEffect"
+                    | "createTrackedEffect"
+                    | "createProjection"
+                    | "createRoot"
+                    | "createOwner"
+                    | "mapArray"
+                    | "children"
+            ) || matches!(
+                primitive.as_str(),
+                "createSignal" | "createStore" | "createOptimistic" | "createOptimisticStore"
+            ) && call.arguments.first().is_some_and(|argument| {
+                function_spans
+                    .iter()
+                    .any(|function| argument.span.contains(*function))
+            });
+            if forbidden {
+                let fix = (primitive == "onCleanup")
+                    .then(|| terminal_cleanup_fix(file, region, call))
+                    .flatten();
+                operations.push(LeafOwnerOperation {
+                    primitive,
+                    owner: owner.into(),
+                    location: location(file.path.as_str(), call.callee),
+                    fix,
+                });
+            }
+        }
+    }
+    operations
+}
+
+fn cleanup_returns_for_file(
+    facts: &ProjectFacts,
+    file: &FileFacts,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> (Vec<InvalidCleanupReturn>, Vec<UnresolvedCleanupReturn>) {
+    let mut invalid = Vec::new();
+    let mut unresolved = Vec::new();
+    for call in &file.ast.calls {
+        let primitive = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        let callback_index = match primitive.as_deref() {
+            Some("onSettled" | "createTrackedEffect" | "createReaction") => 0,
+            Some("createEffect" | "createRenderEffect") => 1,
+            _ => continue,
+        };
+        let Some(argument) = call.arguments.get(callback_index) else {
+            continue;
+        };
+        let Some((callback_file, callback)) =
+            callback_function(facts, file, argument.span, entities)
+        else {
+            let callback_type = facts
+                .typescript
+                .entities
+                .iter()
+                .find(|entity| {
+                    entity.location.path == file.path.as_str()
+                        && entity.location.start_byte == u64::from(argument.span.start)
+                        && entity.location.end_byte == u64::from(argument.span.end)
+                })
+                .and_then(|entity| entity.type_descriptor.as_ref())
+                .map(|descriptor| descriptor.text.as_str());
+            if callback_type.is_some_and(callable_returns_cleanup_compatible) {
+                continue;
+            }
+            unresolved.push(UnresolvedCleanupReturn {
+                primitive: primitive.expect("matched cleanup-return primitive"),
+                location: location(file.path.as_str(), argument.span),
+            });
+            continue;
+        };
+        let primitive = primitive.expect("matched cleanup-return primitive");
+        if callback.r#async {
+            invalid.push(InvalidCleanupReturn {
+                primitive,
+                location: location(callback_file.path.as_str(), callback.span),
+            });
+            continue;
+        }
+        let returns =
+            callback
+                .expression_return
+                .iter()
+                .chain(callback_file.ast.returns.iter().filter(|returned| {
+                    containing_ast_function(&callback_file.ast.functions, returned.span)
+                        .is_some_and(|function| function.span == callback.span)
+                }));
+        for returned in returns {
+            match cleanup_return_status(facts, callback_file, returned, entities) {
+                CleanupReturnStatus::Valid => {}
+                CleanupReturnStatus::Invalid => {
+                    invalid.push(InvalidCleanupReturn {
+                        primitive: primitive.clone(),
+                        location: expand_parenthesized_location(
+                            callback_file,
+                            returned.argument.unwrap_or(returned.span),
+                        ),
+                    });
+                }
+                CleanupReturnStatus::Unresolved => {
+                    unresolved.push(UnresolvedCleanupReturn {
+                        primitive: primitive.clone(),
+                        location: location(
+                            callback_file.path.as_str(),
+                            returned.argument.unwrap_or(returned.span),
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    (invalid, unresolved)
+}
+
+struct StaticDirectiveFileResult {
+    violations: Vec<StaticViolation>,
+    writes: Vec<ReactiveWrite>,
+    write_action_obligations: Vec<(&'static str, String, u64, u64)>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn static_directive_checks_for_file(
+    facts: &ProjectFacts,
+    file: &FileFacts,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+    source_owned_write: &HashMap<String, bool>,
+    accessors: &HashMap<String, (String, Location)>,
+    reachable_calls: &HashMap<Location, usize>,
+) -> StaticDirectiveFileResult {
+    let mut result = StaticDirectiveFileResult {
+        violations: Vec::new(),
+        writes: Vec::new(),
+        write_action_obligations: Vec::new(),
+    };
+    let allowed = allowed_callback_spans(file, entities, symbol_names);
+    for call in &file.ast.calls {
+        let Some(primitive) = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        ) else {
+            continue;
+        };
+        if primitive == "createEffect"
+            && (call.arguments.len() < 2
+                || call.arguments[1].value == solid_ast_facts::ArgumentValueKind::Undefined)
+        {
+            result.violations.push(StaticViolation {
+                id: "SC7001".into(),
+                rule: "missing-effect-function".into(),
+                message: "createEffect requires both a compute function and an effect function"
+                    .into(),
+                location: location(file.path.as_str(), call.callee),
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+        }
+        let options_index = match primitive.as_str() {
+            "createMemo" | "createSignal" | "createOptimistic" => Some(1),
+            "createStore"
+            | "createProjection"
+            | "createOptimisticStore"
+            | "createEffect"
+            | "createRenderEffect" => Some(2),
+            "createTrackedEffect" => Some(1),
+            _ => None,
+        };
+        if let Some(options_index) = options_index
+            && call.arguments.get(options_index).is_some_and(|argument| {
+                argument
+                    .boolean_properties
+                    .iter()
+                    .any(|property| property.name == "sync" && property.value)
+            })
+            && call
+                .arguments
+                .first()
+                .is_some_and(|argument| computation_is_async(facts, file, argument.span))
+        {
+            result.violations.push(StaticViolation {
+                id: "SC7002".into(),
+                rule: "sync-node-received-async".into(),
+                message: format!(
+                    "{primitive} uses sync: true but its computation can return a Promise or AsyncIterable"
+                ),
+                location: location(file.path.as_str(), call.callee),
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+        }
+        if !matches!(primitive.as_str(), "refresh" | "affects") {
+            continue;
+        }
+        let invalid_arity = call.arguments.is_empty()
+            || primitive == "refresh" && call.arguments.len() != 1
+            || primitive == "affects" && call.arguments.len() > 2;
+        if invalid_arity {
+            result.violations.push(StaticViolation {
+                id: "SC7003".into(),
+                rule: format!("invalid-{primitive}-target"),
+                message: format!("{primitive}() received an invalid number of target arguments"),
+                location: location(file.path.as_str(), call.callee),
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+            continue;
+        }
+        let target = &call.arguments[0];
+        if target.value != solid_ast_facts::ArgumentValueKind::Identifier {
+            result.violations.push(StaticViolation {
+                id: "SC7003".into(),
+                rule: format!("invalid-{primitive}-target"),
+                message: format!(
+                    "{primitive}() expects the original Solid source accessor or store, not a wrapper, read value, or literal"
+                ),
+                location: location(file.path.as_str(), target.span),
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+            continue;
+        }
+        let target_location = location(file.path.as_str(), target.span);
+        let Some(symbol) = entities.get(&target_location) else {
+            result.violations.push(StaticViolation {
+                id: "SC9003".into(),
+                rule: format!("{primitive}-target-unresolved"),
+                message: format!(
+                    "cannot prove that the target is a branded Solid source accepted by {primitive}"
+                ),
+                location: target_location,
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+            continue;
+        };
+        let Some(kind) = source_kinds.get(symbol).copied() else {
+            result.violations.push(StaticViolation {
+                id: "SC9003".into(),
+                rule: format!("{primitive}-target-unresolved"),
+                message: format!(
+                    "cannot prove that the target is a branded Solid source accepted by {primitive}"
+                ),
+                location: target_location,
+                analysis_context: String::new(),
+                fixes: vec![],
+            });
+            continue;
+        };
+        if primitive == "affects" {
+            if kind == ReactiveSourceKind::Accessor && call.arguments.len() == 2 {
+                result.violations.push(StaticViolation {
+                    id: "SC7004".into(),
+                    rule: "invalid-affects-target".into(),
+                    message: "affects() keys are only valid on store targets".into(),
+                    location: location(file.path.as_str(), call.callee),
+                    analysis_context: String::new(),
+                    fixes: vec![],
+                });
+            }
+            continue;
+        }
+        if file
+            .ast
+            .functions
+            .iter()
+            .any(|function| function.body.contains(call.span))
+        {
+            result.write_action_obligations.push((
+                "write",
+                file.path.to_string(),
+                u64::from(call.callee.start),
+                u64::from(call.callee.end),
+            ));
+        }
+        let callee = location(file.path.as_str(), call.callee);
+        let Some(multiplicity) = reachable_calls.get(&callee).copied() else {
+            continue;
+        };
+        let Some((name, declaration)) = accessors.get(symbol) else {
+            continue;
+        };
+        for _ in 0..multiplicity {
+            result.writes.push(ReactiveWrite {
+                setter: format!("refresh({name})"),
+                location: location(
+                    file.path.as_str(),
+                    Span::new(
+                        call.span.start,
+                        call.arguments
+                            .last()
+                            .map_or(call.span.end, |argument| argument.span.end),
+                    ),
+                ),
+                declaration: declaration.clone(),
+                execution: semantic_execution_role(
+                    file,
+                    call.callee,
+                    &allowed,
+                    entities,
+                    symbol_names,
+                ),
+                allowed_by_option: source_owned_write.get(symbol).copied().unwrap_or(false),
+                context: analysis_context(file, call.span, entities, symbol_names),
+            });
+        }
+    }
+    result
+}
+
+fn callback_function<'a>(
+    facts: &'a ProjectFacts,
+    call_file: &'a solid_facts::FileFacts,
+    argument: Span,
+    entities: &EntitySymbols,
+) -> Option<(
+    &'a solid_facts::FileFacts,
+    &'a solid_ast_facts::FunctionFact,
+)> {
+    if let Some(function) = call_file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| argument.contains(function.span))
+        .max_by_key(|function| function.span.end - function.span.start)
+    {
+        return Some((call_file, function));
+    }
+    let symbol = entities.get(&location(call_file.path.as_str(), argument))?;
+    for file in &facts.files {
+        if let Some(function) = file.ast.functions.iter().find(|function| {
+            function.name.as_ref().is_some_and(|name| {
+                entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+            })
+        }) {
+            return Some((file, function));
+        }
+        for binding in &file.ast.bindings {
+            if !binding.initializer_function
+                || !binding.names.iter().any(|name| {
+                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+                })
+            {
+                continue;
+            }
+            let initializer = binding.initializer?;
+            if let Some(function) = file
+                .ast
+                .functions
+                .iter()
+                .filter(|function| initializer.contains(function.span))
+                .max_by_key(|function| function.span.end - function.span.start)
+            {
+                return Some((file, function));
+            }
+        }
+    }
+    None
+}
+
+enum CleanupReturnStatus {
+    Valid,
+    Invalid,
+    Unresolved,
+}
+
+fn callable_returns_cleanup_compatible(type_text: &str) -> bool {
+    let return_type = type_text
+        .rsplit_once("=>")
+        .map(|(_, returned)| returned.trim());
+    matches!(return_type, Some("void" | "undefined" | "never"))
+        || type_text.trim() == "VoidFunction"
+}
+
+fn expand_parenthesized_location(file: &solid_facts::FileFacts, span: Span) -> Location {
+    let mut start = usize::try_from(span.start).unwrap_or(0);
+    let mut end = usize::try_from(span.end).unwrap_or(file.source.len());
+    while start > 0
+        && end < file.source.len()
+        && file.source.as_bytes()[start - 1] == b'('
+        && file.source.as_bytes()[end] == b')'
+    {
+        start -= 1;
+        end += 1;
+    }
+    location(
+        file.path.as_str(),
+        Span::new(
+            u32::try_from(start).unwrap_or(span.start),
+            u32::try_from(end).unwrap_or(span.end),
+        ),
+    )
+}
+
+fn terminal_cleanup_fix(
+    file: &solid_facts::FileFacts,
+    owner_region: Span,
+    call: &solid_ast_facts::CallFact,
+) -> Option<Fix> {
+    let callback = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| owner_region.contains(function.span))
+        .max_by_key(|function| function.span.end - function.span.start)?;
+    let body_end = usize::try_from(callback.body.end).ok()?.checked_sub(1)?;
+    let call_end = usize::try_from(call.span.end).ok()?;
+    if call_end > body_end || body_end > file.source.len() {
+        return None;
+    }
+    if !file.source.as_bytes()[call_end..body_end]
+        .iter()
+        .all(|byte| byte.is_ascii_whitespace() || *byte == b';')
+    {
+        return None;
+    }
+    let [argument] = call.arguments.as_slice() else {
+        return None;
+    };
+    let start = usize::try_from(argument.span.start).ok()?;
+    let end = usize::try_from(argument.span.end).ok()?;
+    let argument = file.source.get(start..end)?.trim();
+    if argument.is_empty() {
+        return None;
+    }
+    Some(Fix {
+        message: "return the cleanup function from the leaf-owner callback".into(),
+        applicability: "safe".into(),
+        edits: vec![TextEdit {
+            location: location(file.path.as_str(), call.span),
+            new_text: format!("return {argument}"),
+        }],
+    })
+}
+
+fn component_props_parameter_fix(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    parameter: &solid_ast_facts::BindingFact,
+    entities: &EntitySymbols,
+) -> Option<Fix> {
+    let pattern_start = usize::try_from(parameter.pattern.start).ok()?;
+    let pattern_end = usize::try_from(parameter.pattern.end).ok()?;
+    let pattern = file.source.get(pattern_start..pattern_end)?;
+    if !pattern.starts_with('{') || !pattern.ends_with('}') || parameter.names.is_empty() {
+        return None;
+    }
+    let mut cursor = pattern_start + 1;
+    for name in &parameter.names {
+        let start = usize::try_from(name.span.start).ok()?;
+        let end = usize::try_from(name.span.end).ok()?;
+        if start < cursor || end > pattern_end {
+            return None;
+        }
+        if !file.source.as_bytes()[cursor..start]
+            .iter()
+            .all(|byte| byte.is_ascii_whitespace() || *byte == b',')
+            || file.source.get(start..end)? != name.name
+        {
+            return None;
+        }
+        cursor = end;
+    }
+    if !file.source.as_bytes()[cursor..pattern_end - 1]
+        .iter()
+        .all(|byte| byte.is_ascii_whitespace() || *byte == b',')
+    {
+        return None;
+    }
+
+    let used_names = file
+        .ast
+        .identifiers
+        .iter()
+        .filter(|identifier| function.body.contains(identifier.span))
+        .map(|identifier| identifier.name.as_str())
+        .collect::<HashSet<_>>();
+    let parameter_name = (1..)
+        .map(|suffix| {
+            if suffix == 1 {
+                "props".into()
+            } else {
+                format!("props{suffix}")
+            }
+        })
+        .find(|candidate| !used_names.contains(candidate.as_str()))?;
+    let mut edits = vec![TextEdit {
+        location: location(file.path.as_str(), parameter.pattern),
+        new_text: parameter_name.clone(),
+    }];
+    let mut body_references = 0;
+    for name in &parameter.names {
+        let declaration = location(file.path.as_str(), name.span);
+        let symbol = entities.get(&declaration)?;
+        let symbol = facts
+            .typescript
+            .symbols
+            .iter()
+            .find(|candidate| candidate.id == *symbol)?;
+        for reference in &symbol.references {
+            if reference.path != file.path.as_str() {
+                return None;
+            }
+            let span = Span::new(
+                u32::try_from(reference.start_byte).ok()?,
+                u32::try_from(reference.end_byte).ok()?,
+            );
+            if parameter.pattern.contains(span) {
+                continue;
+            }
+            if !function.body.contains(span)
+                || (!matches!(
+                    execution_role(&file.compiler, span, &[]),
+                    ExecutionRole::TrackedJsx
+                ) && !file.compiler.jsx_operations.iter().any(|operation| {
+                    operation.kind == "jsx-expression" && operation.span.contains(span)
+                }))
+            {
+                return None;
+            }
+            let start = usize::try_from(reference.start_byte).ok()?;
+            let end = usize::try_from(reference.end_byte).ok()?;
+            if file.source.get(start..end)? != name.name {
+                return None;
+            }
+            body_references += 1;
+            edits.push(TextEdit {
+                location: reference.clone(),
+                new_text: format!("{parameter_name}.{}", name.name),
+            });
+        }
+    }
+    if body_references == 0 {
+        return None;
+    }
+    edits.sort_by_key(|edit| edit.location.start_byte);
+    Some(Fix {
+        message: "Fix: Keep component props reactive".into(),
+        applicability: "safe".into(),
+        edits,
+    })
+}
+
+fn cleanup_return_status(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    returned: &solid_ast_facts::ReturnFact,
+    entities: &EntitySymbols,
+) -> CleanupReturnStatus {
+    match returned.value {
+        solid_ast_facts::ReturnValueKind::Undefined
+        | solid_ast_facts::ReturnValueKind::Function => CleanupReturnStatus::Valid,
+        solid_ast_facts::ReturnValueKind::Member => CleanupReturnStatus::Unresolved,
+        solid_ast_facts::ReturnValueKind::Other => CleanupReturnStatus::Invalid,
+        solid_ast_facts::ReturnValueKind::Call => {
+            let Some(callee) = returned.callee else {
+                return CleanupReturnStatus::Unresolved;
+            };
+            let callee_location = location(file.path.as_str(), callee);
+            let return_type = facts
+                .typescript
+                .entities
+                .iter()
+                .find(|entity| entity.location == callee_location)
+                .and_then(|entity| entity.resolved_call.as_ref())
+                .map(|call| call.return_type_text.trim());
+            match return_type {
+                Some("void" | "undefined" | "never" | "VoidFunction") => CleanupReturnStatus::Valid,
+                Some(value)
+                    if value.contains("=>")
+                        && ![
+                            "Promise",
+                            "AsyncIterable",
+                            "number",
+                            "string",
+                            "boolean",
+                            "null",
+                            "{",
+                        ]
+                        .iter()
+                        .any(|invalid| value.contains(invalid)) =>
+                {
+                    CleanupReturnStatus::Valid
+                }
+                _ => CleanupReturnStatus::Unresolved,
+            }
+        }
+        solid_ast_facts::ReturnValueKind::Identifier => {
+            let Some(symbol) = entities.get(&location(file.path.as_str(), returned.span)) else {
+                return CleanupReturnStatus::Unresolved;
+            };
+            let function = file.ast.functions.iter().any(|function| {
+                function.name.as_ref().is_some_and(|name| {
+                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+                })
+            }) || file.ast.bindings.iter().any(|binding| {
+                binding.initializer_function
+                    && binding.names.iter().any(|name| {
+                        entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+                    })
+            });
+            if function {
+                CleanupReturnStatus::Valid
+            } else {
+                CleanupReturnStatus::Unresolved
+            }
+        }
+    }
+}
+
+fn containing_ast_function(
+    functions: &[solid_ast_facts::FunctionFact],
+    span: Span,
+) -> Option<&solid_ast_facts::FunctionFact> {
+    functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .min_by_key(|function| function.body.end - function.body.start)
+}
+
+fn function_called_at<'a>(
+    facts: &'a ProjectFacts,
+    call_file: &'a solid_facts::FileFacts,
+    callee: Span,
+    entities: &EntitySymbols,
+) -> Option<(
+    &'a solid_facts::FileFacts,
+    &'a solid_ast_facts::FunctionFact,
+)> {
+    let symbol = entities.get(&location(call_file.path.as_str(), callee))?;
+    for file in &facts.files {
+        if let Some(function) = file.ast.functions.iter().find(|function| {
+            function.name.as_ref().is_some_and(|name| {
+                entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+            })
+        }) {
+            return Some((file, function));
+        }
+        for binding in &file.ast.bindings {
+            if !binding.initializer_function
+                || !binding.names.iter().any(|name| {
+                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
+                })
+            {
+                continue;
+            }
+            let initializer = binding.initializer?;
+            if let Some(function) = file
+                .ast
+                .functions
+                .iter()
+                .filter(|function| initializer.contains(function.span))
+                .max_by_key(|function| function.span.end - function.span.start)
+            {
+                return Some((file, function));
+            }
+        }
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_returned_directive_creations(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    visiting: &mut HashSet<(String, Span)>,
+    creations: &mut Vec<PrimitiveCreation>,
+    seen: &mut HashSet<(String, u64, u64)>,
+) {
+    let key = (file.path.to_string(), function.span);
+    if !visiting.insert(key.clone()) {
+        return;
+    }
+    for returned in function
+        .expression_return
+        .iter()
+        .chain(file.ast.returns.iter().filter(|returned| {
+            containing_ast_function(&file.ast.functions, returned.span)
+                .is_some_and(|owner| owner.span == function.span)
+        }))
+    {
+        match returned.value {
+            solid_ast_facts::ReturnValueKind::Function => {
+                if let Some(returned_function) = file
+                    .ast
+                    .functions
+                    .iter()
+                    .find(|candidate| candidate.span == returned.span)
+                {
+                    collect_directive_function_creations(
+                        facts,
+                        file,
+                        returned_function,
+                        entities,
+                        symbol_names,
+                        visiting,
+                        creations,
+                        seen,
+                    );
+                }
+            }
+            solid_ast_facts::ReturnValueKind::Call => {
+                if let Some(callee) = returned.callee
+                    && let Some((target_file, target)) =
+                        function_called_at(facts, file, callee, entities)
+                {
+                    collect_returned_directive_creations(
+                        facts,
+                        target_file,
+                        target,
+                        entities,
+                        symbol_names,
+                        visiting,
+                        creations,
+                        seen,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    visiting.remove(&key);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_directive_function_creations(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    visiting: &mut HashSet<(String, Span)>,
+    creations: &mut Vec<PrimitiveCreation>,
+    seen: &mut HashSet<(String, u64, u64)>,
+) {
+    let key = (file.path.to_string(), function.span);
+    if !visiting.insert(key.clone()) {
+        return;
+    }
+    for call in file.ast.calls.iter().filter(|call| {
+        containing_ast_function(&file.ast.functions, call.span)
+            .is_some_and(|owner| owner.span == function.span)
+    }) {
+        if let Some(primitive) = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )
+        .filter(|primitive| is_created_primitive(primitive))
+        {
+            push_directive_creation(
+                creations,
+                seen,
+                primitive,
+                file.path.as_str(),
+                call.callee,
+                true,
+            );
+        } else if let Some((target_file, target)) =
+            function_called_at(facts, file, call.callee, entities)
+        {
+            collect_directive_function_creations(
+                facts,
+                target_file,
+                target,
+                entities,
+                symbol_names,
+                visiting,
+                creations,
+                seen,
+            );
+        }
+    }
+    visiting.remove(&key);
+}
+
+fn is_created_primitive(primitive: &str) -> bool {
+    matches!(
+        primitive,
+        "createSignal"
+            | "createMemo"
+            | "createStore"
+            | "createProjection"
+            | "createOptimistic"
+            | "createOptimisticStore"
+            | "createEffect"
+            | "createRenderEffect"
+            | "createTrackedEffect"
+            | "createReaction"
+            | "createRoot"
+            | "createOwner"
+    )
+}
+
+fn push_directive_creation(
+    creations: &mut Vec<PrimitiveCreation>,
+    seen: &mut HashSet<(String, u64, u64)>,
+    primitive: String,
+    path: &str,
+    span: Span,
+    returned_closure: bool,
+) {
+    let location = location(path, span);
+    if seen.insert((
+        location.path.clone(),
+        location.start_byte,
+        location.end_byte,
+    )) {
+        creations.push(PrimitiveCreation {
+            primitive,
+            location,
+            returned_closure,
+        });
+    }
+}
+
+const OWNER_CONTEXT_OWNED: u8 = 1;
+const OWNER_CONTEXT_UNOWNED: u8 = 2;
+const OWNER_CONTEXT_LEAF: u8 = 4;
+
+#[derive(Clone, Copy)]
+enum OwnerEdgeKind {
+    Preserve,
+    Owned,
+    Unowned,
+    Leaf,
+}
+
+#[derive(Clone)]
+struct OwnerNode {
+    path: String,
+    span: Span,
+    body: Span,
+    name: Option<String>,
+    symbol: Option<String>,
+    exported: bool,
+}
+
+impl FunctionBoundary for OwnerNode {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn body(&self) -> Span {
+        self.body
+    }
+}
+
+struct OwnerFileIndex {
+    call_primitives: Vec<Option<String>>,
+    providing_regions: Vec<Span>,
+}
+
+#[derive(Clone)]
+enum OwnerTarget {
+    Symbol(String),
+    LocalSpan(Span),
+}
+
+#[derive(Clone)]
+struct SymbolicOwnerEdge {
+    source: Option<Span>,
+    target: OwnerTarget,
+    kind: OwnerEdgeKind,
+}
+
+#[derive(Clone)]
+struct OwnerRequirementCandidate {
+    operation: &'static str,
+    operation_span: Span,
+    owner: Option<Span>,
+    report_mask: u8,
+    allow_uncertain: bool,
+    settled_target: Option<OwnerTarget>,
+}
+
+struct CachedOwnerFile {
+    source_hash: SourceHash,
+    compiler: Arc<solid_facts::solid_compiler_facts::ExecutionMap>,
+    nodes: Vec<OwnerNode>,
+    edges: Vec<SymbolicOwnerEdge>,
+    requirements: Vec<OwnerRequirementCandidate>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct OwnerIncrementalTimings {
+    fragment_build: Duration,
+    graph_assembly: Duration,
+    propagation: Duration,
+    requirement_emission: Duration,
+}
+
+fn find_missing_owners(
+    facts: &ProjectFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Vec<OwnerRequirement> {
+    let owner_file_indexes = facts
+        .files
+        .iter()
+        .map(|file| {
+            let call_primitives = file
+                .ast
+                .calls
+                .iter()
+                .map(|call| {
+                    primitive_name(
+                        file.path.as_str(),
+                        call.callee,
+                        call.static_callee.as_deref(),
+                        entities,
+                        symbol_names,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let providing_regions = file
+                .ast
+                .calls
+                .iter()
+                .zip(&call_primitives)
+                .filter_map(|(call, primitive)| {
+                    let argument = match primitive.as_deref() {
+                        Some(
+                            "createRoot" | "createMemo" | "createEffect" | "createRenderEffect"
+                            | "createProjection" | "createSignal" | "createStore",
+                        ) => 0,
+                        Some("runWithOwner") => 1,
+                        _ => return None,
+                    };
+                    call.arguments.get(argument).and_then(|argument| {
+                        matches!(
+                            argument.value,
+                            solid_ast_facts::ArgumentValueKind::Identifier
+                                | solid_ast_facts::ArgumentValueKind::Function
+                                | solid_ast_facts::ArgumentValueKind::AsyncFunction
+                        )
+                        .then_some(argument.span)
+                    })
+                })
+                .collect();
+            OwnerFileIndex {
+                call_primitives,
+                providing_regions,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut nodes = Vec::new();
+    for file in &facts.files {
+        for function in &file.ast.functions {
+            let symbol = function.name.as_ref().and_then(|name| {
+                entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .cloned()
+            });
+            let exported =
+                indexes
+                    .typescript_file(file.path.as_str())
+                    .is_some_and(|typescript_file| {
+                        typescript_file.functions.iter().any(|candidate| {
+                            candidate.exported
+                                && candidate.body.start_byte == u64::from(function.body.start)
+                                && candidate.body.end_byte == u64::from(function.body.end)
+                        })
+                    })
+                    || file.ast.exports.iter().any(|export| {
+                        export.span.contains(function.span)
+                            && !file.ast.functions.iter().any(|candidate| {
+                                candidate.span != function.span
+                                    && export.span.contains(candidate.span)
+                                    && candidate.span.contains(function.span)
+                            })
+                    });
+            nodes.push(OwnerNode {
+                path: file.path.to_string(),
+                span: function.span,
+                body: function.body,
+                name: function.name.as_ref().map(|name| name.name.clone()),
+                symbol,
+                exported,
+            });
+        }
+    }
+    let nodes_by_path = function_indices_by_path(&nodes);
+    let by_symbol = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| node.symbol.clone().map(|symbol| (symbol, index)))
+        .collect::<HashMap<_, _>>();
+    let mut contexts = vec![0_u8; nodes.len()];
+    let mut edges = Vec::<(usize, usize, OwnerEdgeKind)>::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if node
+            .name
+            .as_deref()
+            .and_then(|name| name.chars().next())
+            .is_some_and(char::is_uppercase)
+        {
+            contexts[index] |= OWNER_CONTEXT_OWNED;
+        }
+        if node.exported
+            && node.name.is_some()
+            && !node
+                .name
+                .as_deref()
+                .and_then(|name| name.chars().next())
+                .is_some_and(char::is_uppercase)
+        {
+            contexts[index] |= OWNER_CONTEXT_UNOWNED;
+        }
+    }
+    for (file_index, file) in facts.files.iter().enumerate() {
+        for (call_index, call) in file.ast.calls.iter().enumerate() {
+            let owner =
+                containing_function_indexed(&nodes, &nodes_by_path, file.path.as_str(), call.span);
+            if let Some(target_index) = entities
+                .get(&location(file.path.as_str(), call.callee))
+                .and_then(|symbol| by_symbol.get(symbol))
+                .copied()
+            {
+                if let Some(owner) = owner {
+                    edges.push((owner, target_index, OwnerEdgeKind::Preserve));
+                } else {
+                    contexts[target_index] |= OWNER_CONTEXT_UNOWNED;
+                }
+            }
+            let callback_roles: &[(usize, OwnerEdgeKind)] =
+                match owner_file_indexes[file_index].call_primitives[call_index].as_deref() {
+                    Some(
+                        "createRoot"
+                        | "createMemo"
+                        | "createSignal"
+                        | "createStore"
+                        | "createProjection"
+                        | "createOptimistic"
+                        | "createOptimisticStore",
+                    ) => &[(0, OwnerEdgeKind::Owned)],
+                    Some("createEffect" | "createRenderEffect") => {
+                        &[(0, OwnerEdgeKind::Owned), (1, OwnerEdgeKind::Unowned)]
+                    }
+                    Some("createTrackedEffect" | "onSettled") => &[(0, OwnerEdgeKind::Leaf)],
+                    _ => &[],
+                };
+            for (argument_index, edge_kind) in callback_roles {
+                let Some(argument) = call.arguments.get(*argument_index) else {
+                    continue;
+                };
+                let Some(target_index) = owner_callback_index(
+                    &nodes,
+                    &nodes_by_path,
+                    &by_symbol,
+                    file,
+                    argument.span,
+                    entities,
+                ) else {
+                    continue;
+                };
+                if let Some(owner) = owner {
+                    edges.push((owner, target_index, *edge_kind));
+                } else {
+                    contexts[target_index] |= owner_edge_context(*edge_kind, OWNER_CONTEXT_UNOWNED);
+                }
+            }
+        }
+        for callback in &file.compiler.callback_roles {
+            if !matches!(
+                callback.role,
+                solid_facts::solid_compiler_facts::CallbackRoleKind::EventHandler
+                    | solid_facts::solid_compiler_facts::CallbackRoleKind::DirectiveApply
+            ) {
+                continue;
+            }
+            if let Some(index) = owner_callback_index(
+                &nodes,
+                &nodes_by_path,
+                &by_symbol,
+                file,
+                callback.span,
+                entities,
+            ) {
+                contexts[index] |= OWNER_CONTEXT_UNOWNED;
+            }
+        }
+    }
+    let mut outgoing = vec![Vec::<(usize, OwnerEdgeKind)>::new(); nodes.len()];
+    for (source, target, kind) in edges {
+        outgoing[source].push((target, kind));
+    }
+    let mut queued = contexts
+        .iter()
+        .map(|context| *context != 0)
+        .collect::<Vec<_>>();
+    let mut worklist = queued
+        .iter()
+        .enumerate()
+        .filter_map(|(index, queued)| queued.then_some(index))
+        .collect::<VecDeque<_>>();
+    while let Some(source) = worklist.pop_front() {
+        queued[source] = false;
+        for (target, kind) in outgoing[source].iter().copied() {
+            let propagated = owner_edge_context(kind, contexts[source]);
+            let next = contexts[target] | propagated;
+            if next != contexts[target] {
+                contexts[target] = next;
+                if !queued[target] {
+                    queued[target] = true;
+                    worklist.push_back(target);
+                }
+            }
+        }
+    }
+
+    let mut requirements = Vec::new();
+    let mut seen = HashSet::new();
+    for (file_index, file) in facts.files.iter().enumerate() {
+        for (call_index, call) in file.ast.calls.iter().enumerate() {
+            let primitive = owner_file_indexes[file_index].call_primitives[call_index].as_deref();
+            let context = owner_context_at(
+                &nodes,
+                &nodes_by_path,
+                &contexts,
+                file.path.as_str(),
+                call.span,
+            );
+            let root_owned = inside_owner_providing_region(
+                &owner_file_indexes[file_index].providing_regions,
+                call.span,
+            );
+            let operation = match primitive {
+                Some("createEffect" | "createTrackedEffect") if !root_owned => {
+                    Some(("effect", context & OWNER_CONTEXT_UNOWNED != 0))
+                }
+                Some("onCleanup") if !root_owned => Some((
+                    "cleanup",
+                    context & (OWNER_CONTEXT_UNOWNED | OWNER_CONTEXT_LEAF) != 0,
+                )),
+                Some("onSettled")
+                    if !root_owned
+                        && call.arguments.first().is_some_and(|argument| {
+                            owner_callback_index(
+                                &nodes,
+                                &nodes_by_path,
+                                &by_symbol,
+                                file,
+                                argument.span,
+                                entities,
+                            )
+                            .and_then(|index| {
+                                let node = &nodes[index];
+                                let callback_file = facts
+                                    .files
+                                    .iter()
+                                    .find(|candidate| candidate.path.as_str() == node.path)?;
+                                let callback = callback_file
+                                    .ast
+                                    .functions
+                                    .iter()
+                                    .find(|candidate| candidate.span == node.span)?;
+                                Some(function_returns_cleanup(
+                                    facts,
+                                    callback_file,
+                                    callback,
+                                    entities,
+                                ))
+                            })
+                            .unwrap_or(false)
+                        }) =>
+                {
+                    Some((
+                        "settled-cleanup",
+                        context & (OWNER_CONTEXT_UNOWNED | OWNER_CONTEXT_LEAF) != 0,
+                    ))
+                }
+                _ => None,
+            };
+            if let Some((operation, report)) = operation {
+                let uncertain = containing_function_indexed(
+                    &nodes,
+                    &nodes_by_path,
+                    file.path.as_str(),
+                    call.span,
+                )
+                .is_some_and(|index| {
+                    nodes[index].exported
+                        && contexts[index] & OWNER_CONTEXT_UNOWNED != 0
+                        && !nodes[index]
+                            .name
+                            .as_deref()
+                            .and_then(|name| name.chars().next())
+                            .is_some_and(char::is_uppercase)
+                });
+                let operation_span = if operation == "settled-cleanup" {
+                    call.arguments
+                        .first()
+                        .map_or(call.callee, |argument| argument.span)
+                } else {
+                    call.callee
+                };
+                push_owner_requirement(
+                    &mut requirements,
+                    &mut seen,
+                    operation,
+                    file.path.as_str(),
+                    operation_span,
+                    uncertain,
+                    report,
+                );
+            }
+        }
+        for element in &file.ast.jsx_elements {
+            let boundary = primitive_name(
+                file.path.as_str(),
+                element.name.span,
+                Some(&element.name.name),
+                entities,
+                symbol_names,
+            );
+            if boundary.as_deref() != Some("Loading") {
+                continue;
+            }
+            let context = owner_context_at(
+                &nodes,
+                &nodes_by_path,
+                &contexts,
+                file.path.as_str(),
+                element.span,
+            );
+            if inside_owner_providing_region(
+                &owner_file_indexes[file_index].providing_regions,
+                element.span,
+            ) {
+                continue;
+            }
+            push_owner_requirement(
+                &mut requirements,
+                &mut seen,
+                "boundary",
+                file.path.as_str(),
+                Span::new(element.span.start, element.name.span.end),
+                false,
+                context & OWNER_CONTEXT_UNOWNED != 0,
+            );
+        }
+    }
+    requirements
+}
+
+fn discover_owner_file(
+    file: &solid_facts::FileFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> CachedOwnerFile {
+    let call_primitives = file
+        .ast
+        .calls
+        .iter()
+        .map(|call| {
+            primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                symbol_names,
+            )
+        })
+        .collect::<Vec<_>>();
+    let providing_regions = file
+        .ast
+        .calls
+        .iter()
+        .zip(&call_primitives)
+        .filter_map(|(call, primitive)| {
+            let argument = match primitive.as_deref() {
+                Some(
+                    "createRoot" | "createMemo" | "createEffect" | "createRenderEffect"
+                    | "createProjection" | "createSignal" | "createStore",
+                ) => 0,
+                Some("runWithOwner") => 1,
+                _ => return None,
+            };
+            call.arguments.get(argument).and_then(|argument| {
+                matches!(
+                    argument.value,
+                    solid_ast_facts::ArgumentValueKind::Identifier
+                        | solid_ast_facts::ArgumentValueKind::Function
+                        | solid_ast_facts::ArgumentValueKind::AsyncFunction
+                )
+                .then_some(argument.span)
+            })
+        })
+        .collect::<Vec<_>>();
+    let nodes = file
+        .ast
+        .functions
+        .iter()
+        .map(|function| {
+            let symbol = function.name.as_ref().and_then(|name| {
+                entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .cloned()
+            });
+            let exported =
+                indexes
+                    .typescript_file(file.path.as_str())
+                    .is_some_and(|typescript_file| {
+                        typescript_file.functions.iter().any(|candidate| {
+                            candidate.exported
+                                && candidate.body.start_byte == u64::from(function.body.start)
+                                && candidate.body.end_byte == u64::from(function.body.end)
+                        })
+                    })
+                    || file.ast.exports.iter().any(|export| {
+                        export.span.contains(function.span)
+                            && !file.ast.functions.iter().any(|candidate| {
+                                candidate.span != function.span
+                                    && export.span.contains(candidate.span)
+                                    && candidate.span.contains(function.span)
+                            })
+                    });
+            OwnerNode {
+                path: file.path.to_string(),
+                span: function.span,
+                body: function.body,
+                name: function.name.as_ref().map(|name| name.name.clone()),
+                symbol,
+                exported,
+            }
+        })
+        .collect::<Vec<_>>();
+    let nodes_by_path = function_indices_by_path(&nodes);
+    let owner_at = |span| {
+        containing_function_indexed(&nodes, &nodes_by_path, file.path.as_str(), span)
+            .map(|index| nodes[index].span)
+    };
+    let callback_target = |argument: Span| {
+        nodes_by_path
+            .get(file.path.as_str())
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|index| argument.contains(nodes[*index].span))
+            .max_by_key(|index| nodes[*index].span.end - nodes[*index].span.start)
+            .map(|index| OwnerTarget::LocalSpan(nodes[index].span))
+            .or_else(|| {
+                entities
+                    .get(&location(file.path.as_str(), argument))
+                    .cloned()
+                    .map(OwnerTarget::Symbol)
+            })
+    };
+    let mut edges = Vec::new();
+    let mut requirements = Vec::new();
+    for (call_index, call) in file.ast.calls.iter().enumerate() {
+        let owner = owner_at(call.span);
+        if let Some(symbol) = entities.get(&location(file.path.as_str(), call.callee)) {
+            edges.push(SymbolicOwnerEdge {
+                source: owner,
+                target: OwnerTarget::Symbol(symbol.clone()),
+                kind: OwnerEdgeKind::Preserve,
+            });
+        }
+        let callback_roles: &[(usize, OwnerEdgeKind)] = match call_primitives[call_index].as_deref()
+        {
+            Some(
+                "createRoot"
+                | "createMemo"
+                | "createSignal"
+                | "createStore"
+                | "createProjection"
+                | "createOptimistic"
+                | "createOptimisticStore",
+            ) => &[(0, OwnerEdgeKind::Owned)],
+            Some("createEffect" | "createRenderEffect") => {
+                &[(0, OwnerEdgeKind::Owned), (1, OwnerEdgeKind::Unowned)]
+            }
+            Some("createTrackedEffect" | "onSettled") => &[(0, OwnerEdgeKind::Leaf)],
+            _ => &[],
+        };
+        for (argument_index, kind) in callback_roles {
+            if let Some(target) = call
+                .arguments
+                .get(*argument_index)
+                .and_then(|argument| callback_target(argument.span))
+            {
+                edges.push(SymbolicOwnerEdge {
+                    source: owner,
+                    target,
+                    kind: *kind,
+                });
+            }
+        }
+        if inside_owner_providing_region(&providing_regions, call.span) {
+            continue;
+        }
+        let operation = match call_primitives[call_index].as_deref() {
+            Some("createEffect" | "createTrackedEffect") => {
+                Some(("effect", OWNER_CONTEXT_UNOWNED, None, call.callee))
+            }
+            Some("onCleanup") => Some((
+                "cleanup",
+                OWNER_CONTEXT_UNOWNED | OWNER_CONTEXT_LEAF,
+                None,
+                call.callee,
+            )),
+            Some("onSettled") => Some((
+                "settled-cleanup",
+                OWNER_CONTEXT_UNOWNED | OWNER_CONTEXT_LEAF,
+                call.arguments
+                    .first()
+                    .and_then(|argument| callback_target(argument.span)),
+                call.arguments
+                    .first()
+                    .map_or(call.callee, |argument| argument.span),
+            )),
+            _ => None,
+        };
+        if let Some((operation, report_mask, settled_target, operation_span)) = operation {
+            requirements.push(OwnerRequirementCandidate {
+                operation,
+                operation_span,
+                owner,
+                report_mask,
+                allow_uncertain: true,
+                settled_target,
+            });
+        }
+    }
+    for callback in &file.compiler.callback_roles {
+        if matches!(
+            callback.role,
+            solid_facts::solid_compiler_facts::CallbackRoleKind::EventHandler
+                | solid_facts::solid_compiler_facts::CallbackRoleKind::DirectiveApply
+        ) && let Some(target) = callback_target(callback.span)
+        {
+            edges.push(SymbolicOwnerEdge {
+                source: None,
+                target,
+                kind: OwnerEdgeKind::Unowned,
+            });
+        }
+    }
+    for element in &file.ast.jsx_elements {
+        let boundary = primitive_name(
+            file.path.as_str(),
+            element.name.span,
+            Some(&element.name.name),
+            entities,
+            symbol_names,
+        );
+        if boundary.as_deref() == Some("Loading")
+            && !inside_owner_providing_region(&providing_regions, element.span)
+        {
+            requirements.push(OwnerRequirementCandidate {
+                operation: "boundary",
+                operation_span: Span::new(element.span.start, element.name.span.end),
+                owner: owner_at(element.span),
+                report_mask: OWNER_CONTEXT_UNOWNED,
+                allow_uncertain: false,
+                settled_target: None,
+            });
+        }
+    }
+    CachedOwnerFile {
+        source_hash: file.source_hash.clone(),
+        compiler: file.compiler.clone(),
+        nodes,
+        edges,
+        requirements,
+    }
+}
+
+fn resolve_owner_target(
+    path: &str,
+    target: &OwnerTarget,
+    nodes_by_span: &HashMap<String, HashMap<Span, usize>>,
+    by_symbol: &HashMap<String, usize>,
+) -> Option<usize> {
+    match target {
+        OwnerTarget::Symbol(symbol) => by_symbol.get(symbol).copied(),
+        OwnerTarget::LocalSpan(span) => nodes_by_span
+            .get(path)
+            .and_then(|nodes| nodes.get(span))
+            .copied(),
+    }
+}
+
+fn find_missing_owners_incremental(
+    facts: &ProjectFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    retained_source_paths: &HashSet<String>,
+    cache: &mut HashMap<String, CachedOwnerFile>,
+    build_timings: &mut BuildTimings,
+) -> (Vec<OwnerRequirement>, OwnerIncrementalTimings) {
+    let total_started = Instant::now();
+    let current_paths = facts
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<HashSet<_>>();
+    cache.retain(|path, _| current_paths.contains(path.as_str()));
+    for file in &facts.files {
+        if retained_source_paths.contains(file.path.as_str())
+            && let Some(cached) = cache.get(file.path.as_str())
+            && cached.source_hash == file.source_hash
+            && (Arc::ptr_eq(&cached.compiler, &file.compiler)
+                || same_compiler_semantics(&cached.compiler, &file.compiler))
+        {
+            build_timings.owner_reused_files += 1;
+            continue;
+        }
+        cache.insert(
+            file.path.to_string(),
+            discover_owner_file(file, indexes, entities, symbol_names),
+        );
+        build_timings.owner_recomputed_files += 1;
+    }
+    let fragment_build = total_started.elapsed();
+
+    let graph_started = Instant::now();
+    let mut nodes = Vec::new();
+    for file in &facts.files {
+        if let Some(fragment) = cache.get(file.path.as_str()) {
+            nodes.extend(fragment.nodes.iter().cloned());
+        }
+    }
+    let mut nodes_by_span = HashMap::<String, HashMap<Span, usize>>::new();
+    for (index, node) in nodes.iter().enumerate() {
+        nodes_by_span
+            .entry(node.path.clone())
+            .or_default()
+            .insert(node.span, index);
+    }
+    let by_symbol = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| node.symbol.clone().map(|symbol| (symbol, index)))
+        .collect::<HashMap<_, _>>();
+    let mut contexts = vec![0_u8; nodes.len()];
+    for (index, node) in nodes.iter().enumerate() {
+        if node
+            .name
+            .as_deref()
+            .and_then(|name| name.chars().next())
+            .is_some_and(char::is_uppercase)
+        {
+            contexts[index] |= OWNER_CONTEXT_OWNED;
+        }
+        if node.exported
+            && node.name.is_some()
+            && !node
+                .name
+                .as_deref()
+                .and_then(|name| name.chars().next())
+                .is_some_and(char::is_uppercase)
+        {
+            contexts[index] |= OWNER_CONTEXT_UNOWNED;
+        }
+    }
+    let mut outgoing = vec![Vec::<(usize, OwnerEdgeKind)>::new(); nodes.len()];
+    for file in &facts.files {
+        let Some(fragment) = cache.get(file.path.as_str()) else {
+            continue;
+        };
+        for edge in &fragment.edges {
+            let Some(target) =
+                resolve_owner_target(file.path.as_str(), &edge.target, &nodes_by_span, &by_symbol)
+            else {
+                continue;
+            };
+            if let Some(source) = edge.source.and_then(|span| {
+                nodes_by_span
+                    .get(file.path.as_str())
+                    .and_then(|nodes| nodes.get(&span))
+                    .copied()
+            }) {
+                outgoing[source].push((target, edge.kind));
+            } else {
+                contexts[target] |= owner_edge_context(edge.kind, OWNER_CONTEXT_UNOWNED);
+            }
+        }
+    }
+    let graph_assembly = graph_started.elapsed();
+
+    let propagation_started = Instant::now();
+    let mut queued = contexts
+        .iter()
+        .map(|context| *context != 0)
+        .collect::<Vec<_>>();
+    let mut worklist = queued
+        .iter()
+        .enumerate()
+        .filter_map(|(index, queued)| queued.then_some(index))
+        .collect::<VecDeque<_>>();
+    while let Some(source) = worklist.pop_front() {
+        queued[source] = false;
+        for (target, kind) in outgoing[source].iter().copied() {
+            let propagated = owner_edge_context(kind, contexts[source]);
+            let next = contexts[target] | propagated;
+            if next != contexts[target] {
+                contexts[target] = next;
+                if !queued[target] {
+                    queued[target] = true;
+                    worklist.push_back(target);
+                }
+            }
+        }
+    }
+    let propagation = propagation_started.elapsed();
+
+    let requirements_started = Instant::now();
+    let mut requirements = Vec::new();
+    let mut seen = HashSet::new();
+    for file in &facts.files {
+        let Some(fragment) = cache.get(file.path.as_str()) else {
+            continue;
+        };
+        for candidate in &fragment.requirements {
+            if candidate.operation == "settled-cleanup" {
+                let returns_cleanup = candidate
+                    .settled_target
+                    .as_ref()
+                    .and_then(|target| {
+                        resolve_owner_target(file.path.as_str(), target, &nodes_by_span, &by_symbol)
+                    })
+                    .and_then(|index| {
+                        let node = &nodes[index];
+                        let callback_file = indexes.files_by_path.get(node.path.as_str())?;
+                        let callback = callback_file
+                            .ast
+                            .functions
+                            .iter()
+                            .find(|function| function.span == node.span)?;
+                        Some(function_returns_cleanup(
+                            facts,
+                            callback_file,
+                            callback,
+                            entities,
+                        ))
+                    })
+                    .unwrap_or(false);
+                if !returns_cleanup {
+                    continue;
+                }
+            }
+            let owner_index = candidate.owner.and_then(|span| {
+                nodes_by_span
+                    .get(file.path.as_str())
+                    .and_then(|nodes| nodes.get(&span))
+                    .copied()
+            });
+            let context = owner_index.map_or(OWNER_CONTEXT_UNOWNED, |index| contexts[index]);
+            let uncertain = candidate.allow_uncertain
+                && owner_index.is_some_and(|index| {
+                    nodes[index].exported
+                        && contexts[index] & OWNER_CONTEXT_UNOWNED != 0
+                        && !nodes[index]
+                            .name
+                            .as_deref()
+                            .and_then(|name| name.chars().next())
+                            .is_some_and(char::is_uppercase)
+                });
+            push_owner_requirement(
+                &mut requirements,
+                &mut seen,
+                candidate.operation,
+                file.path.as_str(),
+                candidate.operation_span,
+                uncertain,
+                context & candidate.report_mask != 0,
+            );
+        }
+    }
+    let requirement_emission = requirements_started.elapsed();
+    (
+        requirements,
+        OwnerIncrementalTimings {
+            fragment_build,
+            graph_assembly,
+            propagation,
+            requirement_emission,
+        },
+    )
+}
+
+fn inside_owner_providing_region(providing_regions: &[Span], span: Span) -> bool {
+    providing_regions
+        .iter()
+        .any(|argument| argument.contains(span))
+}
+
+fn owner_callback_index(
+    nodes: &[OwnerNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    by_symbol: &HashMap<String, usize>,
+    file: &solid_facts::FileFacts,
+    argument: Span,
+    entities: &EntitySymbols,
+) -> Option<usize> {
+    nodes_by_path
+        .get(file.path.as_str())
+        .into_iter()
+        .flatten()
+        .copied()
+        .filter(|index| argument.contains(nodes[*index].span))
+        // The argument's function can itself contain nested callbacks or a
+        // returned closure. Select the outermost contained function: choosing
+        // the smallest one assigns the caller's owner semantics to a nested
+        // callback and leaves the actual argument unclassified.
+        .max_by_key(|index| nodes[*index].span.end - nodes[*index].span.start)
+        .or_else(|| {
+            entities
+                .get(&location(file.path.as_str(), argument))
+                .and_then(|symbol| by_symbol.get(symbol))
+                .copied()
+        })
+}
+
+const fn owner_edge_context(kind: OwnerEdgeKind, source: u8) -> u8 {
+    match kind {
+        OwnerEdgeKind::Preserve => source,
+        OwnerEdgeKind::Owned => OWNER_CONTEXT_OWNED,
+        OwnerEdgeKind::Unowned => OWNER_CONTEXT_UNOWNED,
+        OwnerEdgeKind::Leaf => OWNER_CONTEXT_LEAF,
+    }
+}
+
+fn owner_context_at(
+    nodes: &[OwnerNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    contexts: &[u8],
+    path: &str,
+    span: Span,
+) -> u8 {
+    containing_function_indexed(nodes, nodes_by_path, path, span)
+        .map_or(OWNER_CONTEXT_UNOWNED, |index| contexts[index])
+}
+
+fn function_returns_cleanup(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    entities: &EntitySymbols,
+) -> bool {
+    function
+        .expression_return
+        .iter()
+        .chain(file.ast.returns.iter().filter(|returned| {
+            containing_ast_function(&file.ast.functions, returned.span)
+                .is_some_and(|owner| owner.span == function.span)
+        }))
+        .any(|returned| cleanup_return_is_function(facts, file, returned, entities))
+}
+
+fn cleanup_return_is_function(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    returned: &solid_ast_facts::ReturnFact,
+    entities: &EntitySymbols,
+) -> bool {
+    match returned.value {
+        solid_ast_facts::ReturnValueKind::Function => true,
+        solid_ast_facts::ReturnValueKind::Identifier => {
+            matches!(
+                cleanup_return_status(facts, file, returned, entities),
+                CleanupReturnStatus::Valid
+            )
+        }
+        solid_ast_facts::ReturnValueKind::Call => {
+            let Some(callee) = returned.callee else {
+                return false;
+            };
+            let callee_location = location(file.path.as_str(), callee);
+            facts
+                .typescript
+                .entities
+                .iter()
+                .find(|entity| entity.location == callee_location)
+                .and_then(|entity| entity.resolved_call.as_ref())
+                .map(|call| call.return_type_text.trim())
+                .is_some_and(|return_type| {
+                    return_type == "VoidFunction"
+                        || return_type.contains("=>")
+                            && ![
+                                "Promise",
+                                "AsyncIterable",
+                                "number",
+                                "string",
+                                "boolean",
+                                "null",
+                                "{",
+                            ]
+                            .iter()
+                            .any(|invalid| return_type.contains(invalid))
+                })
+        }
+        solid_ast_facts::ReturnValueKind::Undefined
+        | solid_ast_facts::ReturnValueKind::Member
+        | solid_ast_facts::ReturnValueKind::Other => false,
+    }
+}
+
+fn push_owner_requirement(
+    requirements: &mut Vec<OwnerRequirement>,
+    seen: &mut HashSet<(String, u64, u64, String)>,
+    operation: &str,
+    path: &str,
+    span: Span,
+    uncertain: bool,
+    report: bool,
+) {
+    let location = location(path, span);
+    if seen.insert((
+        location.path.clone(),
+        location.start_byte,
+        location.end_byte,
+        operation.into(),
+    )) {
+        requirements.push(OwnerRequirement {
+            operation: operation.into(),
+            location,
+            uncertain,
+            report,
+        });
+    }
+}
+
+fn containing_leaf_owner(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Option<String> {
+    file.ast.calls.iter().find_map(|call| {
+        let owner = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )?;
+        if !matches!(owner.as_str(), "onSettled" | "createTrackedEffect") {
+            return None;
+        }
+        call.arguments
+            .first()
+            .is_some_and(|argument| argument.span.contains(span))
+            .then_some(owner)
+    })
+}
+
+fn read_is_under_loading(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> bool {
+    if file.ast.jsx_elements.iter().any(|element| {
+        element.span.contains(span) && jsx_element_is_loading(file, element, entities, symbol_names)
+    }) {
+        return true;
+    }
+    if file.ast.jsx_elements.iter().any(|element| {
+        element.span.contains(span)
+            && jsx_target_function(facts, file, element, entities).is_some_and(
+                |(target_file, target)| {
+                    target_file.ast.jsx_elements.iter().any(|candidate| {
+                        target.body.contains(candidate.span)
+                            && jsx_element_is_loading(
+                                target_file,
+                                candidate,
+                                entities,
+                                symbol_names,
+                            )
+                    })
+                },
+            )
+    }) {
+        return true;
+    }
+    let Some(owner) = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .min_by_key(|function| function.body.end - function.body.start)
+    else {
+        return false;
+    };
+    facts.files.iter().any(|caller_file| {
+        caller_file.ast.jsx_elements.iter().any(|element| {
+            jsx_target_function(facts, caller_file, element, entities).is_some_and(
+                |(target_file, target)| target_file.path == file.path && target.span == owner.span,
+            ) && (caller_file.ast.jsx_elements.iter().any(|boundary| {
+                boundary.span.contains(element.span)
+                    && boundary.span != element.span
+                    && jsx_element_is_loading(caller_file, boundary, entities, symbol_names)
+            }) || jsx_target_function(facts, caller_file, element, entities).is_some_and(
+                |(wrapper_file, wrapper)| {
+                    wrapper_file.ast.jsx_elements.iter().any(|candidate| {
+                        wrapper.body.contains(candidate.span)
+                            && jsx_element_is_loading(
+                                wrapper_file,
+                                candidate,
+                                entities,
+                                symbol_names,
+                            )
+                    })
+                },
+            ))
+        })
+    })
+}
+
+fn jsx_element_is_loading(
+    file: &solid_facts::FileFacts,
+    element: &solid_ast_facts::JsxElementFact,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> bool {
+    primitive_name(
+        file.path.as_str(),
+        element.name.span,
+        Some(&element.name.name),
+        entities,
+        symbol_names,
+    )
+    .as_deref()
+        == Some("Loading")
+}
+
+fn jsx_target_function<'a>(
+    facts: &'a ProjectFacts,
+    file: &'a solid_facts::FileFacts,
+    element: &solid_ast_facts::JsxElementFact,
+    entities: &EntitySymbols,
+) -> Option<(
+    &'a solid_facts::FileFacts,
+    &'a solid_ast_facts::FunctionFact,
+)> {
+    function_called_at(facts, file, element.name.span, entities)
+}
+
+fn computation_is_async(
+    facts: &ProjectFacts,
+    file: &solid_facts::FileFacts,
+    argument: Span,
+) -> bool {
+    if facts.typescript.files.iter().any(|typescript_file| {
+        typescript_file.path == file.path.as_str()
+            && typescript_file.async_functions.iter().any(|function| {
+                function.can_return_async
+                    && u64::from(argument.start) <= function.expression.start_byte
+                    && function.expression.end_byte <= u64::from(argument.end)
+            })
+    }) {
+        return true;
+    }
+    file.ast
+        .functions
+        .iter()
+        .filter(|function| argument.contains(function.span))
+        .max_by_key(|function| function.span.end - function.span.start)
+        .is_some_and(|function| {
+            function.r#async
+                || function
+                    .expression_return
+                    .iter()
+                    .chain(file.ast.returns.iter().filter(|returned| {
+                        containing_ast_function(&file.ast.functions, returned.span)
+                            .is_some_and(|owner| owner.span == function.span)
+                    }))
+                    .any(|returned| {
+                        returned.callee.is_some_and(|callee| {
+                            let callee_location = location(file.path.as_str(), callee);
+                            facts.typescript.entities.iter().any(|entity| {
+                                entity.location == callee_location
+                                    && entity.resolved_call.as_ref().is_some_and(|call| {
+                                        ["Promise", "PromiseLike", "AsyncIterable"]
+                                            .iter()
+                                            .any(|kind| call.return_type_text.contains(kind))
+                                    })
+                            })
+                        })
+                    })
+        })
+}
+
+fn inside_lowercase_named_function(file: &solid_facts::FileFacts, span: Span) -> bool {
+    if file
+        .compiler
+        .callback_roles
+        .iter()
+        .any(|callback| callback.span.contains(span))
+    {
+        return false;
+    }
+    if file.ast.calls.iter().any(|call| {
+        call.arguments
+            .iter()
+            .any(|argument| argument.span.contains(span))
+            && call.static_callee.as_deref().is_some_and(|callee| {
+                matches!(
+                    callee.rsplit('.').next(),
+                    Some(
+                        "createMemo"
+                            | "createEffect"
+                            | "createRenderEffect"
+                            | "createTrackedEffect"
+                            | "onSettled"
+                            | "untrack"
+                            | "action"
+                    )
+                )
+            })
+    }) {
+        return false;
+    }
+    file.ast.functions.iter().any(|function| {
+        function.body.contains(span)
+            && function
+                .name
+                .as_ref()
+                .and_then(|name| name.name.chars().next())
+                .is_some_and(char::is_lowercase)
+    })
+}
+
+fn inside_unclassified_callback(file: &solid_facts::FileFacts, span: Span) -> bool {
+    if file
+        .compiler
+        .callback_roles
+        .iter()
+        .any(|callback| callback.span.contains(span))
+    {
+        return false;
+    }
+    file.ast
+        .functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .min_by_key(|function| function.body.end - function.body.start)
+        .is_some_and(|function| function.name.is_none())
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SummaryRead {
+    symbol: String,
+    display: String,
+    kind: Option<String>,
+    declaration: Location,
+    origin: Location,
+    origin_context: String,
+}
+
+struct DirectReferenceContribution {
+    owner: usize,
+    read: SummaryRead,
+    unique: bool,
+}
+
+#[derive(Clone, Default)]
+struct SummaryReads {
+    ordered: Vec<SummaryRead>,
+    seen: HashSet<(String, Location, Location)>,
+}
+
+impl SummaryReads {
+    fn key(read: &SummaryRead) -> (String, Location, Location) {
+        (
+            read.display.clone(),
+            read.origin.clone(),
+            read.declaration.clone(),
+        )
+    }
+
+    fn push(&mut self, read: SummaryRead) {
+        self.seen.insert(Self::key(&read));
+        self.ordered.push(read);
+    }
+
+    fn push_unique(&mut self, read: SummaryRead) -> bool {
+        if !self.seen.insert(Self::key(&read)) {
+            return false;
+        }
+        self.ordered.push(read);
+        true
+    }
+
+    fn insert(&mut self, index: usize, read: SummaryRead) {
+        self.seen.insert(Self::key(&read));
+        self.ordered.insert(index, read);
+    }
+
+    fn take(&mut self) -> Vec<SummaryRead> {
+        self.seen.clear();
+        std::mem::take(&mut self.ordered)
+    }
+
+    fn replace(&mut self, reads: Vec<SummaryRead>) {
+        self.seen = reads.iter().map(Self::key).collect();
+        self.ordered = reads;
+    }
+
+    fn to_vec(&self) -> Vec<SummaryRead> {
+        self.ordered.clone()
+    }
+}
+
+impl std::ops::Deref for SummaryReads {
+    type Target = [SummaryRead];
+
+    fn deref(&self) -> &Self::Target {
+        &self.ordered
+    }
+}
+
+#[derive(Clone)]
+struct SummaryNode {
+    path: String,
+    span: Span,
+    body: Span,
+    name: Option<String>,
+    symbol: Option<String>,
+    parameters: Vec<String>,
+    exported: bool,
+    r#async: bool,
+}
+
+impl FunctionBoundary for SummaryNode {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn body(&self) -> Span {
+        self.body
+    }
+}
+
+#[derive(Clone)]
+struct InterproceduralResult {
+    reads: Vec<ReactiveRead>,
+    exports: Arc<BTreeMap<String, ContractExport>>,
+    factory_instances: usize,
+    timings: InterproceduralTimings,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct InterproceduralTimings {
+    graph: Duration,
+    direct_summaries: Duration,
+    direct_index: Duration,
+    direct_references: Duration,
+    typed_accessors: Duration,
+    propagation: Duration,
+    returned_direct: Duration,
+    returned_delta: Duration,
+    call_summary_delta: Duration,
+    factory_propagation: Duration,
+    results_and_exports: Duration,
+    result_reads: Duration,
+    export_summaries: Duration,
+    typed_accessor_reused_files: u64,
+    typed_accessor_recomputed_files: u64,
+    graph_reused_files: u64,
+    graph_recomputed_files: u64,
+    result_reused_files: u64,
+    result_recomputed_files: u64,
+}
+
+fn discover_typed_accessors(
+    file: &solid_facts::FileFacts,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    project_indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Vec<TypedAccessorContribution> {
+    let path_entities = project_indexes.entities_for_path(file.path.as_str());
+    let mut contributions = Vec::new();
+    for call in &file.ast.calls {
+        let callee_location = location(file.path.as_str(), call.callee);
+        let descriptor = path_entities
+            .iter()
+            .find(|entity| {
+                entity.location.start_byte == callee_location.start_byte
+                    && entity.location.end_byte == callee_location.end_byte
+            })
+            .and_then(|entity| entity.type_descriptor.as_ref());
+        let Some(descriptor) =
+            descriptor.filter(|descriptor| go_solid_accessor_descriptor(descriptor))
+        else {
+            continue;
+        };
+        let Some(owner) = containing_summary_function_indexed(
+            nodes,
+            nodes_by_path,
+            file.path.as_str(),
+            call.callee,
+        ) else {
+            continue;
+        };
+        if inside_effect_apply(file, call.callee, entities, symbol_names)
+            || enclosing_render_function(file, call.callee)
+        {
+            continue;
+        }
+        let call_location = location(file.path.as_str(), call.span);
+        let display = usize::try_from(call.callee.start)
+            .ok()
+            .zip(usize::try_from(call.callee.end).ok())
+            .and_then(|(start, end)| file.source.get(start..end))
+            .unwrap_or("accessor")
+            .to_string();
+        let declaration = descriptor.alias_declarations.first().map_or_else(
+            || callee_location.clone(),
+            |declaration| declaration.location.clone(),
+        );
+        contributions.push(TypedAccessorContribution {
+            owner: nodes[owner].span,
+            read: SummaryRead {
+                symbol: format!(
+                    "typed:{}\0{}\0{}",
+                    call_location.path, call_location.start_byte, call_location.end_byte
+                ),
+                display,
+                kind: Some("accessor".into()),
+                declaration,
+                origin: call_location,
+                origin_context: nodes[owner].name.clone().unwrap_or_default(),
+            },
+        });
+    }
+    contributions
+}
+
+fn merge_typed_accessors(
+    path: &str,
+    contributions: &[TypedAccessorContribution],
+    indexes: &HashMap<(String, Span), usize>,
+    summaries: &mut [SummaryReads],
+) {
+    for contribution in contributions {
+        let Some(owner) = indexes
+            .get(&(path.to_string(), contribution.owner))
+            .copied()
+        else {
+            continue;
+        };
+        if summaries[owner]
+            .iter()
+            .any(|read| read.origin == contribution.read.origin)
+        {
+            continue;
+        }
+        let insertion = summaries[owner]
+            .iter()
+            .position(|existing| existing.origin.path.starts_with("bundled://"))
+            .unwrap_or(summaries[owner].len());
+        summaries[owner].insert(insertion, contribution.read.clone());
+    }
+}
+
+fn discover_summary_nodes(
+    file: &solid_facts::FileFacts,
+    project_indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+) -> Vec<SummaryNode> {
+    let mut nodes = Vec::new();
+    let typescript_file = project_indexes.typescript_file(file.path.as_str());
+    for arrow in [false, true] {
+        for function in &file.ast.functions {
+            let source_function = typescript_file.and_then(|typescript_file| {
+                typescript_file.functions.iter().find(|candidate| {
+                    candidate.body.start_byte == u64::from(function.body.start)
+                        && candidate.body.end_byte.saturating_add(1) == u64::from(function.body.end)
+                })
+            });
+            // Preserve the checker's finite function universe and ordering:
+            // declarations first, then block-bodied arrows,
+            // each in source order.
+            if typescript_file.is_some() && source_function.is_none() {
+                continue;
+            }
+            let is_arrow = source_function.map_or(
+                function.kind == solid_ast_facts::FunctionKind::Arrow,
+                |function| function.arrow,
+            );
+            if is_arrow != arrow {
+                continue;
+            }
+            let binding_name = function_binding_name(file, function);
+            let symbol = binding_name.as_ref().and_then(|name| {
+                entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .cloned()
+            });
+            let parameters = function
+                .parameters
+                .iter()
+                .filter(|parameter| parameter.shape == solid_ast_facts::BindingShape::Identifier)
+                .filter_map(|parameter| parameter.names.first())
+                .filter_map(|name| {
+                    entities
+                        .get(&location(file.path.as_str(), name.span))
+                        .cloned()
+                })
+                .collect();
+            nodes.push(SummaryNode {
+                path: file.path.to_string(),
+                span: function.span,
+                body: function.body,
+                name: binding_name.as_ref().map(|name| name.name.clone()),
+                symbol,
+                parameters,
+                exported: source_function.map_or_else(
+                    || source_function_exported(project_indexes, file, function),
+                    |function| function.exported,
+                ),
+                r#async: source_function.map_or(function.r#async, |function| function.r#async),
+            });
+        }
+    }
+    nodes
+}
+
+fn discover_interprocedural_graph(
+    file: &solid_facts::FileFacts,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    entities: &EntitySymbols,
+    contract_reads: &HashMap<String, Vec<(String, String, Location, String)>>,
+    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
+) -> InterproceduralGraphContribution {
+    let mut contribution = InterproceduralGraphContribution::default();
+    for call in &file.ast.calls {
+        let Some(owner) = containing_summary_function_indexed(
+            nodes,
+            nodes_by_path,
+            file.path.as_str(),
+            call.span,
+        ) else {
+            continue;
+        };
+        let owner_span = nodes[owner].span;
+        let callee = location(file.path.as_str(), call.callee);
+        let Some(symbol) = entities.get(&callee) else {
+            continue;
+        };
+        if !call.type_arguments
+            && let Some(contracted) = contract_reads.get(symbol)
+        {
+            for (display, _, declaration, kind) in contracted {
+                contribution.direct_reads.push((
+                    owner_span,
+                    SummaryRead {
+                        symbol: symbol.clone(),
+                        display: display.clone(),
+                        kind: Some(kind.clone()),
+                        declaration: declaration.clone(),
+                        origin: location(file.path.as_str(), call.span),
+                        origin_context: nodes[owner].name.clone().unwrap_or_default(),
+                    },
+                ));
+            }
+        }
+        if !contract_reads.contains_key(symbol) && call.direct_callee && !call.type_arguments {
+            contribution.edges.push((
+                owner_span,
+                InterproceduralGraphTarget::Symbol(symbol.clone()),
+            ));
+        }
+        if call.direct_callee
+            && let Some((callback_owner, parameter)) =
+                functions_for_path(nodes, nodes_by_path, file.path.as_str())
+                    .filter_map(|(index, node)| {
+                        node.parameters
+                            .iter()
+                            .position(|parameter| parameter == symbol)
+                            .map(|parameter| (index, parameter))
+                    })
+                    .next()
+        {
+            contribution
+                .invoked_parameters
+                .push((owner_span, parameter));
+            contribution.callbacks.push((
+                nodes[callback_owner].span,
+                ContractCallback {
+                    parameter,
+                    execution: contract_callback_execution(execution_role(
+                        &file.compiler,
+                        call.callee,
+                        &[],
+                    ))
+                    .into(),
+                },
+            ));
+        }
+        if let Some(callbacks) = contract_callbacks.get(symbol) {
+            for callback in callbacks {
+                let Some(argument) = call.arguments.get(callback.parameter) else {
+                    continue;
+                };
+                let argument_location = location(file.path.as_str(), argument.span);
+                if let Some(argument_symbol) = entities.get(&argument_location) {
+                    if callback.execution == "inline" {
+                        contribution.edges.push((
+                            owner_span,
+                            InterproceduralGraphTarget::Symbol(argument_symbol.clone()),
+                        ));
+                    }
+                    if let Some((callback_owner, parameter)) =
+                        functions_for_path(nodes, nodes_by_path, file.path.as_str())
+                            .filter_map(|(index, node)| {
+                                node.parameters
+                                    .iter()
+                                    .position(|parameter| parameter == argument_symbol)
+                                    .map(|parameter| (index, parameter))
+                            })
+                            .next()
+                    {
+                        if callback.execution == "inline" {
+                            contribution
+                                .invoked_parameters
+                                .push((owner_span, parameter));
+                        }
+                        contribution.callbacks.push((
+                            nodes[callback_owner].span,
+                            ContractCallback {
+                                parameter,
+                                execution: callback.execution.clone(),
+                            },
+                        ));
+                    }
+                } else if callback.execution == "inline"
+                    && let Some(target) =
+                        functions_for_path(nodes, nodes_by_path, file.path.as_str())
+                            .filter(|(_, node)| argument.span.contains(node.span))
+                            .min_by_key(|(_, node)| node.span.end - node.span.start)
+                            .map(|(_, node)| node.span)
+                {
+                    contribution
+                        .edges
+                        .push((owner_span, InterproceduralGraphTarget::LocalSpan(target)));
+                }
+            }
+        }
+    }
+    contribution
+}
+
+fn merge_interprocedural_graph(
+    path: &str,
+    contribution: &InterproceduralGraphContribution,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    by_symbol: &HashMap<String, usize>,
+    summaries: &mut [SummaryReads],
+    callback_summaries: &mut [Vec<ContractCallback>],
+    edges: &mut [Vec<usize>],
+    invoked_parameters: &mut [Vec<usize>],
+) {
+    let node_index = |span| {
+        nodes_by_path.get(path).and_then(|indices| {
+            indices
+                .iter()
+                .rev()
+                .find(|index| nodes[**index].span == span)
+                .copied()
+        })
+    };
+    for (owner, read) in &contribution.direct_reads {
+        if let Some(owner) = node_index(*owner) {
+            summaries[owner].push_unique(read.clone());
+        }
+    }
+    for (owner, target) in &contribution.edges {
+        let Some(owner) = node_index(*owner) else {
+            continue;
+        };
+        let target = match target {
+            InterproceduralGraphTarget::Symbol(symbol) => by_symbol.get(symbol).copied(),
+            InterproceduralGraphTarget::LocalSpan(span) => node_index(*span),
+        };
+        if let Some(target) = target {
+            edges[owner].push(target);
+        }
+    }
+    for (owner, parameter) in &contribution.invoked_parameters {
+        if let Some(owner) = node_index(*owner) {
+            invoked_parameters[owner].push(*parameter);
+        }
+    }
+    for (owner, callback) in &contribution.callbacks {
+        if let Some(owner) = node_index(*owner) {
+            push_contract_callback(&mut callback_summaries[owner], callback.clone());
+        }
+    }
+}
+
+fn interprocedural_result_dependency_state(
+    dependency: &InterproceduralResultDependency,
+    nodes: &[SummaryNode],
+    indexes: &HashMap<(String, Span), usize>,
+    by_symbol: &HashMap<String, usize>,
+    summaries: &[SummaryReads],
+    invoked_parameters: &[Vec<usize>],
+    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
+) -> InterproceduralResultDependencyState {
+    match dependency {
+        InterproceduralResultDependency::Symbol(symbol) => {
+            if let Some(index) = by_symbol.get(symbol) {
+                InterproceduralResultDependencyState::Function {
+                    name: nodes[*index].name.clone(),
+                    summary: summaries[*index].to_vec(),
+                    invoked_parameters: invoked_parameters[*index].clone(),
+                }
+            } else if let Some(summary) = returned_bindings.get(symbol) {
+                InterproceduralResultDependencyState::Returned(summary.clone())
+            } else {
+                InterproceduralResultDependencyState::Missing
+            }
+        }
+        InterproceduralResultDependency::InlineFunction(path, span) => indexes
+            .get(&(path.clone(), *span))
+            .map_or(InterproceduralResultDependencyState::Missing, |index| {
+                InterproceduralResultDependencyState::Inline(summaries[*index].to_vec())
+            }),
+    }
+}
+
+fn add_interprocedural_dependency_user(
+    users: &mut HashMap<InterproceduralResultDependency, usize>,
+    dependency: &InterproceduralResultDependency,
+) {
+    *users.entry(dependency.clone()).or_default() += 1;
+}
+
+fn remove_interprocedural_dependency_user(
+    users: &mut HashMap<InterproceduralResultDependency, usize>,
+    states: &mut HashMap<InterproceduralResultDependency, InterproceduralResultDependencyState>,
+    dependency: &InterproceduralResultDependency,
+) {
+    let Some(count) = users.get_mut(dependency) else {
+        debug_assert!(false, "missing interprocedural dependency reference count");
+        return;
+    };
+    *count -= 1;
+    if *count == 0 {
+        users.remove(dependency);
+        states.remove(dependency);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn interprocedural_result_dependency_matches(
+    retained: &InterproceduralResultDependencyState,
+    dependency: &InterproceduralResultDependency,
+    nodes: &[SummaryNode],
+    indexes: &HashMap<(String, Span), usize>,
+    by_symbol: &HashMap<String, usize>,
+    summaries: &[SummaryReads],
+    invoked_parameters: &[Vec<usize>],
+    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
+) -> bool {
+    match dependency {
+        InterproceduralResultDependency::Symbol(symbol) => {
+            if let Some(index) = by_symbol.get(symbol) {
+                matches!(
+                    retained,
+                    InterproceduralResultDependencyState::Function {
+                        name,
+                        summary,
+                        invoked_parameters: previous_parameters,
+                    } if name == &nodes[*index].name
+                        && summary.as_slice() == &summaries[*index][..]
+                        && previous_parameters == &invoked_parameters[*index]
+                )
+            } else if let Some(summary) = returned_bindings.get(symbol) {
+                matches!(
+                    retained,
+                    InterproceduralResultDependencyState::Returned(previous)
+                        if previous == summary
+                )
+            } else {
+                matches!(retained, InterproceduralResultDependencyState::Missing)
+            }
+        }
+        InterproceduralResultDependency::InlineFunction(path, span) => {
+            if let Some(index) = indexes.get(&(path.clone(), *span)) {
+                matches!(
+                    retained,
+                    InterproceduralResultDependencyState::Inline(previous)
+                        if previous.as_slice() == &summaries[*index][..]
+                )
+            } else {
+                matches!(retained, InterproceduralResultDependencyState::Missing)
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn interprocedural_result_reads_for_file(
+    file: &solid_facts::FileFacts,
+    nodes: &[SummaryNode],
+    by_symbol: &HashMap<String, usize>,
+    summaries: &[SummaryReads],
+    invoked_parameters: &[Vec<usize>],
+    returned_bindings: &HashMap<String, Vec<SummaryRead>>,
+    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> (Vec<ReactiveRead>, HashSet<InterproceduralResultDependency>) {
+    let mut result = Vec::new();
+    let mut dependencies = HashSet::new();
+    let mut seen = HashSet::new();
+    let allowed = allowed_callback_spans(file, entities, symbol_names);
+    for call in &file.ast.calls {
+        if !enclosing_render_function(file, call.span) {
+            continue;
+        }
+        let callee = location(file.path.as_str(), call.callee);
+        let Some(symbol) = entities.get(&callee) else {
+            continue;
+        };
+        dependencies.insert(InterproceduralResultDependency::Symbol(symbol.clone()));
+        let (label, mut effective, target) = if let Some(target) = by_symbol.get(symbol).copied() {
+            (
+                nodes[target]
+                    .name
+                    .clone()
+                    .or_else(|| call.static_callee.clone())
+                    .unwrap_or_else(|| "helper".into()),
+                summaries[target].to_vec(),
+                Some(target),
+            )
+        } else if let Some(summary) = returned_bindings.get(symbol) {
+            (
+                call.static_callee
+                    .clone()
+                    .unwrap_or_else(|| "returned helper".into()),
+                summary.clone(),
+                None,
+            )
+        } else if contract_callbacks.contains_key(symbol) {
+            (
+                call.static_callee
+                    .clone()
+                    .unwrap_or_else(|| "contract callback".into()),
+                Vec::new(),
+                None,
+            )
+        } else {
+            continue;
+        };
+        if let Some(target) = target {
+            for parameter in &invoked_parameters[target] {
+                let Some(argument) = call.arguments.get(*parameter) else {
+                    continue;
+                };
+                let Some(argument_symbol) =
+                    entities.get(&location(file.path.as_str(), argument.span))
+                else {
+                    continue;
+                };
+                dependencies.insert(InterproceduralResultDependency::Symbol(
+                    argument_symbol.clone(),
+                ));
+                let argument_summary = by_symbol
+                    .get(argument_symbol)
+                    .map(|index| &summaries[*index][..])
+                    .or_else(|| returned_bindings.get(argument_symbol).map(Vec::as_slice));
+                if let Some(argument_summary) = argument_summary {
+                    for read in argument_summary {
+                        push_unique_summary_read(&mut effective, read.clone());
+                    }
+                }
+            }
+        }
+        let execution =
+            semantic_execution_role(file, call.callee, &allowed, entities, symbol_names);
+        let mut context = None::<String>;
+        if let Some(callbacks) = contract_callbacks.get(symbol) {
+            for callback in callbacks {
+                let Some(argument) = call.arguments.get(callback.parameter) else {
+                    continue;
+                };
+                let argument_symbol = entities.get(&location(file.path.as_str(), argument.span));
+                let argument_summary = argument_symbol
+                    .and_then(|argument_symbol| {
+                        dependencies.insert(InterproceduralResultDependency::Symbol(
+                            argument_symbol.clone(),
+                        ));
+                        by_symbol
+                            .get(argument_symbol)
+                            .map(|index| &summaries[*index][..])
+                            .or_else(|| returned_bindings.get(argument_symbol).map(Vec::as_slice))
+                    })
+                    .or_else(|| {
+                        nodes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, node)| {
+                                node.path == file.path.as_str() && argument.span.contains(node.span)
+                            })
+                            .min_by_key(|(_, node)| node.span.end - node.span.start)
+                            .map(|(index, node)| {
+                                dependencies.insert(
+                                    InterproceduralResultDependency::InlineFunction(
+                                        node.path.clone(),
+                                        node.span,
+                                    ),
+                                );
+                                &summaries[index][..]
+                            })
+                    });
+                let Some(argument_summary) = argument_summary else {
+                    continue;
+                };
+                let callback_execution = match callback.execution.as_str() {
+                    "tracked" => ExecutionRole::TrackedJsx,
+                    "deferred" => ExecutionRole::DeferredCallback,
+                    _ => execution,
+                };
+                for read in argument_summary {
+                    if seen.insert((
+                        callee.path.clone(),
+                        callee.start_byte,
+                        format!("{}#callback-{}", read.symbol, callback.parameter),
+                    )) {
+                        result.push(ReactiveRead {
+                            kind: "accessor".into(),
+                            accessor: read.display.clone(),
+                            location: location(file.path.as_str(), call.span),
+                            declaration: read.declaration.clone(),
+                            execution: callback_execution,
+                            context: context
+                                .get_or_insert_with(|| enclosing_function_label(file, call.span))
+                                .clone(),
+                            via: label.clone(),
+                            origin: Some(read.origin.clone()),
+                            origin_context: read.origin_context.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        for read in effective {
+            let accessor = read.display.clone();
+            if seen.insert((callee.path.clone(), callee.start_byte, read.symbol.clone())) {
+                result.push(ReactiveRead {
+                    kind: if read.display.contains('.') {
+                        "store-path".into()
+                    } else {
+                        "accessor".into()
+                    },
+                    accessor,
+                    location: location(file.path.as_str(), call.span),
+                    declaration: read.declaration,
+                    execution,
+                    context: context
+                        .get_or_insert_with(|| enclosing_function_label(file, call.span))
+                        .clone(),
+                    via: label.clone(),
+                    origin: Some(read.origin),
+                    origin_context: read.origin_context,
+                });
+            }
+        }
+    }
+    (result, dependencies)
+}
+
+fn cached_reactive_source(
+    symbol: &str,
+    display: &str,
+    declaration: &Location,
+    source_phases: &HashMap<String, u8>,
+) -> CachedReactiveSource {
+    CachedReactiveSource {
+        symbol: symbol.to_owned(),
+        display: display.to_owned(),
+        declaration: declaration.clone(),
+        phase: source_phases.get(symbol).copied().unwrap_or(1),
+    }
+}
+
+fn reactive_source_order(
+    left: &CachedReactiveSource,
+    right: &CachedReactiveSource,
+) -> std::cmp::Ordering {
+    left.phase
+        .cmp(&right.phase)
+        .then_with(|| location_order(&left.declaration, &right.declaration))
+}
+
+fn retained_reactive_sources(
+    cache: &mut Option<Arc<Vec<CachedReactiveSource>>>,
+    accessors: &HashMap<String, (String, Location)>,
+    contracted_accessor_symbols: &HashSet<String>,
+    summary_source_symbols: &HashSet<String>,
+    source_phases: &HashMap<String, u8>,
+) -> Arc<Vec<CachedReactiveSource>> {
+    let eligible = |symbol: &str| {
+        !contracted_accessor_symbols.contains(symbol) && summary_source_symbols.contains(symbol)
+    };
+    let matches = |source: &CachedReactiveSource| {
+        eligible(source.symbol.as_str())
+            && accessors
+                .get(source.symbol.as_str())
+                .is_some_and(|(display, declaration)| {
+                    display == &source.display
+                        && declaration == &source.declaration
+                        && source.phase
+                            == source_phases
+                                .get(source.symbol.as_str())
+                                .copied()
+                                .unwrap_or(1)
+                })
+    };
+    let eligible_count = accessors
+        .keys()
+        .filter(|symbol| eligible(symbol.as_str()))
+        .count();
+    if let Some(retained) = cache.as_ref()
+        && retained.len() == eligible_count
+        && retained.iter().all(matches)
+    {
+        return retained.clone();
+    }
+
+    if cache.is_none() {
+        let mut sources = accessors
+            .iter()
+            .filter(|(symbol, _)| eligible(symbol.as_str()))
+            .map(|(symbol, (display, declaration))| {
+                cached_reactive_source(symbol, display, declaration, source_phases)
+            })
+            .collect::<Vec<_>>();
+        sources.sort_by(reactive_source_order);
+        let sources = Arc::new(sources);
+        *cache = Some(sources.clone());
+        return sources;
+    }
+
+    let retained = Arc::make_mut(cache.as_mut().expect("reactive sources initialized"));
+    retained.retain(&matches);
+    let mut retained_symbols = retained
+        .iter()
+        .map(|source| source.symbol.clone())
+        .collect::<HashSet<_>>();
+    for (symbol, (display, declaration)) in accessors {
+        if !eligible(symbol.as_str()) || retained_symbols.contains(symbol.as_str()) {
+            continue;
+        }
+        let source = cached_reactive_source(symbol, display, declaration, source_phases);
+        let insert_at = retained.partition_point(|current| {
+            reactive_source_order(current, &source) != std::cmp::Ordering::Greater
+        });
+        retained.insert(insert_at, source);
+        retained_symbols.insert(symbol.clone());
+    }
+    cache.as_ref().expect("reactive sources retained").clone()
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
+fn direct_reference_contributions(
+    source: &CachedReactiveSource,
+    references_by_source: &HashMap<String, Vec<Location>>,
+    project_indexes: &ProjectIndexes<'_>,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    source_primitives: &HashMap<String, String>,
+    bundled_returns: &HashMap<String, ContractReturn>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+) -> Vec<DirectReferenceContribution> {
+    let mut contributions = Vec::new();
+    for reference in references_by_source
+        .get(source.symbol.as_str())
+        .into_iter()
+        .flatten()
+    {
+        let Some(&file) = project_indexes.files_by_path.get(reference.path.as_str()) else {
+            continue;
+        };
+        let Ok(start) = u32::try_from(reference.start_byte) else {
+            continue;
+        };
+        let Ok(end) = u32::try_from(reference.end_byte) else {
+            continue;
+        };
+        let reference_span = Span::new(start, end);
+        let Some(owner) = containing_summary_function_indexed(
+            nodes,
+            nodes_by_path,
+            file.path.as_str(),
+            reference_span,
+        ) else {
+            continue;
+        };
+        if inside_effect_apply(file, reference_span, entities, symbol_names) {
+            continue;
+        }
+        if let Some(call) = project_indexes
+            .ast_files_by_path
+            .get(file.path.as_str())
+            .and_then(|index| index.direct_call_by_callee(reference_span))
+        {
+            let mut read = SummaryRead {
+                symbol: source.symbol.clone(),
+                display: source.display.clone(),
+                kind: None,
+                declaration: source.declaration.clone(),
+                origin: location(file.path.as_str(), call.span),
+                origin_context: nodes[owner].name.clone().unwrap_or_default(),
+            };
+            let factory_return =
+                source_primitives
+                    .get(source.symbol.as_str())
+                    .and_then(|primitive| {
+                        bundled_returns
+                            .get(primitive)
+                            .map(|returned| (primitive, returned))
+                    });
+            if let Some((primitive, returned)) = factory_return {
+                let contract_location = Location {
+                    path: format!("bundled://solid-js.json#{primitive}"),
+                    start_byte: 0,
+                    end_byte: 0,
+                };
+                read.display.clone_from(&returned.label);
+                read.kind = Some(returned.kind.clone());
+                read.declaration.clone_from(&contract_location);
+                if semantic_execution_role(file, call.callee, &[], entities, symbol_names)
+                    == ExecutionRole::UntrackedRendering
+                    && !enclosing_render_function(file, call.span)
+                {
+                    read.origin = contract_location;
+                }
+                contributions.push(DirectReferenceContribution {
+                    owner,
+                    read,
+                    unique: true,
+                });
+            } else {
+                contributions.push(DirectReferenceContribution {
+                    owner,
+                    read,
+                    unique: false,
+                });
+            }
+            continue;
+        }
+        if source_kinds.get(source.symbol.as_str()) == Some(&ReactiveSourceKind::Store) {
+            contributions.extend(
+                file.ast
+                    .members
+                    .iter()
+                    .filter(|member| member.object == reference_span)
+                    .map(|member| DirectReferenceContribution {
+                        owner,
+                        read: SummaryRead {
+                            symbol: source.symbol.clone(),
+                            display: format!("{}.{}", source.display, member.property.name),
+                            kind: None,
+                            declaration: source.declaration.clone(),
+                            origin: location(file.path.as_str(), member.span),
+                            origin_context: nodes[owner].name.clone().unwrap_or_default(),
+                        },
+                        unique: false,
+                    }),
+            );
+        }
+    }
+    contributions
+}
+
+struct InterproceduralContext<'a> {
+    facts: &'a ProjectFacts,
+    project_indexes: &'a ProjectIndexes<'a>,
+    accessors: &'a HashMap<String, (String, Location)>,
+    contracted_accessor_symbols: &'a HashSet<String>,
+    returned_source_symbols: &'a HashSet<String>,
+    summary_source_symbols: &'a HashSet<String>,
+    source_phases: &'a HashMap<String, u8>,
+    source_kinds: &'a HashMap<String, ReactiveSourceKind>,
+    contract_reads: &'a HashMap<String, Vec<(String, String, Location, String)>>,
+    contract_callbacks: &'a HashMap<String, Vec<ContractCallback>>,
+    contract_returns: &'a HashMap<String, (ContractReturn, Location)>,
+    bundled_returns: &'a HashMap<String, ContractReturn>,
+    source_primitives: &'a HashMap<String, String>,
+    entities: &'a EntitySymbols,
+    references_by_source: &'a HashMap<String, Vec<Location>>,
+    symbol_names: &'a HashMap<String, String>,
+    changed_semantic_symbols: Option<&'a HashSet<String>>,
+    retained_source_paths: &'a HashSet<String>,
+}
+
+impl InterproceduralContext<'_> {
+    fn build(
+        &self,
+        typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
+        interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
+        interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
+    ) -> InterproceduralResult {
+        interprocedural_reads(
+            self.facts,
+            self.project_indexes,
+            self.accessors,
+            self.contracted_accessor_symbols,
+            self.returned_source_symbols,
+            self.summary_source_symbols,
+            self.source_phases,
+            self.source_kinds,
+            self.contract_reads,
+            self.contract_callbacks,
+            self.contract_returns,
+            self.bundled_returns,
+            self.source_primitives,
+            self.entities,
+            self.references_by_source,
+            self.symbol_names,
+            self.changed_semantic_symbols,
+            self.retained_source_paths,
+            typed_accessor_cache,
+            interprocedural_graph_cache,
+            interprocedural_result_cache,
+        )
+    }
+}
+
+fn interprocedural_reads(
+    facts: &ProjectFacts,
+    project_indexes: &ProjectIndexes<'_>,
+    accessors: &HashMap<String, (String, Location)>,
+    contracted_accessor_symbols: &HashSet<String>,
+    returned_source_symbols: &HashSet<String>,
+    summary_source_symbols: &HashSet<String>,
+    source_phases: &HashMap<String, u8>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+    contract_reads: &HashMap<String, Vec<(String, String, Location, String)>>,
+    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
+    contract_returns: &HashMap<String, (ContractReturn, Location)>,
+    bundled_returns: &HashMap<String, ContractReturn>,
+    source_primitives: &HashMap<String, String>,
+    entities: &EntitySymbols,
+    references_by_source: &HashMap<String, Vec<Location>>,
+    symbol_names: &HashMap<String, String>,
+    changed_semantic_symbols: Option<&HashSet<String>>,
+    retained_source_paths: &HashSet<String>,
+    typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
+    mut interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
+    mut interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
+) -> InterproceduralResult {
+    let mut phase_started = Instant::now();
+    let mut nodes = Vec::new();
+    let mut graph_node_reused_paths = HashSet::new();
+    if let Some(cache) = interprocedural_graph_cache.as_deref_mut() {
+        let current_paths = facts
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<HashSet<_>>();
+        cache.retain(|path, _| current_paths.contains(path.as_str()));
+        for file in &facts.files {
+            if retained_source_paths.contains(file.path.as_str())
+                && let Some(cached) = cache.get(file.path.as_str())
+                && (Arc::ptr_eq(&cached.compiler, &file.compiler)
+                    || same_compiler_semantics(&cached.compiler, &file.compiler))
+            {
+                nodes.extend(cached.nodes.iter().cloned());
+                graph_node_reused_paths.insert(file.path.as_str());
+                continue;
+            }
+            let file_nodes = discover_summary_nodes(file, project_indexes, entities);
+            nodes.extend(file_nodes.iter().cloned());
+            cache.insert(
+                file.path.to_string(),
+                CachedInterproceduralGraph {
+                    nodes: file_nodes,
+                    contribution: InterproceduralGraphContribution::default(),
+                    compiler: file.compiler.clone(),
+                },
+            );
+        }
+    } else {
+        for file in &facts.files {
+            nodes.extend(discover_summary_nodes(file, project_indexes, entities));
+        }
+    }
+    let nodes_by_path = function_indices_by_path(&nodes);
+    let indexes = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| ((node.path.clone(), node.span), index))
+        .collect::<HashMap<_, _>>();
+    let by_symbol = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| node.symbol.clone().map(|symbol| (symbol, index)))
+        .collect::<HashMap<_, _>>();
+    let mut summaries = vec![SummaryReads::default(); nodes.len()];
+    let mut callback_summaries = vec![Vec::<ContractCallback>::new(); nodes.len()];
+    let mut edges = vec![Vec::<usize>::new(); nodes.len()];
+    let mut invoked_parameters = vec![Vec::<usize>::new(); nodes.len()];
+    let mut graph_reused_files = 0;
+    let mut graph_recomputed_files = 0;
+    match interprocedural_graph_cache {
+        None => {
+            for file in &facts.files {
+                graph_recomputed_files += 1;
+                let contribution = discover_interprocedural_graph(
+                    file,
+                    &nodes,
+                    &nodes_by_path,
+                    entities,
+                    contract_reads,
+                    contract_callbacks,
+                );
+                merge_interprocedural_graph(
+                    file.path.as_str(),
+                    &contribution,
+                    &nodes,
+                    &nodes_by_path,
+                    &by_symbol,
+                    &mut summaries,
+                    &mut callback_summaries,
+                    &mut edges,
+                    &mut invoked_parameters,
+                );
+            }
+        }
+        Some(cache) => {
+            for file in &facts.files {
+                if graph_node_reused_paths.contains(file.path.as_str())
+                    && let Some(cached) = cache.get(file.path.as_str())
+                {
+                    graph_reused_files += 1;
+                    merge_interprocedural_graph(
+                        file.path.as_str(),
+                        &cached.contribution,
+                        &nodes,
+                        &nodes_by_path,
+                        &by_symbol,
+                        &mut summaries,
+                        &mut callback_summaries,
+                        &mut edges,
+                        &mut invoked_parameters,
+                    );
+                    continue;
+                }
+                graph_recomputed_files += 1;
+                let contribution = discover_interprocedural_graph(
+                    file,
+                    &nodes,
+                    &nodes_by_path,
+                    entities,
+                    contract_reads,
+                    contract_callbacks,
+                );
+                merge_interprocedural_graph(
+                    file.path.as_str(),
+                    &contribution,
+                    &nodes,
+                    &nodes_by_path,
+                    &by_symbol,
+                    &mut summaries,
+                    &mut callback_summaries,
+                    &mut edges,
+                    &mut invoked_parameters,
+                );
+                cache.insert(
+                    file.path.to_string(),
+                    CachedInterproceduralGraph {
+                        nodes: nodes_by_path
+                            .get(file.path.as_str())
+                            .into_iter()
+                            .flatten()
+                            .map(|index| nodes[*index].clone())
+                            .collect(),
+                        contribution,
+                        compiler: file.compiler.clone(),
+                    },
+                );
+            }
+        }
+    }
+    let graph = phase_started.elapsed();
+    phase_started = Instant::now();
+    let owned_reactive_sources;
+    let reactive_sources = if let Some(cache) = interprocedural_result_cache.as_deref_mut() {
+        owned_reactive_sources = retained_reactive_sources(
+            &mut cache.reactive_sources,
+            accessors,
+            contracted_accessor_symbols,
+            summary_source_symbols,
+            source_phases,
+        );
+        owned_reactive_sources.as_slice()
+    } else {
+        owned_reactive_sources = {
+            let mut sources = accessors
+                .iter()
+                .filter(|(symbol, _)| !contracted_accessor_symbols.contains(*symbol))
+                .filter(|(symbol, _)| summary_source_symbols.contains(*symbol))
+                .map(|(symbol, (display, declaration))| {
+                    cached_reactive_source(symbol, display, declaration, source_phases)
+                })
+                .collect::<Vec<_>>();
+            sources.sort_by(reactive_source_order);
+            Arc::new(sources)
+        };
+        owned_reactive_sources.as_slice()
+    };
+    let direct_index = phase_started.elapsed();
+    let direct_references_started = Instant::now();
+    for contributions in parallel_slice_results(reactive_sources, |source| {
+        direct_reference_contributions(
+            source,
+            references_by_source,
+            project_indexes,
+            &nodes,
+            &nodes_by_path,
+            entities,
+            symbol_names,
+            source_primitives,
+            bundled_returns,
+            source_kinds,
+        )
+    }) {
+        for contribution in contributions {
+            if contribution.unique {
+                summaries[contribution.owner].push_unique(contribution.read);
+            } else {
+                summaries[contribution.owner].push(contribution.read);
+            }
+        }
+    }
+    let direct_references = direct_references_started.elapsed();
+    let typed_accessors_started = Instant::now();
+    let mut typed_accessor_reused_files = 0;
+    let mut typed_accessor_recomputed_files = 0;
+    match typed_accessor_cache {
+        None => {
+            for file in &facts.files {
+                let contributions = discover_typed_accessors(
+                    file,
+                    &nodes,
+                    &nodes_by_path,
+                    project_indexes,
+                    entities,
+                    symbol_names,
+                );
+                merge_typed_accessors(file.path.as_str(), &contributions, &indexes, &mut summaries);
+            }
+        }
+        Some(cache) => {
+            let current_paths = facts
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<HashSet<_>>();
+            cache.retain(|path, _| current_paths.contains(path.as_str()));
+            for file in &facts.files {
+                let contributions = if retained_source_paths.contains(file.path.as_str())
+                    && let Some(cached) = cache.get(file.path.as_str())
+                {
+                    typed_accessor_reused_files += 1;
+                    cached.contributions.clone()
+                } else {
+                    typed_accessor_recomputed_files += 1;
+                    let contributions = discover_typed_accessors(
+                        file,
+                        &nodes,
+                        &nodes_by_path,
+                        project_indexes,
+                        entities,
+                        symbol_names,
+                    );
+                    cache.insert(
+                        file.path.to_string(),
+                        CachedTypedAccessors {
+                            contributions: contributions.clone(),
+                        },
+                    );
+                    contributions
+                };
+                merge_typed_accessors(file.path.as_str(), &contributions, &indexes, &mut summaries);
+            }
+        }
+    }
+    let typed_accessors = typed_accessors_started.elapsed();
+    let direct_summaries = phase_started.elapsed();
+    phase_started = Instant::now();
+    let mut returned = vec![SummaryReads::default(); nodes.len()];
+    let mut returned_edges = Vec::<(usize, usize)>::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let Some(&file) = project_indexes.files_by_path.get(node.path.as_str()) else {
+            continue;
+        };
+        let returned_closures = file
+            .ast
+            .returns
+            .iter()
+            .filter(|returned| {
+                returned.value == solid_ast_facts::ReturnValueKind::Function
+                    && returned.argument.is_some_and(|argument| {
+                        go_returned_arrow_pattern_accepts(file.source.as_str(), argument)
+                    })
+                    && containing_summary_function_indexed(
+                        &nodes,
+                        &nodes_by_path,
+                        file.path.as_str(),
+                        returned.span,
+                    ) == Some(index)
+            })
+            .filter_map(|returned| returned.argument)
+            .collect::<Vec<_>>();
+        for returned_value in file.ast.returns.iter().filter(|returned| {
+            containing_summary_function_indexed(
+                &nodes,
+                &nodes_by_path,
+                file.path.as_str(),
+                returned.span,
+            ) == Some(index)
+        }) {
+            match returned_value.value {
+                solid_ast_facts::ReturnValueKind::Identifier => {
+                    let returned_location = location(file.path.as_str(), returned_value.span);
+                    if let Some(symbol) = entities.get(&returned_location)
+                        && returned_source_symbols.contains(symbol)
+                        && let Some((display, declaration)) = accessors.get(symbol)
+                    {
+                        returned[index].push_unique(SummaryRead {
+                            symbol: symbol.clone(),
+                            display: display.clone(),
+                            kind: None,
+                            declaration: declaration.clone(),
+                            origin: returned_location,
+                            origin_context: node.name.clone().unwrap_or_default(),
+                        });
+                    }
+                }
+                solid_ast_facts::ReturnValueKind::Call => {
+                    let Some(callee) = returned_value.callee else {
+                        continue;
+                    };
+                    let Some(call) = project_indexes
+                        .ast_files_by_path
+                        .get(file.path.as_str())
+                        .into_iter()
+                        .flat_map(|index| index.calls_by_callee(callee))
+                        .find(|call| {
+                            !call.type_arguments && returned_value.argument == Some(call.span)
+                        })
+                    else {
+                        continue;
+                    };
+                    let callee_location = location(file.path.as_str(), call.callee);
+                    if let Some(symbol) = entities.get(&callee_location) {
+                        if let Some(target) = by_symbol.get(symbol).copied() {
+                            returned_edges.push((index, target));
+                        } else {
+                            let contracted = contract_returns.get(symbol).cloned().or_else(|| {
+                                primitive_name(
+                                    file.path.as_str(),
+                                    call.callee,
+                                    call.static_callee.as_deref(),
+                                    entities,
+                                    symbol_names,
+                                )
+                                .and_then(|primitive| {
+                                    bundled_returns.get(&primitive).cloned().map(|returned| {
+                                        (
+                                            returned,
+                                            Location {
+                                                path: format!(
+                                                    "bundled://solid-js.json#{primitive}"
+                                                ),
+                                                start_byte: 0,
+                                                end_byte: 0,
+                                            },
+                                        )
+                                    })
+                                })
+                            });
+                            if let Some((returned_contract, declaration)) = contracted {
+                                returned[index].push_unique(SummaryRead {
+                                    symbol: symbol.clone(),
+                                    display: returned_contract.label,
+                                    kind: Some(returned_contract.kind),
+                                    declaration,
+                                    origin: location(file.path.as_str(), call.span),
+                                    origin_context: node.name.clone().unwrap_or_default(),
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if returned_closures.is_empty() {
+            continue;
+        }
+        let mut direct = Vec::with_capacity(summaries[index].len());
+        for read in summaries[index].take() {
+            let in_returned_closure = returned_closures.iter().any(|closure| {
+                read.origin.path == node.path
+                    && u64::from(closure.start) <= read.origin.start_byte
+                    && read.origin.end_byte <= u64::from(closure.end)
+            });
+            if in_returned_closure {
+                if returned_source_symbols.contains(&read.symbol) {
+                    returned[index].push(read);
+                } else {
+                    direct.push(read);
+                }
+            } else {
+                direct.push(read);
+            }
+        }
+        summaries[index].replace(direct);
+    }
+    let returned_direct = phase_started.elapsed();
+    let returned_delta_started = Instant::now();
+    propagate_returned_summary_deltas(&mut returned, &returned_edges);
+    let returned_delta = returned_delta_started.elapsed();
+    let call_summary_delta_started = Instant::now();
+    let mut reverse_edges = vec![Vec::new(); nodes.len()];
+    for (owner, targets) in edges.iter_mut().enumerate() {
+        targets.sort_unstable();
+        targets.dedup();
+        for target in targets.iter().copied() {
+            reverse_edges[target].push(owner);
+        }
+    }
+    let mut propagated_lengths = vec![0; summaries.len()];
+    propagate_summary_deltas(&mut summaries, &reverse_edges, &mut propagated_lengths);
+
+    for (index, node) in nodes.iter().enumerate() {
+        let Some(&file) = project_indexes.files_by_path.get(node.path.as_str()) else {
+            continue;
+        };
+        let Some(function) = project_indexes
+            .ast_files_by_path
+            .get(file.path.as_str())
+            .and_then(|index| index.function_by_span(node.span))
+        else {
+            continue;
+        };
+        for value in function
+            .expression_return
+            .iter()
+            .chain(file.ast.returns.iter().filter(|returned| {
+                containing_ast_function(&file.ast.functions, returned.span)
+                    .is_some_and(|owner| owner.span == function.span)
+            }))
+        {
+            if value.value == solid_ast_facts::ReturnValueKind::Function
+                && let Some(target) = indexes.get(&(node.path.clone(), value.span))
+            {
+                for read in summaries[*target].iter() {
+                    returned[index].push_unique(read.clone());
+                }
+            }
+        }
+    }
+    let call_summary_delta = call_summary_delta_started.elapsed();
+    let factory_propagation_started = Instant::now();
+    let mut returned_bindings = HashMap::<String, Vec<SummaryRead>>::new();
+    if returned.iter().any(|summary| !summary.is_empty()) {
+        for file in &facts.files {
+            for binding in &file.ast.bindings {
+                let Some(initializer) = binding.call_initializer else {
+                    continue;
+                };
+                let Some(call) = project_indexes
+                    .ast_files_by_path
+                    .get(file.path.as_str())
+                    .and_then(|index| index.call_by_span(initializer))
+                else {
+                    continue;
+                };
+                let Some(target_symbol) = entities.get(&location(file.path.as_str(), call.callee))
+                else {
+                    continue;
+                };
+                let Some(target) = by_symbol.get(target_symbol).copied() else {
+                    continue;
+                };
+                for name in &binding.names {
+                    if let Some(binding_symbol) =
+                        entities.get(&location(file.path.as_str(), name.span))
+                    {
+                        let mut summary = returned[target].to_vec();
+                        for read in &mut summary {
+                            if read.origin_context.is_empty() {
+                                read.origin_context =
+                                    nodes[target].name.clone().unwrap_or_default();
+                            }
+                        }
+                        returned_bindings.insert(binding_symbol.clone(), summary);
+                    }
+                }
+            }
+        }
+        let mut factory_reads_added = false;
+        for file in &facts.files {
+            for call in &file.ast.calls {
+                if !call.direct_callee {
+                    continue;
+                }
+                let Some(owner) = containing_summary_function_indexed(
+                    &nodes,
+                    &nodes_by_path,
+                    file.path.as_str(),
+                    call.span,
+                ) else {
+                    continue;
+                };
+                let Some(symbol) = entities.get(&location(file.path.as_str(), call.callee)) else {
+                    continue;
+                };
+                if accessors.contains_key(symbol) {
+                    continue;
+                }
+                let Some(factory_reads) = returned_bindings.get(symbol) else {
+                    continue;
+                };
+                for read in factory_reads {
+                    let previous_len = summaries[owner].len();
+                    summaries[owner].push_unique(read.clone());
+                    factory_reads_added |= summaries[owner].len() != previous_len;
+                }
+            }
+        }
+        if factory_reads_added {
+            propagate_summary_deltas(&mut summaries, &reverse_edges, &mut propagated_lengths);
+        }
+    }
+
+    let factory_propagation = factory_propagation_started.elapsed();
+    let propagation = phase_started.elapsed();
+    phase_started = Instant::now();
+    let result_capacity = interprocedural_result_cache.as_ref().map_or(0, |cache| {
+        cache.files.values().map(|file| file.reads.len()).sum()
+    });
+    let mut result = Vec::with_capacity(result_capacity);
+    let mut result_reused_files = 0;
+    let mut result_recomputed_files = 0;
+    if let Some(cache) = interprocedural_result_cache.as_deref_mut() {
+        let current_paths = facts
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<HashSet<_>>();
+        let removed_paths = cache
+            .files
+            .keys()
+            .filter(|path| !current_paths.contains(path.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        for path in removed_paths {
+            let Some(removed) = cache.files.remove(path.as_str()) else {
+                continue;
+            };
+            for dependency in &removed.dependencies {
+                remove_interprocedural_dependency_user(
+                    &mut cache.dependency_users,
+                    &mut cache.dependency_states,
+                    dependency,
+                );
+            }
+        }
+        let changed_dependencies = cache
+            .dependency_states
+            .iter()
+            .filter(|(dependency, retained)| {
+                !interprocedural_result_dependency_matches(
+                    retained,
+                    dependency,
+                    &nodes,
+                    &indexes,
+                    &by_symbol,
+                    &summaries,
+                    &invoked_parameters,
+                    &returned_bindings,
+                )
+            })
+            .map(|(dependency, _)| dependency.clone())
+            .collect::<HashSet<_>>();
+        for file in &facts.files {
+            if retained_source_paths.contains(file.path.as_str())
+                && let Some(cached) = cache.files.get(file.path.as_str())
+                && (Arc::ptr_eq(&cached.compiler, &file.compiler)
+                    || same_compiler_semantics(&cached.compiler, &file.compiler))
+                && cached.dependencies.is_disjoint(&changed_dependencies)
+            {
+                result_reused_files += 1;
+                result.extend(cached.reads.iter().cloned());
+                continue;
+            }
+            result_recomputed_files += 1;
+            let (reads, dependencies) = interprocedural_result_reads_for_file(
+                file,
+                &nodes,
+                &by_symbol,
+                &summaries,
+                &invoked_parameters,
+                &returned_bindings,
+                contract_callbacks,
+                entities,
+                symbol_names,
+            );
+            result.extend(reads.iter().cloned());
+            if let Some(previous) = cache.files.remove(file.path.as_str()) {
+                for dependency in previous.dependencies.difference(&dependencies) {
+                    remove_interprocedural_dependency_user(
+                        &mut cache.dependency_users,
+                        &mut cache.dependency_states,
+                        dependency,
+                    );
+                }
+                for dependency in dependencies.difference(&previous.dependencies) {
+                    add_interprocedural_dependency_user(&mut cache.dependency_users, dependency);
+                }
+            } else {
+                for dependency in &dependencies {
+                    add_interprocedural_dependency_user(&mut cache.dependency_users, dependency);
+                }
+            }
+            cache.files.insert(
+                file.path.to_string(),
+                CachedInterproceduralResultFile {
+                    dependencies,
+                    reads,
+                    compiler: file.compiler.clone(),
+                },
+            );
+        }
+        for dependency in cache.dependency_users.keys() {
+            if changed_dependencies.contains(dependency)
+                || !cache.dependency_states.contains_key(dependency)
+            {
+                cache.dependency_states.insert(
+                    dependency.clone(),
+                    interprocedural_result_dependency_state(
+                        &dependency,
+                        &nodes,
+                        &indexes,
+                        &by_symbol,
+                        &summaries,
+                        &invoked_parameters,
+                        &returned_bindings,
+                    ),
+                );
+            }
+        }
+    } else {
+        for file in &facts.files {
+            result_recomputed_files += 1;
+            result.extend(
+                interprocedural_result_reads_for_file(
+                    file,
+                    &nodes,
+                    &by_symbol,
+                    &summaries,
+                    &invoked_parameters,
+                    &returned_bindings,
+                    contract_callbacks,
+                    entities,
+                    symbol_names,
+                )
+                .0,
+            );
+        }
+    }
+    let factory_instances = returned_bindings
+        .values()
+        .filter(|summary| !summary.is_empty())
+        .count();
+    let result_reads = phase_started.elapsed();
+    let export_started = Instant::now();
+    let exports = if let Some(cache) = interprocedural_result_cache {
+        contract_export_summaries_incremental(
+            &mut cache.contract_exports,
+            facts,
+            &nodes,
+            &nodes_by_path,
+            &by_symbol,
+            &reverse_edges,
+            &graph_node_reused_paths,
+            changed_semantic_symbols,
+            &summaries,
+            &returned,
+            &callback_summaries,
+            bundled_returns,
+            source_kinds,
+            source_primitives,
+            entities,
+        )
+    } else {
+        Arc::new(contract_export_summaries(
+            facts,
+            &nodes,
+            &summaries,
+            &returned,
+            &callback_summaries,
+            bundled_returns,
+            source_kinds,
+            source_primitives,
+            entities,
+        ))
+    };
+    let export_summaries = export_started.elapsed();
+    let results_and_exports = phase_started.elapsed();
+    InterproceduralResult {
+        reads: result,
+        exports,
+        factory_instances,
+        timings: InterproceduralTimings {
+            graph,
+            direct_summaries,
+            direct_index,
+            direct_references,
+            typed_accessors,
+            propagation,
+            returned_direct,
+            returned_delta,
+            call_summary_delta,
+            factory_propagation,
+            results_and_exports,
+            result_reads,
+            export_summaries,
+            typed_accessor_reused_files,
+            typed_accessor_recomputed_files,
+            graph_reused_files,
+            graph_recomputed_files,
+            result_reused_files,
+            result_recomputed_files,
+        },
+    }
+}
+
+fn function_binding_name<'a>(
+    file: &'a solid_facts::FileFacts,
+    function: &'a solid_ast_facts::FunctionFact,
+) -> Option<&'a solid_ast_facts::NamedSpan> {
+    function.name.as_ref().or_else(|| {
+        file.ast
+            .bindings
+            .iter()
+            .find(|binding| {
+                binding.initializer_function
+                    && binding.initializer.is_some_and(|initializer| {
+                        file.ast
+                            .functions
+                            .iter()
+                            .filter(|candidate| initializer.contains(candidate.span))
+                            .max_by_key(|candidate| candidate.span.end - candidate.span.start)
+                            .is_some_and(|candidate| candidate.span == function.span)
+                    })
+            })
+            .and_then(|binding| binding.names.first())
+    })
+}
+
+fn go_binding_pattern_accepts_call(
+    source: &str,
+    binding: &solid_ast_facts::BindingFact,
+    call: &solid_ast_facts::CallFact,
+) -> bool {
+    let Some(name) = binding.array_slots.first().and_then(Option::as_ref) else {
+        return false;
+    };
+    let Ok(name_start) = usize::try_from(name.span.start) else {
+        return false;
+    };
+    let Ok(name_end) = usize::try_from(name.span.end) else {
+        return false;
+    };
+    let Ok(start) = usize::try_from(call.callee.end) else {
+        return false;
+    };
+    let Ok(callee_start) = usize::try_from(call.callee.start) else {
+        return false;
+    };
+    let Ok(end) = usize::try_from(call.span.end) else {
+        return false;
+    };
+    let bytes = source.as_bytes();
+    let Some(before_name) = bytes.get(..name_start) else {
+        return false;
+    };
+    let before_name = before_name.trim_ascii_end();
+    if before_name.last() != Some(&b'[') {
+        return false;
+    }
+    let declaration_prefix = before_name[..before_name.len() - 1].trim_ascii_end();
+    if !declaration_prefix.ends_with(b"const") {
+        return false;
+    }
+    let Some(binding_tail) = bytes.get(name_end..callee_start) else {
+        return false;
+    };
+    let Some(close) = binding_tail.iter().rposition(|byte| *byte == b']') else {
+        return false;
+    };
+    if binding_tail[close + 1..].trim_ascii() != b"=" {
+        return false;
+    }
+    let Some(mut suffix) = bytes.get(start..end) else {
+        return false;
+    };
+    suffix = suffix.trim_ascii_start();
+    if suffix.first() == Some(&b'<') {
+        let Some(close) = suffix.iter().position(|byte| *byte == b'>') else {
+            return false;
+        };
+        suffix = suffix[close + 1..].trim_ascii_start();
+    }
+    suffix.first() == Some(&b'(')
+}
+
+fn go_returned_arrow_pattern_accepts(source: &str, span: Span) -> bool {
+    let Ok(start) = usize::try_from(span.start) else {
+        return false;
+    };
+    let Ok(end) = usize::try_from(span.end) else {
+        return false;
+    };
+    let Some(mut value) = source.as_bytes().get(start..end) else {
+        return false;
+    };
+    value = value.trim_ascii_start();
+    if value.starts_with(b"async") {
+        value = value[5..].trim_ascii_start();
+    }
+    if value.first() == Some(&b'(') {
+        let Some(close) = value.iter().position(|byte| *byte == b')') else {
+            return false;
+        };
+        return value[close + 1..].trim_ascii_start().starts_with(b"=>");
+    }
+    let identifier_end = value
+        .iter()
+        .position(|byte| {
+            !matches!(
+                byte,
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'$'
+            )
+        })
+        .unwrap_or(value.len());
+    identifier_end != 0
+        && value[identifier_end..]
+            .trim_ascii_start()
+            .starts_with(b"=>")
+}
+
+fn inside_effect_apply(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> bool {
+    file.ast.calls.iter().any(|call| {
+        call.arguments
+            .get(1)
+            .is_some_and(|argument| argument.span.contains(span))
+            && matches!(
+                primitive_name(
+                    file.path.as_str(),
+                    call.callee,
+                    call.static_callee.as_deref(),
+                    entities,
+                    symbol_names,
+                )
+                .as_deref(),
+                Some("createEffect" | "createRenderEffect")
+            )
+    })
+}
+
+fn go_solid_accessor_descriptor(descriptor: &solid_ts_facts::TypeDescriptor) -> bool {
+    descriptor.origin_module == "solid-js"
+        || descriptor.alias_declarations.iter().any(|declaration| {
+            declaration.name == "Accessor"
+                && declaration
+                    .location
+                    .path
+                    .replace('\\', "/")
+                    .to_ascii_lowercase()
+                    .contains("/node_modules/solid-js/")
+        })
+}
+
+fn source_function_exported(
+    indexes: &ProjectIndexes<'_>,
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+) -> bool {
+    indexes
+        .typescript_file(file.path.as_str())
+        .is_some_and(|typescript_file| {
+            typescript_file.functions.iter().any(|candidate| {
+                candidate.exported
+                    && candidate.body.start_byte == u64::from(function.body.start)
+                    && candidate.body.end_byte == u64::from(function.body.end)
+            })
+        })
+        || file.ast.exports.iter().any(|export| {
+            export.span.contains(function.span)
+                && !file.ast.functions.iter().any(|candidate| {
+                    candidate.span != function.span
+                        && export.span.contains(candidate.span)
+                        && candidate.span.contains(function.span)
+                })
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn contract_export_function(
+    node: &SummaryNode,
+    summary: &SummaryReads,
+    returned_summary: &SummaryReads,
+    callbacks: &[ContractCallback],
+    bundled_returns: &HashMap<String, ContractReturn>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+    source_primitives: &HashMap<String, String>,
+) -> ContractExport {
+    let reactive_reads = summary
+        .iter()
+        .map(|read| ContractReactiveRead {
+            kind: read.kind.clone().unwrap_or_else(|| {
+                if read.display.contains('.') {
+                    "store-path".into()
+                } else {
+                    "accessor".into()
+                }
+            }),
+            label: source_primitives
+                .get(&read.symbol)
+                .and_then(|primitive| bundled_returns.get(primitive))
+                .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
+        })
+        .collect::<Vec<_>>();
+    let first_returned =
+        returned_summary
+            .iter()
+            .fold(None::<&SummaryRead>, |current, candidate| match current {
+                None => Some(candidate),
+                Some(best) if location_order(&candidate.declaration, &best.declaration).is_lt() => {
+                    Some(candidate)
+                }
+                Some(best) => Some(best),
+            });
+    let returns = first_returned.map(|read| ContractReturn {
+        kind: if source_kinds.get(&read.symbol) == Some(&ReactiveSourceKind::Store) {
+            "store-path".into()
+        } else {
+            "accessor".into()
+        },
+        label: source_primitives
+            .get(&read.symbol)
+            .and_then(|primitive| bundled_returns.get(primitive))
+            .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
+    });
+    let mut callback_summary = callbacks.to_vec();
+    callback_summary.sort_by_key(|callback| callback.parameter);
+    ContractExport {
+        kind: "function".into(),
+        reactive_reads,
+        callbacks: callback_summary,
+        returns,
+        async_behavior: if node.r#async {
+            "promise".into()
+        } else {
+            String::new()
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn contract_export_fragment(
+    file: &solid_facts::FileFacts,
+    project_directory: Option<&Path>,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    by_symbol: &HashMap<String, usize>,
+    node_keys: &[ContractNodeKey],
+    node_contracts: &HashMap<ContractNodeKey, ContractExport>,
+    entities: &EntitySymbols,
+) -> ContractExportFragment {
+    let mut fragment = ContractExportFragment::default();
+    if project_directory
+        .is_some_and(|directory| !Path::new(file.path.as_str()).starts_with(directory))
+    {
+        return fragment;
+    }
+    for index in nodes_by_path
+        .get(file.path.as_str())
+        .into_iter()
+        .flatten()
+        .copied()
+    {
+        let node = &nodes[index];
+        if node.exported
+            && let (Some(name), Some(symbol)) = (&node.name, &node.symbol)
+            && let Some(target) = by_symbol.get(symbol).copied()
+            && let Some(summary) = node_contracts.get(&node_keys[target])
+        {
+            fragment.dependencies.insert(node_keys[target].clone());
+            fragment.direct.push((name.clone(), summary.clone()));
+        }
+    }
+    for export in file.ast.exports.iter().filter(|export| !export.type_only) {
+        for specifier in export
+            .specifiers
+            .iter()
+            .chain(export.declarations.iter())
+            .filter(|specifier| !specifier.type_only)
+        {
+            let target = entities
+                .get(&location(file.path.as_str(), specifier.local.span))
+                .and_then(|symbol| by_symbol.get(symbol))
+                .copied();
+            let summary = target
+                .and_then(|index| {
+                    fragment.dependencies.insert(node_keys[index].clone());
+                    node_contracts.get(&node_keys[index]).cloned()
+                })
+                .unwrap_or_else(value_contract_export);
+            fragment
+                .syntax
+                .push((specifier.exported.clone(), summary, true));
+        }
+        for binding in file.ast.bindings.iter().filter(|binding| {
+            binding.shape != solid_ast_facts::BindingShape::Array
+                && export.span.contains(binding.declaration)
+                && !file.ast.functions.iter().any(|function| {
+                    export.span.contains(function.span)
+                        && function.body.contains(binding.declaration)
+                })
+        }) {
+            for name in &binding.names {
+                let target = entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .and_then(|symbol| by_symbol.get(symbol))
+                    .copied();
+                let summary = target
+                    .and_then(|index| {
+                        fragment.dependencies.insert(node_keys[index].clone());
+                        node_contracts.get(&node_keys[index]).cloned()
+                    })
+                    .unwrap_or_else(value_contract_export);
+                fragment.syntax.push((name.name.clone(), summary, false));
+            }
+        }
+    }
+    fragment
+}
+
+#[allow(clippy::too_many_arguments)]
+fn contract_export_summaries_incremental(
+    cache: &mut CachedContractExports,
+    facts: &ProjectFacts,
+    nodes: &[SummaryNode],
+    nodes_by_path: &HashMap<String, Vec<usize>>,
+    by_symbol: &HashMap<String, usize>,
+    reverse_edges: &[Vec<usize>],
+    graph_node_reused_paths: &HashSet<&str>,
+    changed_semantic_symbols: Option<&HashSet<String>>,
+    summaries: &[SummaryReads],
+    returned_summaries: &[SummaryReads],
+    callbacks: &[Vec<ContractCallback>],
+    bundled_returns: &HashMap<String, ContractReturn>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+    source_primitives: &HashMap<String, String>,
+    entities: &EntitySymbols,
+) -> Arc<BTreeMap<String, ContractExport>> {
+    let mut ordinals = HashMap::<&str, usize>::new();
+    let node_keys = nodes
+        .iter()
+        .map(|node| {
+            let ordinal = ordinals.entry(node.path.as_str()).or_default();
+            let key = ContractNodeKey {
+                path: node.path.clone(),
+                ordinal: *ordinal,
+            };
+            *ordinal += 1;
+            key
+        })
+        .collect::<Vec<_>>();
+    let current_keys = node_keys.iter().cloned().collect::<HashSet<_>>();
+    let mut dirty = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| {
+            (!graph_node_reused_paths.contains(node.path.as_str())
+                || !cache.nodes.contains_key(&node_keys[index])
+                || changed_semantic_symbols.is_some_and(|changed| {
+                    summaries[index]
+                        .iter()
+                        .chain(returned_summaries[index].iter())
+                        .any(|read| changed.contains(&read.symbol))
+                }))
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    let mut dirty_set = dirty.iter().copied().collect::<HashSet<_>>();
+    while let Some(target) = dirty.pop() {
+        for owner in reverse_edges.get(target).into_iter().flatten().copied() {
+            if dirty_set.insert(owner) {
+                dirty.push(owner);
+            }
+        }
+    }
+    let mut changed_nodes = HashSet::<ContractNodeKey>::new();
+    for index in dirty_set {
+        let contract = contract_export_function(
+            &nodes[index],
+            &summaries[index],
+            &returned_summaries[index],
+            &callbacks[index],
+            bundled_returns,
+            source_kinds,
+            source_primitives,
+        );
+        let key = node_keys[index].clone();
+        if cache.nodes.get(&key) != Some(&contract) {
+            changed_nodes.insert(key.clone());
+            cache.nodes.insert(key, contract);
+        }
+    }
+    let removed_nodes = cache
+        .nodes
+        .keys()
+        .filter(|key| !current_keys.contains(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    for key in removed_nodes {
+        cache.nodes.remove(&key);
+        changed_nodes.insert(key);
+    }
+    let current_paths = facts
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<HashSet<_>>();
+    let removed_files = cache
+        .files
+        .keys()
+        .filter(|path| !current_paths.contains(path.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut fragments_changed = !removed_files.is_empty();
+    for path in removed_files {
+        cache.files.remove(&path);
+    }
+    let project_directory = Path::new(&facts.project_id).parent();
+    for file in &facts.files {
+        let rebuild = !graph_node_reused_paths.contains(file.path.as_str())
+            || cache
+                .files
+                .get(file.path.as_str())
+                .is_none_or(|fragment| !fragment.dependencies.is_disjoint(&changed_nodes));
+        if !rebuild {
+            continue;
+        }
+        let fragment = contract_export_fragment(
+            file,
+            project_directory,
+            nodes,
+            nodes_by_path,
+            by_symbol,
+            &node_keys,
+            &cache.nodes,
+            entities,
+        );
+        fragments_changed |= cache.files.get(file.path.as_str()) != Some(&fragment);
+        cache.files.insert(file.path.to_string(), fragment);
+    }
+    if !fragments_changed && let Some(aggregate) = &cache.aggregate {
+        return Arc::clone(aggregate);
+    }
+    let mut aggregate = BTreeMap::new();
+    for file in &facts.files {
+        if let Some(fragment) = cache.files.get(file.path.as_str()) {
+            for (name, summary) in &fragment.direct {
+                aggregate.insert(name.clone(), summary.clone());
+            }
+        }
+    }
+    for file in &facts.files {
+        if let Some(fragment) = cache.files.get(file.path.as_str()) {
+            for (name, summary, replace) in &fragment.syntax {
+                if *replace {
+                    aggregate.insert(name.clone(), summary.clone());
+                } else {
+                    aggregate
+                        .entry(name.clone())
+                        .or_insert_with(|| summary.clone());
+                }
+            }
+        }
+    }
+    let aggregate = Arc::new(aggregate);
+    cache.aggregate = Some(Arc::clone(&aggregate));
+    aggregate
+}
+
+#[allow(clippy::too_many_arguments)]
+fn contract_export_summaries(
+    facts: &ProjectFacts,
+    nodes: &[SummaryNode],
+    summaries: &[SummaryReads],
+    returned_summaries: &[SummaryReads],
+    callbacks: &[Vec<ContractCallback>],
+    bundled_returns: &HashMap<String, ContractReturn>,
+    source_kinds: &HashMap<String, ReactiveSourceKind>,
+    source_primitives: &HashMap<String, String>,
+    entities: &EntitySymbols,
+) -> BTreeMap<String, ContractExport> {
+    let project_directory = Path::new(&facts.project_id).parent();
+    let mut by_symbol = HashMap::<String, ContractExport>::with_capacity(nodes.len());
+    for (index, node) in nodes.iter().enumerate() {
+        let Some(symbol) = &node.symbol else {
+            continue;
+        };
+        let contribution = contract_export_function(
+            node,
+            &summaries[index],
+            &returned_summaries[index],
+            &callbacks[index],
+            bundled_returns,
+            source_kinds,
+            source_primitives,
+        );
+        by_symbol.insert(symbol.clone(), contribution);
+    }
+
+    let mut exports = BTreeMap::new();
+    for node in nodes.iter().filter(|node| {
+        node.exported
+            && project_directory
+                .is_none_or(|directory| Path::new(&node.path).starts_with(directory))
+    }) {
+        if let (Some(name), Some(symbol)) = (&node.name, &node.symbol)
+            && let Some(summary) = by_symbol.get(symbol)
+        {
+            exports.insert(name.clone(), summary.clone());
+        }
+    }
+    for file in facts.files.iter().filter(|file| {
+        project_directory
+            .is_none_or(|directory| Path::new(file.path.as_str()).starts_with(directory))
+    }) {
+        for export in file.ast.exports.iter().filter(|export| !export.type_only) {
+            for specifier in export
+                .specifiers
+                .iter()
+                .chain(export.declarations.iter())
+                .filter(|specifier| !specifier.type_only)
+            {
+                let summary = entities
+                    .get(&location(file.path.as_str(), specifier.local.span))
+                    .and_then(|symbol| by_symbol.get(symbol))
+                    .cloned();
+                if let Some(summary) = summary {
+                    exports.insert(specifier.exported.clone(), summary);
+                } else {
+                    exports
+                        .entry(specifier.exported.clone())
+                        .or_insert_with(value_contract_export);
+                }
+            }
+            for binding in file.ast.bindings.iter().filter(|binding| {
+                binding.shape != solid_ast_facts::BindingShape::Array
+                    && export.span.contains(binding.declaration)
+                    && !file.ast.functions.iter().any(|function| {
+                        export.span.contains(function.span)
+                            && function.body.contains(binding.declaration)
+                    })
+            }) {
+                for name in &binding.names {
+                    if !exports.contains_key(&name.name) {
+                        let summary = entities
+                            .get(&location(file.path.as_str(), name.span))
+                            .and_then(|symbol| by_symbol.get(symbol))
+                            .cloned()
+                            .unwrap_or_else(value_contract_export);
+                        exports.insert(name.name.clone(), summary);
+                    }
+                }
+            }
+        }
+    }
+    exports
+}
+
+fn value_contract_export() -> ContractExport {
+    ContractExport {
+        kind: "value".into(),
+        ..ContractExport::default()
+    }
+}
+
+fn enclosing_render_function(file: &solid_facts::FileFacts, span: Span) -> bool {
+    file.ast.functions.iter().any(|function| {
+        function.body.contains(span)
+            && function
+                .name
+                .as_ref()
+                .and_then(|name| name.name.chars().next())
+                .is_some_and(char::is_uppercase)
+    })
+}
+
+fn counts_as_strict_read_root(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    execution: ExecutionRole,
+) -> bool {
+    execution == ExecutionRole::EffectApply || enclosing_render_function(file, span)
+}
+
+fn enclosing_function_label(file: &solid_facts::FileFacts, span: Span) -> String {
+    let Some(function) = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .min_by_key(|function| function.body.end - function.body.start)
+    else {
+        return String::new();
+    };
+    if let Some(name) = &function.name {
+        return name.name.clone();
+    }
+    function_binding_name(file, function).map_or_else(String::new, |name| name.name.clone())
+}
+
+fn analysis_context(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> String {
+    let enclosing = enclosing_function_label(file, span);
+    if let Some(rendering) = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .filter_map(|function| function.name.as_ref())
+        .filter(|name| name.name.chars().next().is_some_and(char::is_uppercase))
+        .min_by_key(|name| name.span.end - name.span.start)
+    {
+        return rendering.name.clone();
+    }
+    let callback = file
+        .ast
+        .calls
+        .iter()
+        .flat_map(|call| {
+            call.arguments
+                .iter()
+                .enumerate()
+                .filter(move |(_, argument)| argument.span.contains(span))
+                .map(move |(index, argument)| (call, index, argument.span))
+        })
+        .min_by_key(|(_, _, argument)| argument.end - argument.start);
+    if let Some((call, argument, _)) = callback
+        && let Some(primitive) = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )
+    {
+        let phase = match (primitive.as_str(), argument) {
+            ("createEffect" | "createRenderEffect", 0) => Some("compute"),
+            ("createEffect" | "createRenderEffect", 1) => Some("apply callback"),
+            (
+                "createMemo"
+                | "createSignal"
+                | "createStore"
+                | "createProjection"
+                | "createOptimistic"
+                | "createOptimisticStore",
+                0,
+            ) => Some("compute"),
+            _ => None,
+        };
+        if let Some(phase) = phase {
+            return format!("{primitive} {phase}");
+        }
+    }
+    enclosing
+}
+
+fn push_unique_summary_read(reads: &mut Vec<SummaryRead>, read: SummaryRead) {
+    if !reads.iter().any(|existing| {
+        existing.display == read.display
+            && existing.origin == read.origin
+            && existing.declaration == read.declaration
+    }) {
+        reads.push(read);
+    }
+}
+
+fn propagate_returned_summary_deltas(summaries: &mut [SummaryReads], edges: &[(usize, usize)]) {
+    let mut propagated_lengths = vec![0; edges.len()];
+    for _ in 0..summaries.len() {
+        let mut changed = false;
+        for (edge_index, (owner, target)) in edges.iter().copied().enumerate() {
+            let start = propagated_lengths[edge_index];
+            let propagated = summaries[target].ordered[start..].to_vec();
+            propagated_lengths[edge_index] = summaries[target].len();
+            for read in propagated {
+                changed |= summaries[owner].push_unique(read);
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn propagate_summary_deltas(
+    summaries: &mut [SummaryReads],
+    reverse_edges: &[Vec<usize>],
+    propagated_lengths: &mut [usize],
+) {
+    let mut queued = summaries
+        .iter()
+        .zip(propagated_lengths.iter())
+        .map(|(summary, propagated)| summary.len() > *propagated)
+        .collect::<Vec<_>>();
+    let mut worklist = queued
+        .iter()
+        .enumerate()
+        .filter_map(|(index, queued)| queued.then_some(index))
+        .collect::<VecDeque<_>>();
+    while let Some(target) = worklist.pop_front() {
+        queued[target] = false;
+        let start = propagated_lengths[target];
+        let propagated = summaries[target].ordered[start..].to_vec();
+        propagated_lengths[target] = summaries[target].len();
+        for owner in reverse_edges[target].iter().copied() {
+            let mut changed = false;
+            for read in &propagated {
+                changed |= summaries[owner].push_unique(read.clone());
+            }
+            if changed && !queued[owner] {
+                queued[owner] = true;
+                worklist.push_back(owner);
+            }
+        }
+    }
+}
+
+fn contract_callback_execution(execution: ExecutionRole) -> &'static str {
+    match execution {
+        ExecutionRole::TrackedJsx => "tracked",
+        ExecutionRole::DeferredCallback => "deferred",
+        ExecutionRole::EffectApply
+        | ExecutionRole::EventCallback
+        | ExecutionRole::DirectiveApply
+        | ExecutionRole::UntrackedRendering => "inline",
+    }
+}
+
+fn push_contract_callback(callbacks: &mut Vec<ContractCallback>, callback: ContractCallback) {
+    callbacks.push(callback);
+}
+
+fn reachability_topology(
+    functions: &[FunctionNode],
+    roots: &[ReachabilityTarget],
+    edges: &[ReachabilityEdge],
+    callback_edges: &[(Option<Span>, Vec<ReachabilityTarget>)],
+) -> ReachabilityTopology {
+    let local = |span: Span| functions.iter().position(|function| function.span == span);
+    let target = |target: &ReachabilityTarget| match target {
+        ReachabilityTarget::Symbol(symbol) => {
+            Some(ReachabilityTopologyTarget::Symbol(symbol.clone()))
+        }
+        ReachabilityTarget::LocalSpan(span) => local(*span).map(ReachabilityTopologyTarget::Local),
+    };
+    ReachabilityTopology {
+        function_symbols: functions
+            .iter()
+            .map(|function| function.symbol.clone())
+            .collect(),
+        roots: roots.iter().filter_map(target).collect(),
+        edges: edges
+            .iter()
+            .filter_map(|edge| Some((edge.owner.and_then(local), target(&edge.target)?)))
+            .collect(),
+        callback_edges: callback_edges
+            .iter()
+            .map(|(owner, targets)| {
+                (
+                    owner.and_then(local),
+                    targets.iter().filter_map(target).collect(),
+                )
+            })
+            .collect(),
+    }
+}
+
+fn effective_reachability_topology(
+    topology: &ReachabilityTopology,
+    function_symbols: &HashSet<String>,
+) -> ReachabilityTopology {
+    let retained_target = |target: &ReachabilityTopologyTarget| match target {
+        ReachabilityTopologyTarget::Local(_) => true,
+        ReachabilityTopologyTarget::Symbol(symbol) => function_symbols.contains(symbol),
+    };
+    ReachabilityTopology {
+        function_symbols: topology.function_symbols.clone(),
+        roots: topology
+            .roots
+            .iter()
+            .filter(|target| retained_target(target))
+            .cloned()
+            .collect(),
+        edges: topology
+            .edges
+            .iter()
+            .filter(|(_, target)| retained_target(target))
+            .cloned()
+            .collect(),
+        callback_edges: topology
+            .callback_edges
+            .iter()
+            .filter_map(|(owner, targets)| {
+                let targets = targets
+                    .iter()
+                    .filter(|target| retained_target(target))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (!targets.is_empty()).then_some((*owner, targets))
+            })
+            .collect(),
+    }
+}
+
+fn discover_reachability_file(
+    file: &solid_facts::FileFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> CachedReachabilityFile {
+    let functions = file
+        .ast
+        .functions
+        .iter()
+        .map(|function| {
+            let symbol = function.name.as_ref().and_then(|name| {
+                entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .cloned()
+            });
+            FunctionNode {
+                path: file.path.to_string(),
+                span: function.span,
+                body: function.body,
+                name: function.name.as_ref().map(|name| name.name.clone()),
+                symbol,
+            }
+        })
+        .collect::<Vec<_>>();
+    let functions_by_path = function_indices_by_path(&functions);
+    let call_owners = file
+        .ast
+        .calls
+        .iter()
+        .map(|call| {
+            containing_function_indexed(
+                &functions,
+                &functions_by_path,
+                file.path.as_str(),
+                call.span,
+            )
+            .map(|index| functions[index].span)
+        })
+        .collect::<Vec<_>>();
+    let exported_bodies = indexes
+        .typescript_file(file.path.as_str())
+        .into_iter()
+        .flat_map(|file| &file.functions)
+        .filter(|function| function.exported)
+        .map(|function| (function.body.start_byte, function.body.end_byte))
+        .collect::<HashSet<_>>();
+    let mut roots = functions
+        .iter()
+        .filter(|function| {
+            function
+                .name
+                .as_deref()
+                .and_then(|name| name.chars().next())
+                .is_some_and(char::is_uppercase)
+                || exported_bodies
+                    .contains(&(u64::from(function.body.start), u64::from(function.body.end)))
+        })
+        .map(|function| ReachabilityTarget::LocalSpan(function.span))
+        .collect::<Vec<_>>();
+    for export in &file.ast.exports {
+        if functions
+            .iter()
+            .any(|function| export.span.contains(function.span))
+        {
+            continue;
+        }
+        for entity in indexes.entities_for_path(file.path.as_str()) {
+            let Ok(start) = u32::try_from(entity.location.start_byte) else {
+                continue;
+            };
+            let Ok(end) = u32::try_from(entity.location.end_byte) else {
+                continue;
+            };
+            if export.span.contains(Span::new(start, end))
+                && let Some(symbol) = entities.get(&entity.location)
+            {
+                roots.push(ReachabilityTarget::Symbol(symbol.clone()));
+            }
+        }
+    }
+    let mut edges = Vec::new();
+    for (call_index, call) in file.ast.calls.iter().enumerate() {
+        let owner = call_owners[call_index];
+        let callee = location(file.path.as_str(), call.callee);
+        if let Some(symbol) = entities.get(&callee) {
+            edges.push(ReachabilityEdge {
+                owner,
+                target: ReachabilityTarget::Symbol(symbol.clone()),
+            });
+        }
+        if matches!(
+            primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                symbol_names,
+            )
+            .as_deref(),
+            Some(
+                "createMemo"
+                    | "createEffect"
+                    | "createRenderEffect"
+                    | "createTrackedEffect"
+                    | "createReaction"
+                    | "untrack"
+                    | "onSettled"
+                    | "action"
+            )
+        ) {
+            for function in &functions {
+                if call
+                    .arguments
+                    .iter()
+                    .any(|argument| argument.span.contains(function.span))
+                {
+                    edges.push(ReachabilityEdge {
+                        owner,
+                        target: ReachabilityTarget::LocalSpan(function.span),
+                    });
+                }
+            }
+        }
+    }
+    let mut callback_edges = Vec::new();
+    for callback in &file.compiler.callback_roles {
+        let owner = containing_function_indexed(
+            &functions,
+            &functions_by_path,
+            file.path.as_str(),
+            callback.span,
+        )
+        .map(|index| functions[index].span);
+        let mut targets = functions
+            .iter()
+            .filter(|function| callback.span.contains(function.span))
+            .map(|function| ReachabilityTarget::LocalSpan(function.span))
+            .collect::<Vec<_>>();
+        if let Some(symbol) = entities.get(&location(file.path.as_str(), callback.span)) {
+            targets.push(ReachabilityTarget::Symbol(symbol.clone()));
+        }
+        callback_edges.push((owner, targets));
+    }
+    let call_owner_indices = call_owners
+        .iter()
+        .map(|owner| {
+            owner.and_then(|span| functions.iter().position(|function| function.span == span))
+        })
+        .collect();
+    let topology = reachability_topology(&functions, &roots, &edges, &callback_edges);
+    CachedReachabilityFile {
+        identity: source_discovery_identity(file, indexes),
+        compiler: file.compiler.clone(),
+        functions,
+        roots,
+        edges,
+        callback_edges,
+        call_owners,
+        call_owner_indices,
+        topology,
+    }
+}
+
+fn reachable_call_multiplicity_incremental(
+    facts: &ProjectFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+    cache: &mut HashMap<String, CachedReachabilityFile>,
+    multiplicity_by_path: &mut HashMap<String, Vec<usize>>,
+    calls: &mut HashMap<Location, usize>,
+    function_symbols: &mut HashSet<String>,
+    typescript_unchanged: bool,
+    typescript_delta: Option<&SourceDiscoveryTypeScriptDelta>,
+) -> (u64, u64) {
+    let current_paths = facts
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<HashSet<_>>();
+    let removed_paths = cache
+        .keys()
+        .filter(|path| !current_paths.contains(path.as_str()))
+        .cloned()
+        .collect::<HashSet<_>>();
+    cache.retain(|path, _| current_paths.contains(path.as_str()));
+    multiplicity_by_path.retain(|path, _| current_paths.contains(path.as_str()));
+    let mut reused_files = 0;
+    let mut recomputed_files = 0;
+    let mut recomputed_paths = HashSet::<String>::new();
+    let mut topology_unchanged = !multiplicity_by_path.is_empty() && removed_paths.is_empty();
+    for file in &facts.files {
+        let reusable = (typescript_unchanged || typescript_delta.is_some())
+            && cache.get(file.path.as_str()).is_some_and(|cached| {
+                source_discovery_identity_matches(
+                    &cached.identity,
+                    file,
+                    indexes,
+                    typescript_unchanged,
+                    typescript_delta,
+                ) && (Arc::ptr_eq(&cached.compiler, &file.compiler)
+                    || same_compiler_semantics(&cached.compiler, &file.compiler))
+            });
+        if reusable {
+            reused_files += 1;
+            continue;
+        }
+        recomputed_files += 1;
+        recomputed_paths.insert(file.path.to_string());
+        let discovered = discover_reachability_file(file, indexes, entities, symbol_names);
+        topology_unchanged &= cache.get(file.path.as_str()).is_some_and(|previous| {
+            effective_reachability_topology(&previous.topology, function_symbols)
+                == effective_reachability_topology(&discovered.topology, function_symbols)
+        });
+        cache.insert(file.path.to_string(), discovered);
+    }
+
+    if topology_unchanged {
+        calls.retain(|location, _| {
+            !removed_paths.contains(location.path.as_str())
+                && !recomputed_paths.contains(location.path.as_str())
+        });
+        for file in facts
+            .files
+            .iter()
+            .filter(|file| recomputed_paths.contains(file.path.as_str()))
+        {
+            let Some(cached) = cache.get(file.path.as_str()) else {
+                continue;
+            };
+            let Some(multiplicity) = multiplicity_by_path.get(file.path.as_str()) else {
+                topology_unchanged = false;
+                break;
+            };
+            for ((call, owner), owner_index) in file
+                .ast
+                .calls
+                .iter()
+                .zip(&cached.call_owners)
+                .zip(&cached.call_owner_indices)
+            {
+                let Some(owner_index) = owner_index else {
+                    continue;
+                };
+                if multiplicity.get(*owner_index).copied().unwrap_or(0) != 0 {
+                    calls.insert(
+                        location(file.path.as_str(), call.callee),
+                        multiplicity[*owner_index],
+                    );
+                }
+                debug_assert_eq!(
+                    owner.and_then(|span| {
+                        cached
+                            .functions
+                            .iter()
+                            .position(|function| function.span == span)
+                    }),
+                    Some(*owner_index)
+                );
+            }
+        }
+        if topology_unchanged {
+            return (reused_files, recomputed_files);
+        }
+    }
+
+    let mut functions = Vec::new();
+    for file in &facts.files {
+        if let Some(cached) = cache.get(file.path.as_str()) {
+            functions.extend(cached.functions.iter().cloned());
+        }
+    }
+    let functions_by_path = function_indices_by_path(&functions);
+    let by_symbol = functions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, function)| function.symbol.clone().map(|symbol| (symbol, index)))
+        .collect::<HashMap<_, _>>();
+    function_symbols.clear();
+    function_symbols.extend(by_symbol.keys().cloned());
+    let local_target = |path: &str, span: Span| {
+        functions_by_path.get(path).and_then(|indices| {
+            indices
+                .iter()
+                .find(|index| functions[**index].span == span)
+                .copied()
+        })
+    };
+    let resolve_target = |path: &str, target: &ReachabilityTarget| match target {
+        ReachabilityTarget::Symbol(symbol) => by_symbol.get(symbol).copied(),
+        ReachabilityTarget::LocalSpan(span) => local_target(path, *span),
+    };
+    let mut edges = vec![Vec::new(); functions.len()];
+    let mut roots = Vec::new();
+    for file in &facts.files {
+        let Some(cached) = cache.get(file.path.as_str()) else {
+            continue;
+        };
+        roots.extend(
+            cached
+                .roots
+                .iter()
+                .filter_map(|target| resolve_target(file.path.as_str(), target)),
+        );
+        for edge in &cached.edges {
+            let Some(target) = resolve_target(file.path.as_str(), &edge.target) else {
+                continue;
+            };
+            if let Some(owner) = edge
+                .owner
+                .and_then(|span| local_target(file.path.as_str(), span))
+            {
+                edges[owner].push(target);
+            } else {
+                roots.push(target);
+            }
+        }
+        for (owner, targets) in &cached.callback_edges {
+            let mut targets = targets
+                .iter()
+                .filter_map(|target| resolve_target(file.path.as_str(), target))
+                .collect::<Vec<_>>();
+            targets.sort_unstable();
+            targets.dedup();
+            for target in targets {
+                if let Some(owner) = owner.and_then(|span| local_target(file.path.as_str(), span)) {
+                    edges[owner].push(target);
+                } else {
+                    roots.push(target);
+                }
+            }
+        }
+    }
+    roots.sort_unstable();
+    roots.dedup();
+    let mut multiplicity = vec![0_usize; functions.len()];
+    for root in roots {
+        accumulate_function(root, &edges, &mut HashSet::new(), &mut multiplicity);
+    }
+    multiplicity_by_path.clear();
+    let mut offset = 0;
+    for file in &facts.files {
+        let count = cache
+            .get(file.path.as_str())
+            .map_or(0, |cached| cached.functions.len());
+        multiplicity_by_path.insert(
+            file.path.to_string(),
+            multiplicity[offset..offset + count].to_vec(),
+        );
+        offset += count;
+    }
+    calls.clear();
+    for file in &facts.files {
+        let Some(cached) = cache.get(file.path.as_str()) else {
+            continue;
+        };
+        for (call, owner) in file.ast.calls.iter().zip(&cached.call_owners) {
+            if let Some(function) = owner.and_then(|span| local_target(file.path.as_str(), span))
+                && multiplicity[function] != 0
+            {
+                calls.insert(
+                    location(file.path.as_str(), call.callee),
+                    multiplicity[function],
+                );
+            }
+        }
+    }
+    (reused_files, recomputed_files)
+}
+
+fn reachable_call_multiplicity(
+    facts: &ProjectFacts,
+    indexes: &ProjectIndexes<'_>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> HashMap<Location, usize> {
+    let mut functions = Vec::new();
+    for file in &facts.files {
+        for function in &file.ast.functions {
+            let symbol = function.name.as_ref().and_then(|name| {
+                entities
+                    .get(&location(file.path.as_str(), name.span))
+                    .cloned()
+            });
+            functions.push(FunctionNode {
+                path: file.path.to_string(),
+                span: function.span,
+                body: function.body,
+                name: function.name.as_ref().map(|name| name.name.clone()),
+                symbol,
+            });
+        }
+    }
+    let functions_by_path = function_indices_by_path(&functions);
+    let call_owners = facts
+        .files
+        .iter()
+        .map(|file| {
+            file.ast
+                .calls
+                .iter()
+                .map(|call| {
+                    containing_function_indexed(
+                        &functions,
+                        &functions_by_path,
+                        file.path.as_str(),
+                        call.span,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let by_symbol = functions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, function)| function.symbol.clone().map(|symbol| (symbol, index)))
+        .collect::<HashMap<_, _>>();
+    let mut exported_bodies = HashMap::<&str, HashSet<(u64, u64)>>::new();
+    for file in &facts.typescript.files {
+        for function in &file.functions {
+            if function.exported {
+                exported_bodies
+                    .entry(file.path.as_str())
+                    .or_default()
+                    .insert((function.body.start_byte, function.body.end_byte));
+            }
+        }
+    }
+    let mut exported_symbols = HashSet::new();
+    for file in &facts.files {
+        for export in &file.ast.exports {
+            if functions_by_path
+                .get(file.path.as_str())
+                .into_iter()
+                .flatten()
+                .any(|index| export.span.contains(functions[*index].span))
+            {
+                continue;
+            }
+            for entity in indexes.entities_for_path(file.path.as_str()) {
+                let Ok(start) = u32::try_from(entity.location.start_byte) else {
+                    continue;
+                };
+                let Ok(end) = u32::try_from(entity.location.end_byte) else {
+                    continue;
+                };
+                if export.span.contains(Span::new(start, end))
+                    && let Some(symbol) = entities.get(&entity.location)
+                {
+                    exported_symbols.insert(symbol.clone());
+                }
+            }
+        }
+    }
+    let mut edges = vec![Vec::new(); functions.len()];
+    let mut roots = Vec::new();
+    for (index, function) in functions.iter().enumerate() {
+        let component = function
+            .name
+            .as_deref()
+            .and_then(|name| name.chars().next())
+            .is_some_and(char::is_uppercase);
+        let exported = exported_bodies
+            .get(function.path.as_str())
+            .is_some_and(|bodies| {
+                bodies.contains(&(u64::from(function.body.start), u64::from(function.body.end)))
+            })
+            || function
+                .symbol
+                .as_ref()
+                .is_some_and(|symbol| exported_symbols.contains(symbol));
+        if component || exported {
+            roots.push(index);
+        }
+    }
+    for (file_index, file) in facts.files.iter().enumerate() {
+        for (call_index, call) in file.ast.calls.iter().enumerate() {
+            let owner = call_owners[file_index][call_index];
+            let callee = location(file.path.as_str(), call.callee);
+            if let Some(target) = entities
+                .get(&callee)
+                .and_then(|symbol| by_symbol.get(symbol))
+                .copied()
+            {
+                if let Some(owner) = owner {
+                    edges[owner].push(target);
+                } else {
+                    roots.push(target);
+                }
+            }
+            if matches!(
+                primitive_name(
+                    file.path.as_str(),
+                    call.callee,
+                    call.static_callee.as_deref(),
+                    entities,
+                    symbol_names,
+                )
+                .as_deref(),
+                Some(
+                    "createMemo"
+                        | "createEffect"
+                        | "createRenderEffect"
+                        | "createTrackedEffect"
+                        | "createReaction"
+                        | "untrack"
+                        | "onSettled"
+                        | "action"
+                )
+            ) {
+                for index in functions_by_path
+                    .get(file.path.as_str())
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                {
+                    let function = &functions[index];
+                    if call
+                        .arguments
+                        .iter()
+                        .any(|argument| argument.span.contains(function.span))
+                    {
+                        if let Some(owner) = owner {
+                            edges[owner].push(index);
+                        } else {
+                            roots.push(index);
+                        }
+                    }
+                }
+            }
+        }
+        for callback in &file.compiler.callback_roles {
+            let owner = containing_function_indexed(
+                &functions,
+                &functions_by_path,
+                file.path.as_str(),
+                callback.span,
+            );
+            let mut targets = functions_by_path
+                .get(file.path.as_str())
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|index| callback.span.contains(functions[*index].span))
+                .collect::<Vec<_>>();
+            if let Some(symbol) = entities.get(&location(file.path.as_str(), callback.span))
+                && let Some(target) = by_symbol.get(symbol)
+            {
+                targets.push(*target);
+            }
+            targets.sort_unstable();
+            targets.dedup();
+            for target in targets {
+                if let Some(owner) = owner {
+                    edges[owner].push(target);
+                } else {
+                    roots.push(target);
+                }
+            }
+        }
+    }
+    roots.sort_unstable();
+    roots.dedup();
+    let mut multiplicity = vec![0_usize; functions.len()];
+    for root in roots {
+        accumulate_function(root, &edges, &mut HashSet::new(), &mut multiplicity);
+    }
+    let mut result = HashMap::new();
+    for (file_index, file) in facts.files.iter().enumerate() {
+        for (call_index, call) in file.ast.calls.iter().enumerate() {
+            let owner = call_owners[file_index][call_index];
+            if let Some(function) = owner
+                && multiplicity[function] != 0
+            {
+                result.insert(
+                    location(file.path.as_str(), call.callee),
+                    multiplicity[function],
+                );
+            }
+        }
+    }
+    result
+}
+
+fn accumulate_function(
+    function: usize,
+    edges: &[Vec<usize>],
+    visiting: &mut HashSet<usize>,
+    multiplicity: &mut [usize],
+) {
+    if !visiting.insert(function) {
+        return;
+    }
+    multiplicity[function] += 1;
+    for target in &edges[function] {
+        accumulate_function(*target, edges, visiting, multiplicity);
+    }
+    visiting.remove(&function);
+}
+
+fn function_indices_by_path<T>(functions: &[T]) -> HashMap<String, Vec<usize>>
+where
+    T: FunctionBoundary,
+{
+    let mut by_path = HashMap::<String, Vec<usize>>::new();
+    for (index, function) in functions.iter().enumerate() {
+        by_path
+            .entry(function.path().to_owned())
+            .or_default()
+            .push(index);
+    }
+    by_path
+}
+
+fn functions_for_path<'a, T>(
+    functions: &'a [T],
+    by_path: &'a HashMap<String, Vec<usize>>,
+    path: &str,
+) -> impl Iterator<Item = (usize, &'a T)> + 'a {
+    by_path
+        .get(path)
+        .into_iter()
+        .flatten()
+        .copied()
+        .map(|index| (index, &functions[index]))
+}
+
+fn containing_function_indexed<T>(
+    functions: &[T],
+    by_path: &HashMap<String, Vec<usize>>,
+    path: &str,
+    span: Span,
+) -> Option<usize>
+where
+    T: FunctionBoundary,
+{
+    by_path
+        .get(path)?
+        .iter()
+        .copied()
+        .filter(|index| functions[*index].body().contains(span))
+        .min_by_key(|index| {
+            let body = functions[*index].body();
+            body.end - body.start
+        })
+}
+
+fn containing_summary_function_indexed(
+    functions: &[SummaryNode],
+    by_path: &HashMap<String, Vec<usize>>,
+    path: &str,
+    span: Span,
+) -> Option<usize> {
+    functions_for_path(functions, by_path, path)
+        .find(|(_, function)| function.body.contains(span))
+        .map(|(index, _)| index)
+}
+
+trait FunctionBoundary {
+    fn path(&self) -> &str;
+    fn body(&self) -> Span;
+}
+
+fn location_order(left: &Location, right: &Location) -> std::cmp::Ordering {
+    (&left.path, left.start_byte, left.end_byte).cmp(&(
+        &right.path,
+        right.start_byte,
+        right.end_byte,
+    ))
+}
+
+fn execution_role(
+    facts: &solid_facts::solid_compiler_facts::ExecutionMap,
+    span: Span,
+    allowed: &[Span],
+) -> ExecutionRole {
+    if allowed.iter().any(|region| region.contains(span)) {
+        return ExecutionRole::DeferredCallback;
+    }
+    if facts
+        .tracked_regions
+        .iter()
+        .any(|region| region.span.contains(span))
+    {
+        return ExecutionRole::TrackedJsx;
+    }
+    for callback in &facts.callback_roles {
+        if callback.span.contains(span) {
+            return match callback.role {
+                solid_facts::solid_compiler_facts::CallbackRoleKind::EventHandler => {
+                    ExecutionRole::EventCallback
+                }
+                solid_facts::solid_compiler_facts::CallbackRoleKind::Deferred => {
+                    ExecutionRole::DeferredCallback
+                }
+                solid_facts::solid_compiler_facts::CallbackRoleKind::DirectiveApply => {
+                    ExecutionRole::DirectiveApply
+                }
+                solid_facts::solid_compiler_facts::CallbackRoleKind::Render => {
+                    ExecutionRole::UntrackedRendering
+                }
+            };
+        }
+    }
+    ExecutionRole::UntrackedRendering
+}
+
+fn semantic_execution_role(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    allowed: &[Span],
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> ExecutionRole {
+    if file
+        .compiler
+        .tracked_regions
+        .iter()
+        .any(|region| region.span.contains(span))
+    {
+        return ExecutionRole::TrackedJsx;
+    }
+    if file.ast.calls.iter().any(|call| {
+        call.arguments
+            .get(1)
+            .is_some_and(|argument| argument.span.contains(span))
+            && primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                symbol_names,
+            )
+            .is_some_and(|primitive| {
+                matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
+            })
+    }) {
+        return ExecutionRole::EffectApply;
+    }
+    if file.ast.calls.iter().any(|call| {
+        call.arguments.first().is_some_and(|argument| {
+            argument.span.contains(span)
+                && matches!(
+                    argument.value,
+                    solid_ast_facts::ArgumentValueKind::Identifier
+                        | solid_ast_facts::ArgumentValueKind::Function
+                        | solid_ast_facts::ArgumentValueKind::AsyncFunction
+                )
+        }) && primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )
+        .is_some_and(|primitive| {
+            matches!(
+                primitive.as_str(),
+                "createMemo"
+                    | "createEffect"
+                    | "createRenderEffect"
+                    | "createSignal"
+                    | "createStore"
+                    | "createProjection"
+                    | "createOptimistic"
+                    | "createOptimisticStore"
+            )
+        })
+    }) {
+        return ExecutionRole::TrackedJsx;
+    }
+    execution_role(&file.compiler, span, allowed)
+}
+
+fn read_analysis_context(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    execution: ExecutionRole,
+) -> String {
+    if execution == ExecutionRole::EffectApply {
+        "createEffect apply callback".into()
+    } else {
+        let context = enclosing_function_label(file, span);
+        if file
+            .ast
+            .conditional_tests
+            .iter()
+            .any(|test| test.contains(span))
+        {
+            format!("{context} conditional return")
+        } else {
+            context
+        }
+    }
+}
+
+fn async_execution_role(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    execution: ExecutionRole,
+) -> ExecutionRole {
+    if execution == ExecutionRole::DeferredCallback
+        && file
+            .ast
+            .jsx_elements
+            .iter()
+            .any(|element| element.span.contains(span))
+    {
+        ExecutionRole::TrackedJsx
+    } else {
+        execution
+    }
+}
+
+fn allowed_callback_spans(
+    file: &solid_facts::FileFacts,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for call in &file.ast.calls {
+        let primitive = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        let indices: &[usize] = match primitive.as_deref() {
+            Some("createEffect" | "createRenderEffect") => &[1],
+            Some("untrack" | "onSettled" | "createTrackedEffect" | "createReaction" | "action") => {
+                &[0]
+            }
+            _ => &[],
+        };
+        for index in indices {
+            if let Some(argument) = call.arguments.get(*index) {
+                spans.push(argument.span);
+            }
+        }
+    }
+    spans
+}
+
+struct LocalAccessContext<'a> {
+    facts: &'a ProjectFacts,
+    entities: &'a EntitySymbols,
+    symbol_names: &'a HashMap<String, String>,
+    reachable_calls: &'a HashMap<Location, usize>,
+    accessors: &'a HashMap<String, (String, Location)>,
+    accessor_origins: &'a HashMap<String, (String, String, Location)>,
+    setters: &'a HashMap<String, (String, Location, bool)>,
+    actions: &'a HashMap<String, (String, Location)>,
+    source_primitives: &'a HashMap<String, String>,
+    async_sources: &'a HashSet<String>,
+    contract_reads: &'a HashMap<String, Vec<(String, String, Location, String)>>,
+    source_kinds: &'a HashMap<String, ReactiveSourceKind>,
+    prop_sources: &'a HashMap<String, (String, Location)>,
+}
+
+impl LocalAccessContext<'_> {
+    fn build(
+        &self,
+        mut cache: Option<&mut CachedLocalAccesses>,
+        aggregate_reusable: bool,
+        typescript_unchanged: bool,
+        source_discovery_delta: Option<&SourceDiscoveryTypeScriptDelta>,
+        changed_source_symbols: &HashSet<String>,
+        retained_source_paths: &HashSet<String>,
+        global_async_context_unchanged: bool,
+    ) -> LocalAccessBuild {
+        if aggregate_reusable
+            && let Some(cached) = cache.as_deref().and_then(|cache| cache.aggregate.as_ref())
+        {
+            return LocalAccessBuild {
+                result: cached.clone(),
+                reused: true,
+                reused_files: u64::try_from(self.facts.files.len()).unwrap_or(u64::MAX),
+                recomputed_files: 0,
+            };
+        }
+
+        let mut result = LocalAccessResult::default();
+        let mut reused_files = 0;
+        let mut recomputed_files = 0;
+        if let Some(cache) = cache.as_deref_mut() {
+            let exact_typescript_delta = typescript_unchanged || source_discovery_delta.is_some();
+            let mut candidate_dependencies = changed_source_symbols.clone();
+            if let Some(delta) = source_discovery_delta {
+                candidate_dependencies.extend(delta.semantic_symbol_ids.iter().cloned());
+            }
+            for (symbol, previous) in &cache.prop_sources {
+                if self.prop_sources.get(symbol) != Some(previous) {
+                    candidate_dependencies.insert(symbol.clone());
+                }
+            }
+            for symbol in self.prop_sources.keys() {
+                if !cache.prop_sources.contains_key(symbol) {
+                    candidate_dependencies.insert(symbol.clone());
+                }
+            }
+            let changed_dependencies = candidate_dependencies
+                .into_iter()
+                .filter(|symbol| {
+                    cache
+                        .dependency_states
+                        .get(symbol)
+                        .is_some_and(|previous| *previous != self.symbol_state(symbol))
+                })
+                .collect::<HashSet<_>>();
+            let current_paths = self
+                .facts
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<HashSet<_>>();
+            cache
+                .files
+                .retain(|path, _| current_paths.contains(path.as_str()));
+            for file in &self.facts.files {
+                if let Some(cached) = cache.files.get(file.path.as_str())
+                    && exact_typescript_delta
+                    && self.cached_matches(
+                        file,
+                        cached,
+                        retained_source_paths.contains(file.path.as_str()),
+                        &changed_dependencies,
+                        global_async_context_unchanged,
+                    )
+                {
+                    reused_files += 1;
+                    continue;
+                }
+                let contribution = self.discover(file);
+                cache.files.insert(
+                    file.path.to_string(),
+                    CachedLocalAccessFile {
+                        source_hash: file.source_hash.clone(),
+                        compiler: file.compiler.clone(),
+                        dependencies: self.dependencies(file),
+                        call_multiplicities: self.call_multiplicities(file),
+                        contribution,
+                    },
+                );
+                recomputed_files += 1;
+            }
+            let current_dependencies = cache
+                .files
+                .values()
+                .flat_map(|file| file.dependencies.iter().cloned())
+                .collect::<HashSet<_>>();
+            cache
+                .dependency_states
+                .retain(|symbol, _| current_dependencies.contains(symbol));
+            for symbol in current_dependencies {
+                if !cache.dependency_states.contains_key(symbol.as_str())
+                    || changed_dependencies.contains(symbol.as_str())
+                {
+                    cache
+                        .dependency_states
+                        .insert(symbol.clone(), self.symbol_state(&symbol));
+                }
+            }
+            cache
+                .prop_sources
+                .retain(|symbol, _| self.prop_sources.contains_key(symbol));
+            for (symbol, source) in self.prop_sources {
+                if cache.prop_sources.get(symbol) != Some(source) {
+                    cache.prop_sources.insert(symbol.clone(), source.clone());
+                }
+            }
+            let local_access_files = &cache.files;
+            for partial in parallel_file_chunk_results(&self.facts.files, |files| {
+                let mut partial = LocalAccessResult::default();
+                for file in files {
+                    if let Some(cached) = local_access_files.get(file.path.as_str()) {
+                        append_local_access_result(&mut partial, &cached.contribution);
+                    }
+                }
+                partial
+            }) {
+                append_local_access_result_owned(&mut result, partial);
+            }
+            cache.aggregate = Some(result.clone());
+        } else {
+            for file in &self.facts.files {
+                let contribution = self.discover(file);
+                append_local_access_result(&mut result, &contribution);
+                recomputed_files += 1;
+            }
+        }
+        LocalAccessBuild {
+            result,
+            reused: false,
+            reused_files,
+            recomputed_files,
+        }
+    }
+
+    fn dependencies(&self, file: &solid_facts::FileFacts) -> HashSet<String> {
+        file.ast
+            .calls
+            .iter()
+            .map(|call| call.callee)
+            .chain(file.ast.members.iter().map(|member| member.object))
+            .chain(
+                file.ast
+                    .jsx_elements
+                    .iter()
+                    .map(|element| element.name.span),
+            )
+            .map(|span| {
+                self.entities
+                    .get(&location(file.path.as_str(), span))
+                    .cloned()
+            })
+            .flatten()
+            .collect()
+    }
+
+    fn symbol_state(&self, symbol: &str) -> LocalAccessSymbolState {
+        LocalAccessSymbolState {
+            accessor: self.accessors.get(symbol).cloned(),
+            accessor_origin: self.accessor_origins.get(symbol).cloned(),
+            setter: self.setters.get(symbol).cloned(),
+            action: self.actions.get(symbol).cloned(),
+            source_primitive: self.source_primitives.get(symbol).cloned(),
+            async_source: self.async_sources.contains(symbol),
+            contract_reads: self.contract_reads.get(symbol).cloned(),
+            source_kind: self.source_kinds.get(symbol).copied(),
+            prop_source: self.prop_sources.get(symbol).cloned(),
+            symbol_name: self.symbol_names.get(symbol).cloned(),
+        }
+    }
+
+    fn call_multiplicities(&self, file: &solid_facts::FileFacts) -> Vec<(Location, Option<usize>)> {
+        file.ast
+            .calls
+            .iter()
+            .map(|call| {
+                let callee = location(file.path.as_str(), call.callee);
+                let multiplicity = self.reachable_calls.get(&callee).copied();
+                (callee, multiplicity)
+            })
+            .collect()
+    }
+
+    fn cached_matches(
+        &self,
+        file: &solid_facts::FileFacts,
+        cached: &CachedLocalAccessFile,
+        retained_source_path: bool,
+        changed_dependencies: &HashSet<String>,
+        global_async_context_unchanged: bool,
+    ) -> bool {
+        retained_source_path
+            && cached.source_hash == file.source_hash
+            && (Arc::ptr_eq(&cached.compiler, &file.compiler)
+                || same_compiler_semantics(&cached.compiler, &file.compiler))
+            && (global_async_context_unchanged || cached.contribution.async_reads.is_empty())
+            && cached.dependencies.is_disjoint(changed_dependencies)
+            && cached
+                .call_multiplicities
+                .iter()
+                .all(|(callee, previous)| self.reachable_calls.get(callee).copied() == *previous)
+    }
+
+    fn discover(&self, file: &solid_facts::FileFacts) -> LocalAccessResult {
+        let mut result = LocalAccessResult::default();
+        let mut seen = HashSet::new();
+        let allowed = allowed_callback_spans(file, self.entities, self.symbol_names);
+        for call in &file.ast.calls {
+            let callee = location(file.path.as_str(), call.callee);
+            let Some(symbol) = self.entities.get(&callee) else {
+                continue;
+            };
+            let inside_function = file
+                .ast
+                .functions
+                .iter()
+                .any(|function| function.body.contains(call.span));
+            if inside_function && self.setters.contains_key(symbol) {
+                result.write_action_obligations.insert((
+                    "write",
+                    callee.path.clone(),
+                    callee.start_byte,
+                    callee.end_byte,
+                ));
+            }
+            if inside_function && self.actions.contains_key(symbol) {
+                result.write_action_obligations.insert((
+                    "action",
+                    callee.path.clone(),
+                    callee.start_byte,
+                    callee.end_byte,
+                ));
+            }
+            let Some(multiplicity) = self.reachable_calls.get(&callee).copied() else {
+                continue;
+            };
+            let execution = semantic_execution_role(
+                file,
+                call.callee,
+                &allowed,
+                self.entities,
+                self.symbol_names,
+            );
+            let key = (callee.path.clone(), callee.start_byte, callee.end_byte);
+            if let Some((name, declaration)) = self.accessors.get(symbol)
+                && !inside_lowercase_named_function(file, call.callee)
+                && seen.insert(key.clone())
+            {
+                let origin = self.accessor_origins.get(symbol);
+                let display_name = call.static_callee.as_ref().unwrap_or(name);
+                result.reads.push(ReactiveRead {
+                    kind: "accessor".into(),
+                    accessor: origin
+                        .map_or_else(|| display_name.clone(), |origin| origin.0.clone()),
+                    location: location(file.path.as_str(), call.span),
+                    declaration: origin
+                        .map_or_else(|| declaration.clone(), |origin| origin.2.clone()),
+                    execution,
+                    context: read_analysis_context(file, call.span, execution),
+                    via: origin.map_or_else(String::new, |_| name.clone()),
+                    origin: origin.map(|origin| origin.2.clone()),
+                    origin_context: origin.map_or_else(String::new, |origin| origin.1.clone()),
+                });
+                if !matches!(
+                    self.source_primitives.get(symbol).map(String::as_str),
+                    Some("createOptimistic" | "createOptimisticStore")
+                ) && counts_as_strict_read_root(file, call.span, execution)
+                {
+                    result.strict_read_obligations += 1;
+                }
+                if self.async_sources.contains(symbol) {
+                    let async_execution = async_execution_role(file, call.callee, execution);
+                    result.async_reads.push(AsyncRead {
+                        accessor: format!("{name}()"),
+                        location: location(file.path.as_str(), call.span),
+                        declaration: declaration.clone(),
+                        execution: async_execution,
+                        leaf_owner: containing_leaf_owner(
+                            file,
+                            call.callee,
+                            self.entities,
+                            self.symbol_names,
+                        ),
+                        under_loading: read_is_under_loading(
+                            self.facts,
+                            file,
+                            call.callee,
+                            self.entities,
+                            self.symbol_names,
+                        ),
+                    });
+                }
+            }
+            if let Some(contracted) = self.contract_reads.get(symbol)
+                && !inside_lowercase_named_function(file, call.callee)
+            {
+                for (index, (name, via, declaration, kind)) in contracted.iter().enumerate() {
+                    let contract_key = (
+                        callee.path.clone(),
+                        callee.start_byte,
+                        callee
+                            .end_byte
+                            .saturating_add(u64::try_from(index).unwrap_or(u64::MAX)),
+                    );
+                    if seen.insert(contract_key) {
+                        result.reads.push(ReactiveRead {
+                            kind: kind.clone(),
+                            accessor: name.clone(),
+                            location: location(file.path.as_str(), call.span),
+                            declaration: declaration.clone(),
+                            execution,
+                            context: read_analysis_context(file, call.span, execution),
+                            via: via.clone(),
+                            origin: Some(declaration.clone()),
+                            origin_context: via.clone(),
+                        });
+                        if counts_as_strict_read_root(file, call.span, execution) {
+                            result.strict_read_obligations += 1;
+                        }
+                    }
+                }
+            }
+            if let Some((name, declaration, allowed_by_option)) = self.setters.get(symbol) {
+                for _ in 0..multiplicity {
+                    result.writes.push(ReactiveWrite {
+                        setter: name.clone(),
+                        location: location(file.path.as_str(), call.span),
+                        declaration: declaration.clone(),
+                        execution,
+                        allowed_by_option: *allowed_by_option,
+                        context: analysis_context(
+                            file,
+                            call.span,
+                            self.entities,
+                            self.symbol_names,
+                        ),
+                    });
+                }
+            }
+            if let Some((name, declaration)) = self.actions.get(symbol) {
+                for _ in 0..multiplicity {
+                    result.action_invocations.push(ActionInvocation {
+                        action: name.clone(),
+                        location: location(file.path.as_str(), call.span),
+                        declaration: declaration.clone(),
+                        execution,
+                        context: analysis_context(
+                            file,
+                            call.span,
+                            self.entities,
+                            self.symbol_names,
+                        ),
+                    });
+                }
+            }
+        }
+        for member in &file.ast.members {
+            let object = location(file.path.as_str(), member.object);
+            let Some(symbol) = self.entities.get(&object) else {
+                continue;
+            };
+            if inside_lowercase_named_function(file, member.span)
+                || inside_unclassified_callback(file, member.span)
+            {
+                continue;
+            }
+            let source = if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
+                self.accessors.get(symbol)
+            } else {
+                self.prop_sources.get(symbol)
+            };
+            let Some((name, declaration)) = source else {
+                continue;
+            };
+            let key = (object.path.clone(), object.start_byte, object.end_byte);
+            if !seen.insert(key) {
+                continue;
+            }
+            let execution = semantic_execution_role(
+                file,
+                member.span,
+                &allowed,
+                self.entities,
+                self.symbol_names,
+            );
+            result.reads.push(ReactiveRead {
+                kind: if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
+                    "store-path".into()
+                } else {
+                    "component-props".into()
+                },
+                accessor: format!("{name}.{}", member.property.name),
+                location: location(file.path.as_str(), member.span),
+                declaration: declaration.clone(),
+                execution,
+                context: read_analysis_context(file, member.span, execution),
+                via: String::new(),
+                origin: None,
+                origin_context: String::new(),
+            });
+            if !matches!(
+                self.source_primitives.get(symbol).map(String::as_str),
+                Some("createOptimistic" | "createOptimisticStore")
+            ) && counts_as_strict_read_root(file, member.span, execution)
+            {
+                result.strict_read_obligations += 1;
+            }
+            if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store)
+                && self.async_sources.contains(symbol)
+            {
+                let async_execution = async_execution_role(file, member.span, execution);
+                result.async_reads.push(AsyncRead {
+                    accessor: format!("{name}.{}", member.property.name),
+                    location: location(file.path.as_str(), member.span),
+                    declaration: declaration.clone(),
+                    execution: async_execution,
+                    leaf_owner: containing_leaf_owner(
+                        file,
+                        member.span,
+                        self.entities,
+                        self.symbol_names,
+                    ),
+                    under_loading: read_is_under_loading(
+                        self.facts,
+                        file,
+                        member.span,
+                        self.entities,
+                        self.symbol_names,
+                    ),
+                });
+            }
+        }
+        result
+    }
+}
+
+fn append_local_access_result(target: &mut LocalAccessResult, source: &LocalAccessResult) {
+    target.reads.extend(source.reads.iter().cloned());
+    target.writes.extend(source.writes.iter().cloned());
+    target
+        .action_invocations
+        .extend(source.action_invocations.iter().cloned());
+    target
+        .async_reads
+        .extend(source.async_reads.iter().cloned());
+    target.strict_read_obligations += source.strict_read_obligations;
+    target
+        .write_action_obligations
+        .extend(source.write_action_obligations.iter().cloned());
+}
+
+fn append_local_access_result_owned(target: &mut LocalAccessResult, source: LocalAccessResult) {
+    target.reads.extend(source.reads);
+    target.writes.extend(source.writes);
+    target.action_invocations.extend(source.action_invocations);
+    target.async_reads.extend(source.async_reads);
+    target.strict_read_obligations += source.strict_read_obligations;
+    target
+        .write_action_obligations
+        .extend(source.write_action_obligations);
+}
+
+fn primitive_name(
+    path: &str,
+    span: Span,
+    static_callee: Option<&str>,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Option<String> {
+    let location = location(path, span);
+    if let Some(symbol) = entities.get(&location) {
+        symbol_names.get(symbol).cloned().or_else(|| {
+            let property = static_callee?.rsplit('.').next()?;
+            symbol_names.get(&format!("{symbol}::{property}")).cloned()
+        })
+    } else {
+        static_callee
+            .and_then(|callee| callee.rsplit('.').next())
+            .map(str::to_owned)
+    }
+}
+
+fn add_solid_namespace_names(
+    facts: &ProjectFacts,
+    entities: &EntitySymbols,
+    names: &mut HashMap<String, String>,
+) {
+    for file in &facts.files {
+        for import in &file.ast.imports {
+            if import.module != "solid-js" {
+                continue;
+            }
+            for binding in &import.bindings {
+                if binding.kind != solid_ast_facts::ImportKind::Namespace {
+                    continue;
+                }
+                let location = location(file.path.as_str(), binding.local.span);
+                let Some(symbol) = entities.get(&location) else {
+                    continue;
+                };
+                for primitive in [
+                    "createSignal",
+                    "createMemo",
+                    "mapArray",
+                    "createStore",
+                    "createProjection",
+                    "createOptimistic",
+                    "createOptimisticStore",
+                    "createEffect",
+                    "createRenderEffect",
+                    "createTrackedEffect",
+                    "createReaction",
+                    "createRoot",
+                    "createOwner",
+                    "untrack",
+                    "onSettled",
+                    "onCleanup",
+                    "flush",
+                    "Loading",
+                    "Show",
+                    "Match",
+                    "Switch",
+                    "merge",
+                    "refresh",
+                    "affects",
+                    "action",
+                ] {
+                    names.insert(format!("{symbol}::{primitive}"), primitive.into());
+                }
+            }
+        }
+    }
+}
+
+fn alias_roots_and_source_declarations(
+    table: &FactTable,
+) -> (HashMap<String, String>, HashMap<String, Declaration>) {
+    let targets = symbol_alias_targets(table);
+    let mut roots = HashMap::with_capacity(table.symbols.len());
+    let mut declarations = HashMap::new();
+    for symbol in &table.symbols {
+        let mut root = symbol.id.clone();
+        for _ in 0..=targets.len() {
+            let Some(next) = targets.get(&root) else {
+                break;
+            };
+            root.clone_from(next);
+        }
+        if !declarations.contains_key(root.as_str())
+            && let Some(declaration) = symbol
+                .declarations
+                .iter()
+                .find(|declaration| !declaration.location.path.ends_with(".d.ts"))
+        {
+            declarations.insert(root.clone(), declaration.clone());
+        }
+        roots.insert(symbol.id.clone(), root);
+    }
+    (roots, declarations)
+}
+
+fn symbol_alias_targets(table: &FactTable) -> HashMap<String, String> {
+    table
+        .symbols
+        .iter()
+        .filter(|symbol| !symbol.alias_target.is_empty())
+        .map(|symbol| (symbol.id.clone(), symbol.alias_target.clone()))
+        .collect()
+}
+
+fn source_discovery_symbol_semantics(
+    table: &FactTable,
+) -> HashMap<String, SourceDiscoverySymbolSemantics> {
+    table
+        .symbols
+        .iter()
+        .map(|symbol| {
+            (
+                symbol.id.clone(),
+                SourceDiscoverySymbolSemantics {
+                    alias_target: symbol.alias_target.clone(),
+                    declarations: symbol.declarations.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+fn symbols_by_root(
+    table: &FactTable,
+    aliases: &HashMap<String, String>,
+) -> HashMap<String, Vec<String>> {
+    let mut by_root = HashMap::<String, Vec<String>>::new();
+    for symbol in &table.symbols {
+        let root = aliases
+            .get(&symbol.id)
+            .cloned()
+            .unwrap_or_else(|| symbol.id.clone());
+        by_root.entry(root).or_default().push(symbol.id.clone());
+    }
+    by_root
+}
+
+fn alias_root(symbol: &str, targets: &HashMap<String, String>) -> String {
+    let mut root = symbol.to_owned();
+    for _ in 0..=targets.len() {
+        let Some(next) = targets.get(&root) else {
+            break;
+        };
+        root.clone_from(next);
+    }
+    root
+}
+
+fn patch_typescript_indexes(
+    cache: &mut CachedTypeScriptIndexes,
+    table: &FactTable,
+    symbols_by_id: &HashMap<&str, &SymbolFact>,
+    changes: &solid_facts::TypeScriptChanges,
+) -> Option<(Duration, Duration)> {
+    // An empty non-reuse change set is the sidecar's fail-closed description
+    // of a full table replacement, so only named deltas are patchable.
+    if changes.unchanged
+        || changes.entity_paths.is_empty()
+            && changes.symbol_ids.is_empty()
+            && changes.file_paths.is_empty()
+    {
+        return None;
+    }
+
+    let alias_started = Instant::now();
+    let changed_symbols = changes
+        .symbol_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let current_targets = changes
+        .symbol_ids
+        .iter()
+        .map(|id| {
+            (
+                id,
+                symbols_by_id
+                    .get(id.as_str())
+                    .map(|symbol| symbol.alias_target.as_str())
+                    .filter(|target| !target.is_empty()),
+            )
+        })
+        .collect::<Vec<_>>();
+    let removed_aliases = current_targets
+        .iter()
+        .filter(|(id, current)| {
+            cache.symbol_alias_targets.contains_key(id.as_str()) && current.is_none()
+        })
+        .count();
+    let added_aliases = current_targets
+        .iter()
+        .filter(|(id, current)| {
+            !cache.symbol_alias_targets.contains_key(id.as_str()) && current.is_some()
+        })
+        .count();
+    let structurally_changed_symbols = current_targets
+        .iter()
+        .filter_map(|(id, current_target)| {
+            let existed = cache.aliases.contains_key(id.as_str());
+            let exists = symbols_by_id.contains_key(id.as_str());
+            let old_target = cache
+                .symbol_alias_targets
+                .get(id.as_str())
+                .map(String::as_str);
+            (existed != exists || old_target != *current_target).then_some(id.as_str())
+        })
+        .collect::<HashSet<_>>();
+    let alias_graph_is_local = added_aliases == removed_aliases
+        && current_targets.iter().all(|(id, current)| {
+            cache
+                .symbol_alias_targets
+                .get(id.as_str())
+                .zip(*current)
+                .is_none_or(|(old, current)| old == current)
+        })
+        && cache.symbol_alias_targets.iter().all(|(symbol, target)| {
+            changed_symbols.contains(symbol.as_str())
+                || !structurally_changed_symbols.contains(target.as_str())
+        });
+    if !alias_graph_is_local {
+        return None;
+    }
+
+    let mut semantic_symbol_ids = changes
+        .symbol_ids
+        .iter()
+        .filter(|id| {
+            let current =
+                symbols_by_id
+                    .get(id.as_str())
+                    .map(|symbol| SourceDiscoverySymbolSemantics {
+                        alias_target: symbol.alias_target.clone(),
+                        declarations: symbol.declarations.clone(),
+                    });
+            cache.source_discovery_symbol_semantics.get(id.as_str()) != current.as_ref()
+        })
+        .cloned()
+        .collect::<HashSet<_>>();
+
+    let mut affected_roots = changes
+        .symbol_ids
+        .iter()
+        .filter_map(|id| cache.aliases.get(id))
+        .cloned()
+        .collect::<HashSet<_>>();
+    for (id, target) in current_targets {
+        if let Some(target) = target {
+            cache
+                .symbol_alias_targets
+                .insert(id.clone(), target.to_owned());
+        } else {
+            cache.symbol_alias_targets.remove(id.as_str());
+        }
+    }
+    affected_roots.extend(changes.symbol_ids.iter().filter_map(|id| {
+        symbols_by_id
+            .get(id.as_str())
+            .map(|_| alias_root(id, &cache.symbol_alias_targets))
+    }));
+    let retained_root_semantics = affected_roots
+        .iter()
+        .map(|root| {
+            (
+                root.clone(),
+                (
+                    cache.source_declarations.get(root).cloned(),
+                    cache.symbol_names.get(root).cloned(),
+                ),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    for id in &changes.symbol_ids {
+        if let Some(old_root) = cache.aliases.get(id)
+            && let Some(members) = cache.symbols_by_root.get_mut(old_root)
+        {
+            if let Ok(index) = members.binary_search(id) {
+                members.remove(index);
+            }
+        }
+    }
+    for id in &changes.symbol_ids {
+        if let Some(symbol) = symbols_by_id.get(id.as_str()) {
+            let root = alias_root(id, &cache.symbol_alias_targets);
+            cache.aliases.insert(id.clone(), root.clone());
+            let members = cache.symbols_by_root.entry(root).or_default();
+            if let Err(index) = members.binary_search(id) {
+                members.insert(index, id.clone());
+            }
+            cache.source_discovery_symbol_semantics.insert(
+                id.clone(),
+                SourceDiscoverySymbolSemantics {
+                    alias_target: symbol.alias_target.clone(),
+                    declarations: symbol.declarations.clone(),
+                },
+            );
+        } else {
+            cache.aliases.remove(id);
+            cache.source_discovery_symbol_semantics.remove(id);
+        }
+    }
+    for root in &affected_roots {
+        cache.source_declarations.remove(root);
+        cache.symbol_names.remove(root);
+        cache.references_by_source.remove(root);
+        for id in cache.symbols_by_root.get(root).into_iter().flatten() {
+            let Some(symbol) = symbols_by_id.get(id.as_str()) else {
+                continue;
+            };
+            if !cache.source_declarations.contains_key(root)
+                && let Some(declaration) = symbol
+                    .declarations
+                    .iter()
+                    .find(|declaration| !declaration.location.path.ends_with(".d.ts"))
+            {
+                cache
+                    .source_declarations
+                    .insert(root.clone(), declaration.clone());
+            }
+            for declaration in &symbol.declarations {
+                if solid_primitive_declaration(declaration) {
+                    cache
+                        .symbol_names
+                        .insert(root.clone(), declaration.name.clone());
+                }
+            }
+            if !symbol.references.is_empty() {
+                cache
+                    .references_by_source
+                    .entry(root.clone())
+                    .or_default()
+                    .extend(symbol.references.iter().cloned());
+            }
+        }
+    }
+    for root in &affected_roots {
+        if let Some(locations) = cache.references_by_source.get_mut(root) {
+            locations.sort_by(location_order);
+            locations.dedup();
+        }
+    }
+    semantic_symbol_ids.extend(
+        affected_roots
+            .iter()
+            .filter(|root| {
+                retained_root_semantics
+                    .get(root.as_str())
+                    .is_none_or(|(declaration, name)| {
+                        cache.source_declarations.get(root.as_str()) != declaration.as_ref()
+                            || cache.symbol_names.get(root.as_str()) != name.as_ref()
+                    })
+            })
+            .cloned(),
+    );
+    let alias_elapsed = alias_started.elapsed();
+
+    let entities_started = Instant::now();
+    for path in &changes.entity_paths {
+        cache.entities.by_path.remove(path);
+        let start = table
+            .entities
+            .partition_point(|entity| entity.location.path.as_str() < path.as_str());
+        let end = table
+            .entities
+            .partition_point(|entity| entity.location.path.as_str() <= path.as_str());
+        for entity in &table.entities[start..end] {
+            if entity.symbol.is_empty() {
+                continue;
+            }
+            cache
+                .entities
+                .by_path
+                .entry(entity.location.path.clone())
+                .or_default()
+                .insert(
+                    (entity.location.start_byte, entity.location.end_byte),
+                    cache
+                        .aliases
+                        .get(&entity.symbol)
+                        .cloned()
+                        .unwrap_or_else(|| entity.symbol.clone()),
+                );
+        }
+    }
+    let entities_elapsed = entities_started.elapsed();
+    cache.source_discovery_delta = Some(SourceDiscoveryTypeScriptDelta {
+        entity_paths: changes.entity_paths.iter().cloned().collect(),
+        file_paths: changes.file_paths.iter().cloned().collect(),
+        semantic_symbol_ids,
+    });
+
+    Some((alias_elapsed, entities_elapsed))
+}
+
+fn async_symbol_root(symbol: &str, table: &FactTable) -> String {
+    let aliases = table
+        .files
+        .iter()
+        .flat_map(|file| &file.async_functions)
+        .filter(|function| !function.symbol.is_empty() && !function.target.is_empty())
+        .map(|function| (function.symbol.as_str(), function.target.as_str()))
+        .collect::<HashMap<_, _>>();
+    let mut current = symbol;
+    let mut seen = HashSet::new();
+    while seen.insert(current) {
+        let Some(target) = aliases.get(current).copied() else {
+            break;
+        };
+        current = target;
+    }
+    current.into()
+}
+
+fn entity_symbols(table: &FactTable, roots: &HashMap<String, String>) -> EntitySymbols {
+    let mut by_path = HashMap::<String, HashMap<(u64, u64), String>>::new();
+    for entity in table
+        .entities
+        .iter()
+        .filter(|entity| !entity.symbol.is_empty())
+    {
+        by_path
+            .entry(entity.location.path.clone())
+            .or_default()
+            .insert(
+                (entity.location.start_byte, entity.location.end_byte),
+                roots
+                    .get(&entity.symbol)
+                    .cloned()
+                    .unwrap_or_else(|| entity.symbol.clone()),
+            );
+    }
+    EntitySymbols { by_path }
+}
+
+fn symbol_names(table: &FactTable, roots: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut names = HashMap::new();
+    for symbol in &table.symbols {
+        let root = roots
+            .get(&symbol.id)
+            .cloned()
+            .unwrap_or_else(|| symbol.id.clone());
+        for declaration in &symbol.declarations {
+            if solid_primitive_declaration(declaration) {
+                names.insert(root.clone(), declaration.name.clone());
+            }
+        }
+    }
+    names
+}
+
+fn references_by_source(
+    table: &FactTable,
+    roots: &HashMap<String, String>,
+) -> HashMap<String, Vec<Location>> {
+    let mut references = HashMap::<String, Vec<Location>>::new();
+    for symbol in &table.symbols {
+        if symbol.references.is_empty() {
+            continue;
+        }
+        let root = roots
+            .get(&symbol.id)
+            .cloned()
+            .unwrap_or_else(|| symbol.id.clone());
+        references
+            .entry(root)
+            .or_default()
+            .extend(symbol.references.iter().cloned());
+    }
+    for locations in references.values_mut() {
+        locations.sort_by(location_order);
+        locations.dedup();
+    }
+    references
+}
+
+fn solid_primitive_declaration(declaration: &Declaration) -> bool {
+    (declaration.location.path.contains("solid-js")
+        || declaration.location.path.contains("@solidjs"))
+        && matches!(
+            declaration.name.as_str(),
+            "createSignal"
+                | "createMemo"
+                | "mapArray"
+                | "createStore"
+                | "createProjection"
+                | "createOptimistic"
+                | "createOptimisticStore"
+                | "createEffect"
+                | "createRenderEffect"
+                | "createTrackedEffect"
+                | "createReaction"
+                | "createRoot"
+                | "createOwner"
+                | "untrack"
+                | "onSettled"
+                | "onCleanup"
+                | "flush"
+                | "Loading"
+                | "Show"
+                | "Match"
+                | "Switch"
+                | "merge"
+                | "refresh"
+                | "affects"
+                | "action"
+        )
+}
+
+fn location(path: &str, span: Span) -> Location {
+    Location {
+        path: path.into(),
+        start_byte: u64::from(span.start),
+        end_byte: u64::from(span.end),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary_node(path: &str, span: Span, body: Span) -> SummaryNode {
+        SummaryNode {
+            path: path.into(),
+            span,
+            body,
+            name: None,
+            symbol: None,
+            parameters: Vec::new(),
+            exported: false,
+            r#async: false,
+        }
+    }
+
+    fn summary_read(symbol: &str, display: &str, start: u64) -> SummaryRead {
+        SummaryRead {
+            symbol: symbol.into(),
+            display: display.into(),
+            kind: Some("accessor".into()),
+            declaration: Location {
+                path: "fixture.tsx".into(),
+                start_byte: start,
+                end_byte: start + 1,
+            },
+            origin: Location {
+                path: "fixture.tsx".into(),
+                start_byte: start + 10,
+                end_byte: start + 11,
+            },
+            origin_context: symbol.into(),
+        }
+    }
+
+    fn declaration(name: &str, path: &str, start: u64) -> Declaration {
+        Declaration {
+            name: name.into(),
+            kind: "const".into(),
+            location: Location {
+                path: path.into(),
+                start_byte: start,
+                end_byte: start + 1,
+            },
+        }
+    }
+
+    fn empty_project(generation: u64) -> ProjectFacts {
+        ProjectFacts {
+            generation: solid_facts_core::Generation::new(generation).unwrap(),
+            project_id: "fixture".into(),
+            files: Vec::new(),
+            typescript: FactTable {
+                schema: 2,
+                generation,
+                project_id: "fixture".into(),
+                sources: Vec::new(),
+                entities: Vec::new(),
+                symbols: Vec::new(),
+                files: Vec::new(),
+            },
+            typescript_changes: None,
+        }
+    }
+
+    fn typescript_index_cache(table: &FactTable) -> CachedTypeScriptIndexes {
+        let (aliases, source_declarations) = alias_roots_and_source_declarations(table);
+        CachedTypeScriptIndexes {
+            symbol_alias_targets: symbol_alias_targets(table),
+            symbols_by_root: symbols_by_root(table, &aliases),
+            entities: entity_symbols(table, &aliases),
+            symbol_names: symbol_names(table, &aliases),
+            references_by_source: references_by_source(table, &aliases),
+            source_discovery_symbol_semantics: source_discovery_symbol_semantics(table),
+            source_discovery_delta: None,
+            aliases,
+            source_declarations,
+        }
+    }
+
+    #[test]
+    fn incremental_builder_reuses_only_the_same_coherent_generation() {
+        let first = empty_project(1);
+        let fresh = build(&first).unwrap();
+        let mut incremental = IncrementalBuilder::default();
+
+        let (initial, initial_timings) = incremental.build(&first).unwrap();
+        let (reused, reused_timings) = incremental.build(&first).unwrap();
+        let mut next_facts = empty_project(2);
+        next_facts.typescript_changes = Some(solid_facts::TypeScriptChanges {
+            unchanged: true,
+            ..solid_facts::TypeScriptChanges::default()
+        });
+        let (next, next_timings) = incremental.build(&next_facts).unwrap();
+
+        assert_eq!(initial, fresh);
+        assert_eq!(reused, fresh);
+        assert_eq!(next, fresh);
+        assert!(!initial_timings.reused);
+        assert!(reused_timings.reused);
+        assert!(!next_timings.reused);
+        assert!(next_timings.typescript_indexes_reused);
+    }
+
+    #[test]
+    fn source_declaration_index_skips_earlier_dts_only_symbols() {
+        let table = FactTable {
+            schema: 2,
+            generation: 1,
+            project_id: "fixture".into(),
+            sources: Vec::new(),
+            entities: Vec::new(),
+            symbols: vec![
+                solid_ts_facts::SymbolFact {
+                    id: "early".into(),
+                    alias_target: "root".into(),
+                    declarations: vec![declaration("Accessor", "solid-js.d.ts", 1)],
+                    references: Vec::new(),
+                },
+                solid_ts_facts::SymbolFact {
+                    id: "later".into(),
+                    alias_target: "root".into(),
+                    declarations: vec![
+                        declaration("Accessor", "other.d.ts", 2),
+                        declaration("sourceAccessor", "source.ts", 3),
+                    ],
+                    references: Vec::new(),
+                },
+            ],
+            files: Vec::new(),
+        };
+
+        let (_, declarations) = alias_roots_and_source_declarations(&table);
+
+        assert_eq!(declarations["root"].name, "sourceAccessor");
+        assert_eq!(declarations["root"].location.path, "source.ts");
+    }
+
+    #[test]
+    fn exact_index_patch_replaces_local_alias_ids_without_retargeting_the_graph() {
+        let symbol = |id: &str, target: &str, declarations: Vec<Declaration>| SymbolFact {
+            id: id.into(),
+            alias_target: target.into(),
+            declarations,
+            references: Vec::new(),
+        };
+        let entity = |symbol: &str, start: u64| EntityFact {
+            location: Location {
+                path: "fixture.ts".into(),
+                start_byte: start,
+                end_byte: start + 1,
+            },
+            symbol: symbol.into(),
+            type_descriptor: None,
+            resolved_call: None,
+        };
+        let mut old = empty_project(1).typescript;
+        old.symbols = vec![
+            symbol("root", "", vec![declaration("root", "fixture.ts", 1)]),
+            symbol(
+                "old-alias",
+                "root",
+                vec![declaration("root", "fixture.d.ts", 2)],
+            ),
+        ];
+        old.symbols[1].references = vec![Location {
+            path: "fixture.ts".into(),
+            start_byte: 10,
+            end_byte: 11,
+        }];
+        old.entities = vec![entity("old-alias", 10)];
+        let mut current = empty_project(2).typescript;
+        current.symbols = vec![
+            symbol("root", "", vec![declaration("root", "fixture.ts", 3)]),
+            symbol(
+                "new-alias",
+                "root",
+                vec![declaration("root", "fixture.d.ts", 4)],
+            ),
+        ];
+        current.symbols[1].references = vec![
+            Location {
+                path: "fixture.ts".into(),
+                start_byte: 13,
+                end_byte: 14,
+            },
+            Location {
+                path: "fixture.ts".into(),
+                start_byte: 12,
+                end_byte: 13,
+            },
+            Location {
+                path: "fixture.ts".into(),
+                start_byte: 12,
+                end_byte: 13,
+            },
+        ];
+        current.entities = vec![entity("new-alias", 12)];
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: vec!["fixture.ts".into()],
+            symbol_ids: vec!["new-alias".into(), "old-alias".into(), "root".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
+        );
+        let fresh = typescript_index_cache(&current);
+        assert_eq!(patched.symbol_alias_targets, fresh.symbol_alias_targets);
+        assert_eq!(patched.aliases, fresh.aliases);
+        assert_eq!(patched.source_declarations, fresh.source_declarations);
+        assert_eq!(patched.entities, fresh.entities);
+        assert_eq!(patched.symbol_names, fresh.symbol_names);
+        assert_eq!(patched.references_by_source, fresh.references_by_source);
+        assert_eq!(
+            patched.source_discovery_symbol_semantics,
+            fresh.source_discovery_symbol_semantics
+        );
+        assert_eq!(
+            patched
+                .source_discovery_delta
+                .as_ref()
+                .unwrap()
+                .semantic_symbol_ids,
+            ["new-alias", "old-alias", "root"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+    }
+
+    #[test]
+    fn exact_index_patch_does_not_treat_references_as_source_discovery_semantics() {
+        let table = |reference_start| FactTable {
+            schema: 2,
+            generation: 1,
+            project_id: "fixture".into(),
+            sources: Vec::new(),
+            entities: Vec::new(),
+            symbols: vec![SymbolFact {
+                id: "root".into(),
+                alias_target: String::new(),
+                declarations: vec![declaration("root", "fixture.ts", 1)],
+                references: vec![Location {
+                    path: "fixture.ts".into(),
+                    start_byte: reference_start,
+                    end_byte: reference_start + 1,
+                }],
+            }],
+            files: Vec::new(),
+        };
+        let old = table(10);
+        let current = table(20);
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: Vec::new(),
+            symbol_ids: vec!["root".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
+        );
+        assert_eq!(
+            patched.references_by_source,
+            typescript_index_cache(&current).references_by_source
+        );
+        assert!(
+            patched
+                .source_discovery_delta
+                .as_ref()
+                .unwrap()
+                .semantic_symbol_ids
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn exact_index_patch_invalidates_a_root_when_an_alias_changes_its_source_declaration() {
+        let symbol = |id: &str, target: &str, declarations| SymbolFact {
+            id: id.into(),
+            alias_target: target.into(),
+            declarations,
+            references: Vec::new(),
+        };
+        let mut old = empty_project(1).typescript;
+        old.symbols = vec![
+            symbol("root", "", Vec::new()),
+            symbol(
+                "old-alias",
+                "root",
+                vec![declaration("root", "fixture.d.ts", 1)],
+            ),
+        ];
+        let mut current = empty_project(2).typescript;
+        current.symbols = vec![
+            symbol("root", "", Vec::new()),
+            symbol(
+                "new-alias",
+                "root",
+                vec![declaration("root", "fixture.ts", 1)],
+            ),
+        ];
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: Vec::new(),
+            symbol_ids: vec!["new-alias".into(), "old-alias".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
+        );
+        assert!(
+            patched
+                .source_discovery_delta
+                .as_ref()
+                .unwrap()
+                .semantic_symbol_ids
+                .contains("root")
+        );
+        assert_eq!(
+            patched.source_declarations,
+            typescript_index_cache(&current).source_declarations
+        );
+    }
+
+    #[test]
+    fn exact_index_patch_rejects_alias_retargeting() {
+        let table = |target: &str| FactTable {
+            schema: 2,
+            generation: 1,
+            project_id: "fixture".into(),
+            sources: Vec::new(),
+            entities: Vec::new(),
+            symbols: vec![
+                SymbolFact {
+                    id: "root-a".into(),
+                    alias_target: String::new(),
+                    declarations: Vec::new(),
+                    references: Vec::new(),
+                },
+                SymbolFact {
+                    id: "root-b".into(),
+                    alias_target: String::new(),
+                    declarations: Vec::new(),
+                    references: Vec::new(),
+                },
+                SymbolFact {
+                    id: "alias".into(),
+                    alias_target: target.into(),
+                    declarations: Vec::new(),
+                    references: Vec::new(),
+                },
+            ],
+            files: Vec::new(),
+        };
+        let old = table("root-a");
+        let current = table("root-b");
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: Vec::new(),
+            symbol_ids: vec!["alias".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_none()
+        );
+        assert_eq!(patched.aliases, typescript_index_cache(&old).aliases);
+    }
+
+    #[test]
+    fn summary_containment_preserves_first_node_order() {
+        let nodes = vec![
+            summary_node(
+                "fixture.tsx",
+                Span { start: 0, end: 100 },
+                Span { start: 10, end: 90 },
+            ),
+            summary_node(
+                "fixture.tsx",
+                Span { start: 20, end: 60 },
+                Span { start: 30, end: 50 },
+            ),
+        ];
+        let by_path = function_indices_by_path(&nodes);
+
+        assert_eq!(
+            containing_summary_function_indexed(
+                &nodes,
+                &by_path,
+                "fixture.tsx",
+                Span { start: 35, end: 40 },
+            ),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn summary_membership_keeps_first_writer_and_ordered_insertions() {
+        let mut reads = SummaryReads::default();
+        let first = summary_read("first", "signal", 1);
+        let mut duplicate = first.clone();
+        duplicate.symbol = "second".into();
+        duplicate.kind = Some("store-path".into());
+        duplicate.origin_context = "different".into();
+
+        assert!(reads.push_unique(first));
+        assert!(!reads.push_unique(duplicate));
+        reads.insert(0, summary_read("typed", "typed accessor", 2));
+
+        assert_eq!(reads.len(), 2);
+        assert_eq!(reads[0].symbol, "typed");
+        assert_eq!(reads[1].symbol, "first");
+        assert_eq!(reads[1].kind.as_deref(), Some("accessor"));
+        assert_eq!(reads[1].origin_context, "first");
+    }
+
+    #[test]
+    fn returned_summary_deltas_preserve_fixed_edge_order() {
+        let mut summaries = vec![
+            SummaryReads::default(),
+            SummaryReads::default(),
+            SummaryReads::default(),
+        ];
+        summaries[1].push(summary_read("one", "one", 1));
+        summaries[2].push(summary_read("two", "two", 2));
+
+        propagate_returned_summary_deltas(&mut summaries, &[(0, 1), (1, 2), (0, 2)]);
+
+        assert_eq!(
+            summaries[0]
+                .iter()
+                .map(|read| read.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["one", "two"]
+        );
+        assert_eq!(
+            summaries[1]
+                .iter()
+                .map(|read| read.symbol.as_str())
+                .collect::<Vec<_>>(),
+            vec!["one", "two"]
+        );
+    }
+
+    #[test]
+    fn effective_reachability_topology_ignores_only_unresolved_symbols() {
+        let topology = ReachabilityTopology {
+            function_symbols: vec![Some("owner".into())],
+            roots: vec![
+                ReachabilityTopologyTarget::Symbol("known".into()),
+                ReachabilityTopologyTarget::Symbol("unresolved".into()),
+                ReachabilityTopologyTarget::Local(0),
+            ],
+            edges: vec![
+                (Some(0), ReachabilityTopologyTarget::Symbol("known".into())),
+                (
+                    Some(0),
+                    ReachabilityTopologyTarget::Symbol("unresolved".into()),
+                ),
+            ],
+            callback_edges: vec![
+                (
+                    Some(0),
+                    vec![
+                        ReachabilityTopologyTarget::Symbol("unresolved".into()),
+                        ReachabilityTopologyTarget::Local(0),
+                    ],
+                ),
+                (
+                    Some(0),
+                    vec![ReachabilityTopologyTarget::Symbol("unresolved".into())],
+                ),
+            ],
+        };
+
+        assert_eq!(
+            effective_reachability_topology(&topology, &HashSet::from(["known".into()])),
+            ReachabilityTopology {
+                function_symbols: vec![Some("owner".into())],
+                roots: vec![
+                    ReachabilityTopologyTarget::Symbol("known".into()),
+                    ReachabilityTopologyTarget::Local(0),
+                ],
+                edges: vec![(Some(0), ReachabilityTopologyTarget::Symbol("known".into()),)],
+                callback_edges: vec![(Some(0), vec![ReachabilityTopologyTarget::Local(0)],)],
+            }
+        );
+    }
+
+    #[test]
+    fn missing_result_dependency_invalidates_when_a_function_appears() {
+        let dependency = InterproceduralResultDependency::Symbol("helper".into());
+        let mut node = summary_node(
+            "fixture.tsx",
+            Span { start: 0, end: 10 },
+            Span { start: 2, end: 9 },
+        );
+        node.symbol = Some("helper".into());
+        let nodes = vec![node];
+        let indexes = HashMap::from([(("fixture.tsx".into(), nodes[0].span), 0)]);
+        let summaries = vec![SummaryReads::default()];
+        let invoked_parameters = vec![Vec::new()];
+        let returned_bindings = HashMap::new();
+        let missing = InterproceduralResultDependencyState::Missing;
+
+        assert!(interprocedural_result_dependency_matches(
+            &missing,
+            &dependency,
+            &nodes,
+            &indexes,
+            &HashMap::new(),
+            &summaries,
+            &invoked_parameters,
+            &returned_bindings,
+        ));
+        assert!(!interprocedural_result_dependency_matches(
+            &missing,
+            &dependency,
+            &nodes,
+            &indexes,
+            &HashMap::from([("helper".into(), 0)]),
+            &summaries,
+            &invoked_parameters,
+            &returned_bindings,
+        ));
+    }
+}

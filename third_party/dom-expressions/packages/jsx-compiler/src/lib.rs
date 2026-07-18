@@ -188,6 +188,61 @@ pub fn transform(code: String, options: Option<TransformOptions>) -> Result<Tran
     })
 }
 
+/// Analyze original-source execution semantics without generating transformed
+/// JavaScript. Static tooling needs the compiler's branch decisions, not its
+/// output program; avoiding helper insertion and code generation keeps this
+/// path cheap enough to run per file in a parallel project analysis.
+pub fn analyze_execution_map(code: &str, options: &TransformOptions) -> Result<String> {
+    let source_type = source_type_for_filename(options.filename.as_deref())?;
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, code, source_type)
+        .with_options(ParseOptions {
+            preserve_parens: false,
+            ..ParseOptions::default()
+        })
+        .parse();
+    if let Some(error) = parsed.errors.into_iter().next() {
+        return Err(Error::from_reason(error.to_string()));
+    }
+    if let Some(lib) = options.require_import_source.as_deref() {
+        let has_pragma = parsed.program.comments.iter().any(|comment| {
+            let text = comment.content_span().source_text(code);
+            let mut pieces = text.split("@jsxImportSource");
+            pieces.next();
+            matches!((pieces.next(), pieces.next()), (Some(rest), None) if rest.trim() == lib)
+        });
+        if !has_pragma {
+            return Err(Error::from_reason(
+                "compiler facts analysis cannot skip a source excluded by `requireImportSource`",
+            ));
+        }
+    }
+    if options.generate.as_deref().unwrap_or("dom") != "dom" {
+        return Err(Error::from_reason(
+            "compiler facts analysis currently supports DOM output only",
+        ));
+    }
+    let module_name = options
+        .module_name
+        .as_deref()
+        .ok_or_else(|| Error::from_reason("AST-native transform requires a `moduleName` option"))?;
+    let mut program = parsed.program;
+    let mut transform = AstDomTransform::new(
+        &allocator,
+        code,
+        module_name,
+        dom_transform_config(options, built_ins(options)),
+    );
+    transform.visit_program(&mut program);
+    if let Some(error) = transform.error.take() {
+        return Err(Error::from_reason(error));
+    }
+    transform
+        .facts
+        .finish(code)
+        .ok_or_else(|| Error::from_reason("compiler returned no ExecutionMap"))
+}
+
 fn dom_transform_config(options: &TransformOptions, built_ins: Vec<String>) -> DomTransformConfig {
     DomTransformConfig {
         hydratable: options.hydratable.unwrap_or(false),

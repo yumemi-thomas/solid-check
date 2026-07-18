@@ -1,0 +1,41 @@
+[package]
+name = "solid-facts-backend"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+dom-expressions-jsx-compiler = { path = "../../third_party/dom-expressions/packages/jsx-compiler", default-features = false }
+solid-ast-facts = { path = "../solid-ast-facts" }
+solid-compiler-facts = { path = "../solid-compiler-facts" }
+solid-facts = { path = "../solid-facts" }
+solid-facts-core = { path = "../solid-facts-core" }
+solid-ts-facts = { path = "../solid-ts-facts" }
+solid-reactive-ir = { path = "../solid-reactive-ir" }
+solid-reactive-solver = { path = "../solid-reactive-solver" }
+thiserror.workspace = true
+
+[lib]
+name = "solid_facts_backend"
+path = "src/lib.rs"
+
+[[bin]]
+name = "solid-facts-backend"
+path = "src/main.rs"
+
+[[bin]]
+name = "solid-check-rust"
+path = "src/bin/solid-check-rust.rs"
+
+[[bin]]
+name = "solid-check-session-bench"
+path = "src/bin/solid-check-session-bench.rs"
+
+[[bin]]
+name = "solid-check-cold-start-bench"
+path = "src/bin/solid-check-cold-start-bench.rs"

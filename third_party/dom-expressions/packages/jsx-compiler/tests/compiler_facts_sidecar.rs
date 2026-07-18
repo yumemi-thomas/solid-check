@@ -81,6 +81,9 @@ fn persistent_sidecar_returns_the_compiler_native_execution_map() {
     .unwrap();
     let response: Value = serde_json::from_str(&output.next().unwrap().unwrap()).unwrap();
     assert_eq!(response["ok"], true);
+    assert!(response["measurement"]["computationNs"]
+        .as_u64()
+        .is_some_and(|value| value > 0));
     assert_eq!(response["executionMap"]["sourceHash"], source_hash);
     assert_eq!(
         response["executionMap"]["trackedRegions"][0]["reason"],
@@ -100,7 +103,10 @@ fn persistent_sidecar_returns_the_compiler_native_execution_map() {
     )
     .unwrap();
     let repeated: Value = serde_json::from_str(&output.next().unwrap().unwrap()).unwrap();
-    assert_eq!(repeated, response);
+    assert_eq!(repeated["executionMap"], response["executionMap"]);
+    assert!(repeated["measurement"]["computationNs"]
+        .as_u64()
+        .is_some_and(|value| value > 0));
 
     let unicode_source = "const emoji = '😀';\r\nconst view = <div>{東京()}</div>;";
     let unicode_hash = format!("sha256:{:x}", Sha256::digest(unicode_source.as_bytes()));

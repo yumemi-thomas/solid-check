@@ -7,12 +7,14 @@
   "compilerFactsProtocol": 1,
   "exports": {
     "$PROXY": { "kind": "value" },
+    "$RAW": { "kind": "value" },
     "$REFRESH": { "kind": "value" },
     "$TRACK": { "kind": "value" },
     "DEV": { "kind": "value" },
     "NotReadyError": { "kind": "value" },
     "sharedConfig": { "kind": "value" },
     "createSignal": { "kind": "function" },
+    "createResource": { "kind": "function" },
     "createStore": { "kind": "function" },
     "createMemo": {
       "kind": "function",
@@ -60,6 +62,7 @@
     "Repeat": { "kind": "function" },
     "getOwner": { "kind": "function" },
     "getObserver": { "kind": "function" },
+    "getListener": { "kind": "function" },
     "mapArray": {
       "kind": "function",
       "returns": { "kind": "accessor", "label": "mapped array" }
@@ -73,6 +76,7 @@
       "kind": "function",
       "callbacks": [{ "parameter": 0, "execution": "tracked" }]
     },
+    "on": { "kind": "function" },
     "onCleanup": { "kind": "function" },
     "untrack": { "kind": "function" },
     "createRoot": {
@@ -104,7 +108,8 @@
     "merge": { "kind": "function" },
     "omit": { "kind": "function" },
     "reconcile": { "kind": "function" },
-    "storePath": { "kind": "function" }
+    "storePath": { "kind": "function" },
+    "unwrap": { "kind": "function" }
   },
   "evidence": {
     "kind": "reviewed",

@@ -1,5 +1,6 @@
 /bin/
 /coverage.out
+/dist/
 /.solid-check/
 /.profiles/
 .DS_Store

@@ -1,6 +1,7 @@
 use std::io::{self, BufRead, BufWriter, Write};
+use std::time::Instant;
 
-use dom_expressions_jsx_compiler::{prelude::Either, transform, TransformOptions};
+use dom_expressions_jsx_compiler::{analyze_execution_map, prelude::Either, TransformOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -43,6 +44,13 @@ struct CompilerOptions {
 struct SuccessResponse {
     ok: bool,
     execution_map: Value,
+    measurement: Measurement,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Measurement {
+    computation_ns: u64,
 }
 
 #[derive(Serialize)]
@@ -78,10 +86,14 @@ fn respond(line: &str) -> String {
         Ok(request) => request,
         Err(error) => return serialize_error("invalid-request", error.to_string()),
     };
+    let started = Instant::now();
     match analyze(request) {
         Ok(execution_map) => serde_json::to_string(&SuccessResponse {
             ok: true,
             execution_map,
+            measurement: Measurement {
+                computation_ns: started.elapsed().as_nanos().try_into().unwrap_or(u64::MAX),
+            },
         })
         .expect("success response is serializable"),
         Err(error) => serialize_error("analysis-failed", error),
@@ -150,26 +162,21 @@ fn analyze(request: AnalysisRequest) -> Result<Value, String> {
             Either::B(name)
         }
     });
-    let result = transform(
-        request.source,
-        Some(TransformOptions {
-            filename: Some(request.path),
-            module_name: Some(request.compiler_options.module_name),
-            generate: Some(request.compiler_options.generate),
-            hydratable: Some(request.compiler_options.hydratable),
-            dev: Some(request.compiler_options.dev),
-            effect_wrapper,
-            wrap_conditionals: request.compiler_options.wrap_conditionals,
-            static_marker: request.compiler_options.static_marker,
-            built_ins: Some(request.compiler_options.built_ins),
-            compiler_facts: Some(true),
-            ..TransformOptions::default()
-        }),
-    )
-    .map_err(|error| error.to_string())?;
-    let execution_map = result
-        .execution_map
-        .ok_or_else(|| "compiler returned no ExecutionMap".to_owned())?;
+    let options = TransformOptions {
+        filename: Some(request.path),
+        module_name: Some(request.compiler_options.module_name),
+        generate: Some(request.compiler_options.generate),
+        hydratable: Some(request.compiler_options.hydratable),
+        dev: Some(request.compiler_options.dev),
+        effect_wrapper,
+        wrap_conditionals: request.compiler_options.wrap_conditionals,
+        static_marker: request.compiler_options.static_marker,
+        built_ins: Some(request.compiler_options.built_ins),
+        compiler_facts: Some(true),
+        ..TransformOptions::default()
+    };
+    let execution_map =
+        analyze_execution_map(&request.source, &options).map_err(|error| error.to_string())?;
     serde_json::from_str(&execution_map).map_err(|error| error.to_string())
 }
 

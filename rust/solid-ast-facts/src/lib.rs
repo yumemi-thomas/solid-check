@@ -1,0 +1,1112 @@
+//! Oxc-derived structural facts.
+//!
+//! This crate is intentionally checker-independent and regex-free. It parses
+//! original source once and exports finite, deterministic tables. Consumers
+//! join these spans with TypeScript-Go semantic facts; Oxc nodes never escape.
+
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{
+    Argument, ArrowFunctionExpression, AwaitExpression, BindingPattern, CallExpression,
+    ConditionalExpression, Declaration, ExportAllDeclaration, ExportDefaultDeclaration,
+    ExportNamedDeclaration, Expression, Function, FunctionType, IdentifierReference, IfStatement,
+    ImportDeclaration, ImportDeclarationSpecifier, JSXElement, JSXElementName, ModuleExportName,
+    NewExpression, ObjectPropertyKind, PropertyKey, ReturnStatement, StaticMemberExpression,
+    TSModuleDeclarationName, VariableDeclarator,
+};
+use oxc_ast_visit::{Visit, walk};
+use oxc_parser::{ParseOptions, Parser};
+use oxc_span::{GetSpan, SourceType, Span as OxcSpan};
+use oxc_syntax::scope::ScopeFlags;
+use serde::{Deserialize, Serialize};
+use solid_facts_core::{SourceIdentity, Span};
+use thiserror::Error;
+
+pub const AST_FACTS_SCHEMA: u32 = 12;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AstFacts {
+    pub schema: u32,
+    pub source: SourceIdentity,
+    pub calls: Vec<CallFact>,
+    pub bindings: Vec<BindingFact>,
+    pub functions: Vec<FunctionFact>,
+    pub imports: Vec<ImportFact>,
+    pub exports: Vec<ExportFact>,
+    pub identifiers: Vec<IdentifierFact>,
+    pub awaits: Vec<Span>,
+    pub returns: Vec<ReturnFact>,
+    pub jsx_elements: Vec<JsxElementFact>,
+    pub members: Vec<MemberFact>,
+    pub conditional_tests: Vec<Span>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallFact {
+    pub span: Span,
+    pub callee: Span,
+    pub direct_callee: bool,
+    pub type_arguments: bool,
+    pub arguments: Vec<ArgumentFact>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub static_callee: Option<String>,
+    pub owned_write_option: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArgumentFact {
+    pub span: Span,
+    pub spread: bool,
+    pub value: ArgumentValueKind,
+    pub boolean_properties: Vec<BooleanPropertyFact>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArgumentValueKind {
+    Undefined,
+    Identifier,
+    Function,
+    AsyncFunction,
+    Other,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BooleanPropertyFact {
+    pub name: String,
+    pub value: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BindingShape {
+    Identifier,
+    Array,
+    Object,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingFact {
+    pub declaration: Span,
+    pub pattern: Span,
+    pub shape: BindingShape,
+    pub names: Vec<NamedSpan>,
+    pub array_slots: Vec<Option<NamedSpan>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initializer: Option<Span>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_initializer: Option<Span>,
+    pub initializer_function: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initializer_identifier: Option<NamedSpan>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FunctionKind {
+    Declaration,
+    Expression,
+    Arrow,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionFact {
+    pub span: Span,
+    pub body: Span,
+    pub kind: FunctionKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<NamedSpan>,
+    pub parameters: Vec<BindingFact>,
+    pub r#async: bool,
+    pub generator: bool,
+    pub expression_body: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expression_return: Option<ReturnFact>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedSpan {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ImportKind {
+    SideEffect,
+    Named,
+    Default,
+    Namespace,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportBindingFact {
+    pub kind: ImportKind,
+    pub local: NamedSpan,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported: Option<String>,
+    pub type_only: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFact {
+    pub span: Span,
+    pub module: String,
+    pub type_only: bool,
+    pub bindings: Vec<ImportBindingFact>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ExportKind {
+    Named,
+    Default,
+    All,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportFact {
+    pub span: Span,
+    pub kind: ExportKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    pub type_only: bool,
+    pub specifiers: Vec<ExportSpecifierFact>,
+    pub declarations: Vec<ExportSpecifierFact>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSpecifierFact {
+    pub local: NamedSpan,
+    pub exported: String,
+    pub type_only: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IdentifierRole {
+    Binding,
+    Reference,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentifierFact {
+    pub name: String,
+    pub span: Span,
+    pub role: IdentifierRole,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnFact {
+    pub span: Span,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub argument: Option<Span>,
+    pub value: ReturnValueKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callee: Option<Span>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsxElementFact {
+    pub span: Span,
+    pub name: NamedSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberFact {
+    pub span: Span,
+    pub object: Span,
+    pub property: NamedSpan,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReturnValueKind {
+    Undefined,
+    Function,
+    Identifier,
+    Call,
+    Member,
+    Other,
+}
+
+impl AstFacts {
+    #[must_use]
+    pub fn structural_seed_spans(&self) -> Vec<Span> {
+        let mut spans = self
+            .identifiers
+            .iter()
+            .map(|identifier| identifier.span)
+            .chain(
+                self.imports
+                    .iter()
+                    .flat_map(|import| import.bindings.iter())
+                    .filter(|binding| !binding.local.name.is_empty())
+                    .map(|binding| binding.local.span),
+            )
+            .chain(
+                self.bindings
+                    .iter()
+                    .flat_map(|binding| binding.names.iter())
+                    .map(|name| name.span),
+            )
+            .chain(self.jsx_elements.iter().map(|element| element.name.span))
+            .collect::<Vec<_>>();
+        spans.sort_unstable();
+        spans.dedup();
+        spans
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum AstFactsError {
+    #[error(transparent)]
+    Identity(#[from] solid_facts_core::FactIdentityError),
+    #[error("unsupported source path {path}: {message}")]
+    SourceType { path: String, message: String },
+    #[error("Oxc parse failed: {0}")]
+    Parse(String),
+}
+
+pub fn extract(path: impl Into<String>, source: &str) -> Result<AstFacts, AstFactsError> {
+    let path = path.into();
+    let identity = SourceIdentity::new(path.clone(), source)?;
+    let source_type = SourceType::from_path(&path).map_err(|error| AstFactsError::SourceType {
+        path: path.clone(),
+        message: error.to_string(),
+    })?;
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, source, source_type)
+        .with_options(ParseOptions {
+            preserve_parens: false,
+            ..ParseOptions::default()
+        })
+        .parse();
+    if let Some(error) = parsed.errors.into_iter().next() {
+        return Err(AstFactsError::Parse(error.to_string()));
+    }
+
+    let mut collector = Collector::new(source);
+    collector.visit_program(&parsed.program);
+    Ok(collector.finish(identity))
+}
+
+struct Collector<'s> {
+    source: &'s str,
+    calls: Vec<CallFact>,
+    bindings: Vec<BindingFact>,
+    functions: Vec<FunctionFact>,
+    imports: Vec<ImportFact>,
+    exports: Vec<ExportFact>,
+    identifiers: Vec<IdentifierFact>,
+    awaits: Vec<Span>,
+    returns: Vec<ReturnFact>,
+    jsx_elements: Vec<JsxElementFact>,
+    members: Vec<MemberFact>,
+    conditional_tests: Vec<Span>,
+}
+
+impl<'s> Collector<'s> {
+    fn new(source: &'s str) -> Self {
+        Self {
+            source,
+            calls: Vec::new(),
+            bindings: Vec::new(),
+            functions: Vec::new(),
+            imports: Vec::new(),
+            exports: Vec::new(),
+            identifiers: Vec::new(),
+            awaits: Vec::new(),
+            returns: Vec::new(),
+            jsx_elements: Vec::new(),
+            members: Vec::new(),
+            conditional_tests: Vec::new(),
+        }
+    }
+
+    fn finish(mut self, source: SourceIdentity) -> AstFacts {
+        self.calls.sort_by_key(|fact| fact.span);
+        self.bindings.sort_by_key(|fact| fact.declaration);
+        self.functions.sort_by_key(|fact| fact.span);
+        self.imports.sort_by_key(|fact| fact.span);
+        self.exports.sort_by_key(|fact| fact.span);
+        self.identifiers
+            .sort_by(|left, right| (left.span, &left.name).cmp(&(right.span, &right.name)));
+        self.awaits.sort_unstable();
+        self.returns.sort_by_key(|fact| fact.span);
+        self.jsx_elements.sort_by_key(|fact| fact.span);
+        self.members.sort_by_key(|fact| fact.span);
+        self.conditional_tests.sort_unstable();
+        AstFacts {
+            schema: AST_FACTS_SCHEMA,
+            source,
+            calls: self.calls,
+            bindings: self.bindings,
+            functions: self.functions,
+            imports: self.imports,
+            exports: self.exports,
+            identifiers: self.identifiers,
+            awaits: self.awaits,
+            returns: self.returns,
+            jsx_elements: self.jsx_elements,
+            members: self.members,
+            conditional_tests: self.conditional_tests,
+        }
+    }
+
+    fn binding_fact(
+        &self,
+        declaration: OxcSpan,
+        pattern: &BindingPattern<'_>,
+        initializer: Option<OxcSpan>,
+        call_initializer: Option<OxcSpan>,
+        initializer_function: bool,
+        initializer_identifier: Option<NamedSpan>,
+    ) -> BindingFact {
+        let shape = match pattern {
+            BindingPattern::BindingIdentifier(_) | BindingPattern::AssignmentPattern(_) => {
+                BindingShape::Identifier
+            }
+            BindingPattern::ArrayPattern(_) => BindingShape::Array,
+            BindingPattern::ObjectPattern(_) => BindingShape::Object,
+        };
+        BindingFact {
+            declaration: span(declaration),
+            pattern: span(pattern.span()),
+            shape,
+            names: pattern
+                .get_binding_identifiers()
+                .into_iter()
+                .map(|identifier| NamedSpan {
+                    name: identifier.name.to_string(),
+                    span: span(identifier.span),
+                })
+                .collect(),
+            array_slots: match pattern {
+                BindingPattern::ArrayPattern(array) => {
+                    array
+                        .elements
+                        .iter()
+                        .map(|element| {
+                            element.as_ref().and_then(|pattern| {
+                                pattern.get_binding_identifiers().into_iter().next().map(
+                                    |identifier| NamedSpan {
+                                        name: identifier.name.to_string(),
+                                        span: span(identifier.span),
+                                    },
+                                )
+                            })
+                        })
+                        .collect()
+                }
+                _ => vec![],
+            },
+            initializer: initializer.map(span),
+            call_initializer: call_initializer.map(span),
+            initializer_function,
+            initializer_identifier,
+        }
+    }
+
+    fn return_fact(expression: Option<&Expression<'_>>, fallback: OxcSpan) -> ReturnFact {
+        let Some(expression) = expression else {
+            return ReturnFact {
+                span: span(fallback),
+                argument: None,
+                value: ReturnValueKind::Undefined,
+                identifier: None,
+                callee: None,
+            };
+        };
+        let argument_span = span(expression.span());
+        let expression = expression.get_inner_expression();
+        let (value, identifier, callee) = match expression {
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
+                (ReturnValueKind::Function, None, None)
+            }
+            Expression::Identifier(identifier) if identifier.name == "undefined" => {
+                (ReturnValueKind::Undefined, None, None)
+            }
+            Expression::Identifier(identifier) => (
+                ReturnValueKind::Identifier,
+                Some(identifier.name.to_string()),
+                None,
+            ),
+            Expression::CallExpression(call) => {
+                (ReturnValueKind::Call, None, Some(span(call.callee.span())))
+            }
+            Expression::StaticMemberExpression(_)
+            | Expression::ComputedMemberExpression(_)
+            | Expression::PrivateFieldExpression(_) => (ReturnValueKind::Member, None, None),
+            Expression::UnaryExpression(unary)
+                if unary.operator == oxc_syntax::operator::UnaryOperator::Void =>
+            {
+                (ReturnValueKind::Undefined, None, None)
+            }
+            _ => (ReturnValueKind::Other, None, None),
+        };
+        ReturnFact {
+            span: span(expression.span()),
+            argument: Some(argument_span),
+            value,
+            identifier,
+            callee,
+        }
+    }
+
+    fn static_callee(&self, callee: OxcSpan) -> Option<String> {
+        let text = self
+            .source
+            .get(usize::try_from(callee.start).ok()?..usize::try_from(callee.end).ok()?)?;
+        if text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'.'))
+        {
+            Some(text.to_owned())
+        } else {
+            None
+        }
+    }
+
+    fn argument_fact(argument: &Argument<'_>) -> ArgumentFact {
+        let value = match argument {
+            Argument::Identifier(identifier) if identifier.name == "undefined" => {
+                ArgumentValueKind::Undefined
+            }
+            Argument::Identifier(_) => ArgumentValueKind::Identifier,
+            Argument::ArrowFunctionExpression(function) if function.r#async => {
+                ArgumentValueKind::AsyncFunction
+            }
+            Argument::FunctionExpression(function) if function.r#async => {
+                ArgumentValueKind::AsyncFunction
+            }
+            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_) => {
+                ArgumentValueKind::Function
+            }
+            _ => ArgumentValueKind::Other,
+        };
+        let boolean_properties = match argument {
+            Argument::ObjectExpression(object) => object
+                .properties
+                .iter()
+                .filter_map(|property| {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        return None;
+                    };
+                    let PropertyKey::StaticIdentifier(key) = &property.key else {
+                        return None;
+                    };
+                    let Expression::BooleanLiteral(value) = &property.value else {
+                        return None;
+                    };
+                    Some(BooleanPropertyFact {
+                        name: key.name.to_string(),
+                        value: value.value,
+                    })
+                })
+                .collect(),
+            _ => vec![],
+        };
+        ArgumentFact {
+            span: span(argument.span()),
+            spread: argument.is_spread(),
+            value,
+            boolean_properties,
+        }
+    }
+}
+
+impl<'a> Visit<'a> for Collector<'_> {
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        let callee_span = call.callee.span();
+        self.calls.push(CallFact {
+            span: span(call.span),
+            callee: span(callee_span),
+            direct_callee: matches!(call.callee, Expression::Identifier(_)),
+            type_arguments: call.type_arguments.is_some(),
+            arguments: call.arguments.iter().map(Self::argument_fact).collect(),
+            static_callee: self.static_callee(callee_span),
+            owned_write_option: call.arguments.get(1).is_some_and(|argument| {
+                let Argument::ObjectExpression(options) = argument else {
+                    return false;
+                };
+                options.properties.iter().any(|property| {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        return false;
+                    };
+                    let PropertyKey::StaticIdentifier(key) = &property.key else {
+                        return false;
+                    };
+                    key.name == "ownedWrite"
+                        && matches!(
+                            &property.value,
+                            oxc_ast::ast::Expression::BooleanLiteral(value) if value.value
+                        )
+                })
+            }),
+        });
+        walk::walk_call_expression(self, call);
+    }
+
+    fn visit_new_expression(&mut self, expression: &NewExpression<'a>) {
+        let callee_span = expression.callee.span();
+        self.calls.push(CallFact {
+            span: span(expression.span),
+            callee: span(callee_span),
+            direct_callee: matches!(expression.callee, Expression::Identifier(_)),
+            type_arguments: expression.type_arguments.is_some(),
+            arguments: expression
+                .arguments
+                .iter()
+                .map(Self::argument_fact)
+                .collect(),
+            static_callee: self.static_callee(callee_span),
+            owned_write_option: false,
+        });
+        walk::walk_new_expression(self, expression);
+    }
+
+    fn visit_variable_declarator(&mut self, declaration: &VariableDeclarator<'a>) {
+        let initializer = declaration.init.as_ref().map(GetSpan::span);
+        let initializer_function = declaration.init.as_ref().is_some_and(|expression| {
+            matches!(
+                expression.get_inner_expression(),
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            )
+        });
+        let initializer_identifier = declaration.init.as_ref().and_then(|expression| {
+            let Expression::Identifier(identifier) = expression.get_inner_expression() else {
+                return None;
+            };
+            Some(NamedSpan {
+                name: identifier.name.to_string(),
+                span: span(identifier.span),
+            })
+        });
+        let call_initializer = declaration.init.as_ref().and_then(|expression| {
+            match expression.get_inner_expression() {
+                oxc_ast::ast::Expression::CallExpression(call) => Some(call.span),
+                _ => None,
+            }
+        });
+        self.bindings.push(self.binding_fact(
+            declaration.span,
+            &declaration.id,
+            initializer,
+            call_initializer,
+            initializer_function,
+            initializer_identifier,
+        ));
+        walk::walk_variable_declarator(self, declaration);
+    }
+
+    fn visit_function(&mut self, function: &Function<'a>, flags: ScopeFlags) {
+        if let Some(body) = &function.body {
+            self.functions.push(FunctionFact {
+                span: span(function.span),
+                body: span(body.span),
+                kind: match function.r#type {
+                    FunctionType::FunctionExpression
+                    | FunctionType::TSEmptyBodyFunctionExpression => FunctionKind::Expression,
+                    FunctionType::FunctionDeclaration | FunctionType::TSDeclareFunction => {
+                        FunctionKind::Declaration
+                    }
+                },
+                name: function.id.as_ref().map(|identifier| NamedSpan {
+                    name: identifier.name.to_string(),
+                    span: span(identifier.span),
+                }),
+                parameters: function
+                    .params
+                    .items
+                    .iter()
+                    .map(|parameter| {
+                        self.binding_fact(
+                            parameter.span,
+                            &parameter.pattern,
+                            None,
+                            None,
+                            false,
+                            None,
+                        )
+                    })
+                    .collect(),
+                r#async: function.r#async,
+                generator: function.generator,
+                expression_body: false,
+                expression_return: None,
+            });
+        }
+        walk::walk_function(self, function, flags);
+    }
+
+    fn visit_arrow_function_expression(&mut self, function: &ArrowFunctionExpression<'a>) {
+        self.functions.push(FunctionFact {
+            span: span(function.span),
+            body: span(function.body.span),
+            kind: FunctionKind::Arrow,
+            name: None,
+            parameters: function
+                .params
+                .items
+                .iter()
+                .map(|parameter| {
+                    self.binding_fact(parameter.span, &parameter.pattern, None, None, false, None)
+                })
+                .collect(),
+            r#async: function.r#async,
+            generator: false,
+            expression_body: function.expression,
+            expression_return: function
+                .get_expression()
+                .map(|expression| Self::return_fact(Some(expression), expression.span())),
+        });
+        walk::walk_arrow_function_expression(self, function);
+    }
+
+    fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
+        let mut bindings = Vec::new();
+        for specifier in declaration.specifiers.iter().flatten() {
+            let (kind, local) = match specifier {
+                ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
+                    (ImportKind::Named, &specifier.local)
+                }
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => {
+                    (ImportKind::Default, &specifier.local)
+                }
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
+                    (ImportKind::Namespace, &specifier.local)
+                }
+            };
+            bindings.push(ImportBindingFact {
+                kind,
+                local: NamedSpan {
+                    name: local.name.to_string(),
+                    span: span(local.span),
+                },
+                imported: match specifier {
+                    ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
+                        Some(match &specifier.imported {
+                            ModuleExportName::IdentifierName(name) => name.name.to_string(),
+                            ModuleExportName::IdentifierReference(name) => name.name.to_string(),
+                            ModuleExportName::StringLiteral(name) => name.value.to_string(),
+                        })
+                    }
+                    ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => Some("default".into()),
+                    ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => None,
+                },
+                type_only: declaration.import_kind.is_type()
+                    || matches!(
+                        specifier,
+                        ImportDeclarationSpecifier::ImportSpecifier(specifier)
+                            if specifier.import_kind.is_type()
+                    ),
+            });
+        }
+        if bindings.is_empty() {
+            bindings.push(ImportBindingFact {
+                kind: ImportKind::SideEffect,
+                local: NamedSpan {
+                    name: String::new(),
+                    span: span(declaration.source.span),
+                },
+                imported: None,
+                type_only: false,
+            });
+        }
+        self.imports.push(ImportFact {
+            span: span(declaration.span),
+            module: declaration.source.value.to_string(),
+            type_only: declaration.import_kind.is_type(),
+            bindings,
+        });
+        walk::walk_import_declaration(self, declaration);
+    }
+
+    fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'a>) {
+        self.exports.push(ExportFact {
+            span: span(declaration.span),
+            kind: ExportKind::Named,
+            module: declaration
+                .source
+                .as_ref()
+                .map(|source| source.value.to_string()),
+            type_only: declaration.export_kind.is_type(),
+            specifiers: declaration
+                .specifiers
+                .iter()
+                .map(|specifier| ExportSpecifierFact {
+                    local: NamedSpan {
+                        name: module_export_name(&specifier.local),
+                        span: span(specifier.local.span()),
+                    },
+                    exported: module_export_name(&specifier.exported),
+                    type_only: specifier.export_kind.is_type(),
+                })
+                .collect(),
+            declarations: declaration
+                .declaration
+                .as_ref()
+                .map_or_else(Vec::new, export_declaration_names),
+        });
+        walk::walk_export_named_declaration(self, declaration);
+    }
+
+    fn visit_export_default_declaration(&mut self, declaration: &ExportDefaultDeclaration<'a>) {
+        self.exports.push(ExportFact {
+            span: span(declaration.span),
+            kind: ExportKind::Default,
+            module: None,
+            type_only: false,
+            specifiers: vec![],
+            declarations: vec![],
+        });
+        walk::walk_export_default_declaration(self, declaration);
+    }
+
+    fn visit_export_all_declaration(&mut self, declaration: &ExportAllDeclaration<'a>) {
+        self.exports.push(ExportFact {
+            span: span(declaration.span),
+            kind: ExportKind::All,
+            module: Some(declaration.source.value.to_string()),
+            type_only: declaration.export_kind.is_type(),
+            specifiers: vec![],
+            declarations: vec![],
+        });
+        walk::walk_export_all_declaration(self, declaration);
+    }
+
+    fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
+        self.identifiers.push(IdentifierFact {
+            name: identifier.name.to_string(),
+            span: span(identifier.span),
+            role: IdentifierRole::Reference,
+        });
+        walk::walk_identifier_reference(self, identifier);
+    }
+
+    fn visit_binding_identifier(&mut self, identifier: &oxc_ast::ast::BindingIdentifier<'a>) {
+        self.identifiers.push(IdentifierFact {
+            name: identifier.name.to_string(),
+            span: span(identifier.span),
+            role: IdentifierRole::Binding,
+        });
+        walk::walk_binding_identifier(self, identifier);
+    }
+
+    fn visit_await_expression(&mut self, expression: &AwaitExpression<'a>) {
+        self.awaits.push(span(expression.span));
+        walk::walk_await_expression(self, expression);
+    }
+
+    fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
+        self.returns.push(Self::return_fact(
+            statement.argument.as_ref(),
+            statement.span,
+        ));
+        walk::walk_return_statement(self, statement);
+    }
+
+    fn visit_if_statement(&mut self, statement: &IfStatement<'a>) {
+        self.conditional_tests.push(span(statement.test.span()));
+        walk::walk_if_statement(self, statement);
+    }
+
+    fn visit_conditional_expression(&mut self, expression: &ConditionalExpression<'a>) {
+        self.conditional_tests.push(span(expression.test.span()));
+        walk::walk_conditional_expression(self, expression);
+    }
+
+    fn visit_jsx_element(&mut self, element: &JSXElement<'a>) {
+        let name_span = element.opening_element.name.span();
+        let name = match &element.opening_element.name {
+            JSXElementName::Identifier(identifier) => identifier.name.to_string(),
+            JSXElementName::IdentifierReference(identifier) => identifier.name.to_string(),
+            _ => self
+                .source
+                .get(
+                    usize::try_from(name_span.start).unwrap_or_default()
+                        ..usize::try_from(name_span.end).unwrap_or_default(),
+                )
+                .unwrap_or_default()
+                .to_owned(),
+        };
+        self.jsx_elements.push(JsxElementFact {
+            span: span(element.span),
+            name: NamedSpan {
+                name,
+                span: span(name_span),
+            },
+        });
+        walk::walk_jsx_element(self, element);
+    }
+
+    fn visit_static_member_expression(&mut self, member: &StaticMemberExpression<'a>) {
+        self.members.push(MemberFact {
+            span: span(member.span),
+            object: span(member.object.span()),
+            property: NamedSpan {
+                name: member.property.name.to_string(),
+                span: span(member.property.span),
+            },
+        });
+        walk::walk_static_member_expression(self, member);
+    }
+}
+
+const fn span(value: OxcSpan) -> Span {
+    Span::new(value.start, value.end)
+}
+
+fn module_export_name(name: &ModuleExportName<'_>) -> String {
+    match name {
+        ModuleExportName::IdentifierName(name) => name.name.to_string(),
+        ModuleExportName::IdentifierReference(name) => name.name.to_string(),
+        ModuleExportName::StringLiteral(name) => name.value.to_string(),
+    }
+}
+
+fn export_declaration_names(declaration: &Declaration<'_>) -> Vec<ExportSpecifierFact> {
+    let named = |name: &oxc_ast::ast::BindingIdentifier<'_>, type_only| ExportSpecifierFact {
+        local: NamedSpan {
+            name: name.name.to_string(),
+            span: span(name.span),
+        },
+        exported: name.name.to_string(),
+        type_only,
+    };
+    match declaration {
+        Declaration::VariableDeclaration(declaration) => declaration
+            .declarations
+            .iter()
+            .flat_map(|declarator| declarator.id.get_binding_identifiers())
+            .map(|name| named(name, false))
+            .collect(),
+        Declaration::FunctionDeclaration(declaration) => declaration
+            .id
+            .as_ref()
+            .map(|name| vec![named(name, false)])
+            .unwrap_or_default(),
+        Declaration::ClassDeclaration(declaration) => declaration
+            .id
+            .as_ref()
+            .map(|name| vec![named(name, false)])
+            .unwrap_or_default(),
+        Declaration::TSTypeAliasDeclaration(declaration) => vec![named(&declaration.id, true)],
+        Declaration::TSInterfaceDeclaration(declaration) => vec![named(&declaration.id, true)],
+        Declaration::TSEnumDeclaration(declaration) => vec![named(&declaration.id, false)],
+        Declaration::TSModuleDeclaration(declaration) => match &declaration.id {
+            TSModuleDeclarationName::Identifier(name) if !declaration.declare => {
+                vec![named(name, false)]
+            }
+            _ => vec![],
+        },
+        Declaration::TSImportEqualsDeclaration(declaration) => {
+            vec![named(&declaration.id, declaration.import_kind.is_type())]
+        }
+        Declaration::TSGlobalDeclaration(_) => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_tsx_structure_without_text_patterns() {
+        let source = r#"
+import { createSignal as signal, createEffect } from "solid-js";
+export const [count, setCount] = signal(0);
+export async function App(props: { title: string }) {
+  await ready();
+  createEffect(() => count(), value => console.log(value));
+  return <button onClick={() => setCount(count() + 1)}>{props.title}</button>;
+}
+"#;
+        let facts = extract("/project/App.tsx", source).unwrap();
+        assert_eq!(facts.schema, AST_FACTS_SCHEMA);
+        assert_eq!(facts.imports[0].module, "solid-js");
+        assert!(
+            facts
+                .calls
+                .iter()
+                .any(|call| call.static_callee.as_deref() == Some("signal"))
+        );
+        assert!(
+            facts
+                .calls
+                .iter()
+                .any(|call| call.static_callee.as_deref() == Some("createEffect"))
+        );
+        assert!(facts.bindings.iter().any(|binding| {
+            binding.shape == BindingShape::Array
+                && binding
+                    .names
+                    .iter()
+                    .map(|name| name.name.as_str())
+                    .collect::<Vec<_>>()
+                    == ["count", "setCount"]
+        }));
+        assert!(facts.functions.iter().any(|function| {
+            function
+                .name
+                .as_ref()
+                .is_some_and(|name| name.name == "App")
+                && function.r#async
+        }));
+        assert_eq!(facts.awaits.len(), 1);
+        assert_eq!(facts.returns.len(), 1);
+        assert_eq!(facts.jsx_elements.len(), 1);
+        assert_eq!(facts.jsx_elements[0].name.name, "button");
+        assert!(
+            facts
+                .members
+                .iter()
+                .any(|member| member.property.name == "title")
+        );
+    }
+
+    #[test]
+    fn unwraps_typescript_assertions_around_call_initializers() {
+        let source =
+            "const [state, setState] = createSignal(0) as unknown as [() => number, Function];";
+        let facts = extract("state.ts", source).unwrap();
+        assert_eq!(facts.bindings.len(), 1);
+        assert!(facts.bindings[0].call_initializer.is_some());
+    }
+
+    #[test]
+    fn classifies_cleanup_return_shapes_from_ast_nodes() {
+        let source = r#"
+const cleanup = () => {};
+const valid = () => {
+  if (ready) return undefined;
+  return cleanup;
+};
+const invalid = async () => 42;
+const mixed = () => {
+  if (ready) return () => {};
+  return { invalid: true };
+};
+"#;
+        let facts = extract("cleanup.ts", source).unwrap();
+        let cleanup = facts
+            .bindings
+            .iter()
+            .find(|binding| binding.names[0].name == "cleanup")
+            .unwrap();
+        assert!(cleanup.initializer_function);
+        let values = facts
+            .returns
+            .iter()
+            .map(|returned| returned.value)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            values,
+            [
+                ReturnValueKind::Undefined,
+                ReturnValueKind::Identifier,
+                ReturnValueKind::Function,
+                ReturnValueKind::Other,
+            ]
+        );
+        assert!(facts.functions.iter().any(|function| {
+            function.r#async
+                && function
+                    .expression_return
+                    .as_ref()
+                    .is_some_and(|returned| returned.value == ReturnValueKind::Other)
+        }));
+    }
+
+    #[test]
+    fn classifies_argument_shapes_and_boolean_options() {
+        let facts = extract(
+            "options.ts",
+            "createMemo(async () => 1, { sync: true, ownedWrite: false });",
+        )
+        .unwrap();
+        let call = &facts.calls[0];
+        assert_eq!(call.arguments[0].value, ArgumentValueKind::AsyncFunction);
+        assert_eq!(
+            call.arguments[1].boolean_properties,
+            [
+                BooleanPropertyFact {
+                    name: "sync".into(),
+                    value: true,
+                },
+                BooleanPropertyFact {
+                    name: "ownedWrite".into(),
+                    value: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn retains_type_only_import_specifiers() {
+        let facts = extract(
+            "types.ts",
+            r#"import value, { type Shape, runtime as renamed } from "./dependency";"#,
+        )
+        .unwrap();
+
+        let bindings = &facts.imports[0].bindings;
+        assert!(
+            bindings
+                .iter()
+                .find(|binding| binding.imported.as_deref() == Some("Shape"))
+                .is_some_and(|binding| binding.type_only)
+        );
+        assert!(
+            bindings
+                .iter()
+                .filter(|binding| binding.imported.as_deref() != Some("Shape"))
+                .all(|binding| !binding.type_only)
+        );
+    }
+
+    #[test]
+    fn retains_runtime_and_type_only_export_declarations() {
+        let facts = extract(
+            "exports.ts",
+            "export class RuntimeClass {} export interface Shape {} export const value = 1;",
+        )
+        .unwrap();
+        let declarations = facts
+            .exports
+            .iter()
+            .flat_map(|export| &export.declarations)
+            .map(|declaration| (declaration.exported.as_str(), declaration.type_only))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            declarations,
+            [("RuntimeClass", false), ("Shape", true), ("value", false)]
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_source() {
+        assert!(matches!(
+            extract("broken.tsx", "const = ;"),
+            Err(AstFactsError::Parse(_))
+        ));
+    }
+}

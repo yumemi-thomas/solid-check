@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "solid-check": "bin/solid-check.mjs"
+    "solid-check": "bin/solid-check.mjs",
+    "solid-checkd": "bin/solid-checkd.mjs"
   },
   "exports": {
     "./eslint": "./eslint.cjs"
@@ -12,7 +13,8 @@
   "files": [
     "bin",
     "eslint.cjs",
-    "native"
+    "native",
+    "native-manifest.json"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"

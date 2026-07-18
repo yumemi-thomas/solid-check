@@ -13,6 +13,15 @@ Use these terms in code, diagnostics, contracts, and design discussions.
 | Violation | A proven breach of a Solid reactive rule. |
 | Uncertifiable | An unresolved proof obligation at an explicitly unsupported or unavailable boundary. |
 | Certification snapshot | A deterministic project result containing status, findings, explanations, fixes, package summaries, and metrics. |
+| Demand closure | The transitive fact set one analysis generation needs, computed by the type-facts service from seeds; never the full universe. |
+| Closure request | The TypeFacts v2 request: seeds plus a pinned expansion-ruleset version; answered by one closed fact table per generation. |
+| Expansion ruleset | The versioned rules that grow seeds into a demand closure; changing them is a wire-visible change and reruns the affected gates. |
+| Generation | One accepted analysis version of a type-facts project. Every answer given within a generation is mutually consistent; an accepted update starts the next generation. |
+| Edit exchange | The single per-edit exchange with the type-facts service: the update that advances the generation always lands, and the analysis answering the new generation may be cancelled independently. Cancelling an edit exchange never cancels its update. |
+| Affected set | The files whose answers an accepted update may have changed. Single-file external-module edits stop at the edited file when canonical declaration shape, resolved imports, and exported durable IDs are unchanged; otherwise the set is the changed files plus their transitive importers. |
+| Durable symbol identity | Symbol identity derived from the declaration itself (declaring file, declaration location, name), so it stays meaningful across generations while that declaration is unchanged. |
+| Source-fact memo | The cross-generation cache of per-file source facts. Entries outside an update's affected set carry over; entries inside it are recomputed. |
+| Retained closure contribution | One file's share of the demand closure, carried across generations while the file stays outside every accepted update's affected set, its demand run is unchanged, and every identity it carries is durable. |
 
 ## Naming constraints
 

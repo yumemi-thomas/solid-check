@@ -1,21 +1,22 @@
 # Monorepo and upstream policy
 
 This repository is the build and review home for the complete `solid-check`
-analysis path. A contributor needs one clone for the Go certification engine,
-the compiler-owned Rust facts producer, schemas, tests, and corpus automation.
+analysis path. A contributor needs one clone for the Rust checker, the Go
+TypeFacts service, compiler integration, schemas, tests, and corpus automation.
 
 ## Module seams
 
 Physical colocation does not merge the module interfaces:
 
-- `internal/engine` orchestrates certification.
-- `internal/compilerfacts` owns the newline-delimited protocol client.
+- `rust/solid-facts-backend` orchestrates certification.
+- `rust/solid-compiler-facts` owns compiler-fact integration.
+- `cmd/solid-typefacts` and `internal/typefacts` own TypeScript-Go facts.
 - `third_party/dom-expressions/packages/jsx-compiler` owns JSX execution
-  semantics and the protocol producer.
-- `pkg/contracts` owns the package contract format and validation.
+  semantics.
+- `rust/solid-facts-backend` owns package contracts.
 
-The compiler seam remains the versioned `ExecutionMap` protocol. Neither Oxc
-nodes nor DOM Expressions internals cross into the Go engine.
+Oxc and compiler facts stay in-process. The versioned `ExecutionMap` protocol
+remains available for differential testing.
 
 ## Fork policy
 

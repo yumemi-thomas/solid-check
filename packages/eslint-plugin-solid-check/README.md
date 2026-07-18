@@ -50,8 +50,7 @@ For CI pipelines that already generate a snapshot, set
 `settings.solidCheck.snapshotPath`. Tests and embedded integrations may provide
 `settings.solidCheck.snapshot` directly.
 
-See [Milestone 8](../../docs/milestone-8.md) and the
-[rule audit](../../docs/eslint-rule-audit.md) for the migration map and the
+See the [rule audit](../../docs/eslint-rule-audit.md) for the migration map and the
 rules deliberately retained in syntax-oriented ESLint plugins.
 
 ## Oxlint
@@ -70,13 +69,4 @@ output and exit status, and removes the snapshot afterward. Set `OXLINT_BIN`
 when Oxlint is not available as `oxlint` on `PATH`.
 
 An explicit `settings.solidCheck.snapshotPath` remains available for debugging
-and CI systems that intentionally retain an artifact. The checked-in
-failing-case conformance test is available as:
-
-```sh
-make test-oxlint
-```
-
-The test pins Oxlint 1.67.0, analyzes a real Solid 2 component, and requires
-Oxlint to report the canonical `SC1003` finding through
-`solid-check/certification`.
+and CI systems that intentionally retain an artifact.

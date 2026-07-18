@@ -1,28 +1,37 @@
-RUST_TOOLCHAIN ?= 1.93
+RUST_TOOLCHAIN ?= 1.97
+SOLID_CHECK_BUILD_ID ?= dev
 COMPILER_MANIFEST := third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
 COMPILER_BIN := third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
+RUST_MANIFEST := rust/Cargo.toml
 
-.PHONY: build build-go build-compiler build-zed zed-setup test test-go test-cli test-eslint test-oxlint test-compiler test-zed benchmark profile verify conformance corpus clean
+.PHONY: build build-typefacts build-compiler build-rust package test test-go test-rust test-cli test-eslint test-compiler test-zed verify conformance clean
 
-build: build-go build-compiler
+build: build-rust
 
-build-go:
+build-typefacts:
 	mkdir -p bin
-	go build -o bin/solid-check ./cmd/solid-check
-	go build -o bin/solid-checkd ./cmd/solid-checkd
+	go build -ldflags "-X main.buildID=$(SOLID_CHECK_BUILD_ID)" -o bin/solid-typefacts ./cmd/solid-typefacts
 
 build-compiler:
 	cargo +$(RUST_TOOLCHAIN) build --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar --bin solid-compiler-facts
 
-build-zed:
-	cargo check --manifest-path packages/zed-solid-check/Cargo.toml
+build-rust: build-typefacts
+	mkdir -p bin
+	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --manifest-path $(RUST_MANIFEST) --workspace
+	cp rust/target/debug/solid-check-rust bin/solid-check-rust
+	cp rust/target/debug/solid-checkd-rust bin/solid-checkd-rust
 
-zed-setup: build build-zed
+package: build-typefacts
+	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --release --manifest-path $(RUST_MANIFEST) --workspace
+	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" node scripts/package-rust.mjs --output dist/solid-check
 
-test: test-go test-cli test-eslint test-compiler test-zed
+test: test-go test-rust test-cli test-eslint test-compiler test-zed
 
 test-go:
-	go test ./...
+	go test ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
+
+test-rust: build-typefacts build-compiler
+	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" SOLID_TYPEFACTS_BIN="$(CURDIR)/bin/solid-typefacts" SOLID_COMPILER_FACTS_BIN="$(CURDIR)/$(COMPILER_BIN)" cargo +$(RUST_TOOLCHAIN) test --manifest-path $(RUST_MANIFEST) --workspace
 
 test-cli:
 	npm ci --ignore-scripts --prefix packages/cli
@@ -31,39 +40,18 @@ test-cli:
 test-eslint:
 	node --test packages/eslint-plugin-solid-check/test/*.test.cjs
 
-test-oxlint: build-compiler
-	SOLID_COMPILER_FACTS_BIN="$(CURDIR)/$(COMPILER_BIN)" node scripts/oxlint-conformance.mjs
-
 test-compiler:
 	cargo +$(RUST_TOOLCHAIN) test --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar
 
 test-zed:
 	cargo test --manifest-path packages/zed-solid-check/Cargo.toml
 
-benchmark:
-	go test ./internal/typefacts -run '^$$' -bench '^BenchmarkProjectReferenceLookups$$' -benchmem -count=5
-	go test ./internal/engine -run '^$$' -bench '^BenchmarkNativeEngine' -benchmem -count=5
-
-profile:
-	mkdir -p .profiles
-	go test ./internal/engine -run '^$$' -bench '^BenchmarkNativeEngineIncrementalSnapshot$$' -benchmem -benchtime=10s \
-		-cpuprofile .profiles/incremental.cpu.pprof \
-		-memprofile .profiles/incremental.mem.pprof
-	go tool pprof -top .profiles/incremental.cpu.pprof
-	go tool pprof -top -alloc_space .profiles/incremental.mem.pprof
-
 verify:
 	scripts/verify.sh
 
 conformance: build-compiler
-	SKIP_INSTALL_SIMPLE_GIT_HOOKS=1 pnpm --dir third_party/dom-expressions install --frozen-lockfile
-	RUSTUP_TOOLCHAIN=$(RUST_TOOLCHAIN) pnpm --dir third_party/dom-expressions --filter @dom-expressions/jsx-compiler test
+	RUSTUP_TOOLCHAIN=$(RUST_TOOLCHAIN) pnpm --dir third_party/dom-expressions --filter @dom-expressions/jsx-compiler run build:debug
 	node scripts/compiler-conformance.mjs third_party/dom-expressions/packages/jsx-compiler $(COMPILER_BIN)
 
-corpus: build
-	scripts/run-solid-primitives-corpus.sh
-
 clean:
-	rm -rf bin .solid-check
-	cargo +$(RUST_TOOLCHAIN) clean --manifest-path $(COMPILER_MANIFEST)
-	cargo clean --manifest-path packages/zed-solid-check/Cargo.toml
+	rm -rf bin dist rust/target

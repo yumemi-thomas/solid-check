@@ -1,13 +1,14 @@
 # Compiler facts
 
-`solid-compiler-facts` is the persistent Rust/Oxc sidecar for original-source
-JSX execution semantics. It is built by the controlled
-`@dom-expressions/jsx-compiler` fork, and therefore executes the same transform
-implementation and fact-recording branches as the compiler itself.
+Solid compiler facts describe original-source JSX execution semantics. The
+production Rust checker loads the controlled `@dom-expressions/jsx-compiler`
+implementation in-process, so facts come from the same transform branches as
+compilation.
 
-The protocol is newline-delimited JSON. Every request carries
+An optional differential sidecar exposes a newline-delimited JSON protocol.
+Every request carries
 `compilerFactsProtocol: 1` and a SHA-256 hash of the exact UTF-8 source bytes;
-every successful `ExecutionMap` repeats both values. The Go client rejects
+every successful `ExecutionMap` repeats both values. The Rust client rejects
 stale hashes, incompatible protocol versions, and spans outside the original
 source.
 
@@ -40,20 +41,20 @@ Only DOM generation is supported. Other renderer modes, malformed options,
 unknown fact kinds, invalid UTF-8 boundaries, stale hashes, and incompatible
 protocol versions fail closed.
 
-Build the sidecar from the in-repository compiler fork with Rust 1.93 (Oxc 0.118
+Build the sidecar from the in-repository compiler fork with Rust 1.97 (Oxc 0.118
 requires Rust 1.92 or newer):
 
 ```sh
-cargo +1.93 build \
+cargo +1.97 build \
   --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml \
   --no-default-features --features sidecar --bin solid-compiler-facts
 ```
 
-Point the CLI at the resulting persistent process:
+Point the CLI at the resulting process to compare it with the in-process path:
 
 ```sh
 SOLID_COMPILER_FACTS_BIN=third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
-  go run ./cmd/solid-check --project tsconfig.json
+  bin/solid-check-rust --project tsconfig.json
 ```
 
 The compiler-conformance check executes both the controlled DOM Expressions

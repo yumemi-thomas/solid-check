@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  go:
+  typefacts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,15 +16,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test -race ./...
-      - run: go vet ./...
-      - run: test -z "$(gofmt -l cmd internal pkg)"
+      - run: go test -race ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
+      - run: go vet ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
+      - run: test -z "$(gofmt -l cmd/solid-typefacts internal/typefacts internal/wirecbor)"
 
   compiler-facts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93
+      - uses: dtolnay/rust-toolchain@1.97
         with:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -40,6 +40,93 @@ jobs:
           --manifest-path third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
           --no-default-features --features sidecar
 
+  rust-engine:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            third_party/dom-expressions/packages/jsx-compiler
+      - run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: make test-rust
+
+  rust-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: windows-2025
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build one-version native package
+        env:
+          SOLID_CHECK_BUILD_ID: ci-${{ github.sha }}
+        run: |
+          extension=""
+          if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
+          mkdir -p bin
+          go build -ldflags "-X main.buildID=$SOLID_CHECK_BUILD_ID" -o "bin/solid-typefacts${extension}" ./cmd/solid-typefacts
+          cargo build --release --manifest-path rust/Cargo.toml --workspace
+          node scripts/package-rust.mjs \
+            --output dist/solid-check \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --typefacts "bin/solid-typefacts${extension}"
+      - name: Smoke-test installed CLI and LSP
+        run: |
+          extension=""
+          if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
+          native="dist/solid-check/native/${{ matrix.platform }}-${{ matrix.arch }}"
+          env -u SOLID_TYPEFACTS_BIN "$native/solid-check${extension}" \
+            --certify --project internal/reactiveir/testdata/tracer-corrected/tsconfig.json
+          env -u SOLID_TYPEFACTS_BIN node scripts/lsp-smoke.mjs \
+            "$native/solid-checkd${extension}" \
+            internal/reactiveir/testdata/tracer/tsconfig.json
+          npm pack ./dist/solid-check --dry-run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: solid-check-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/solid-check
+
   eslint-adapter:
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.93
+      - uses: dtolnay/rust-toolchain@1.97
       - uses: pnpm/action-setup@v4
         with:
           version: 11.1.1

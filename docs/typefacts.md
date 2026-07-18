@@ -11,9 +11,10 @@ terminology stay inside the `tsgo` adapter.
 - Resolve the symbol at a UTF-8 byte location.
 - Resolve import aliases to their original declarations.
 - Return declaration locations and non-declaration references across files.
-- Build one lazy canonical-symbol reference index per project generation, so
-  multiple reference queries traverse the TypeScript AST only once. Successful
-  updates discard the index together with generation-scoped symbol identities.
+- Build a canonical-symbol reference index from path-owned contributions.
+  Multiple reference queries traverse each TypeScript AST only once; small
+  successful updates subtract and lazily replace affected-file fragments,
+  while broad updates discard the merged index conservatively.
 - Return an opaque canonical type identity at a source location.
 - Optionally describe a named type's text and source alias declarations without
   exposing native checker objects. Reactive IR uses this to distinguish a
@@ -45,9 +46,11 @@ terminology stay inside the `tsgo` adapter.
 - Apply updates transactionally: cancellation or a rebuild failure leaves the
   prior project generation queryable and unchanged.
 
-Opaque identities include their project generation and are valid only for that
-analysis version. Callers must reacquire identities after every successful
-`Update`; stale identities cannot collide with identities in the new program.
+Generation-scoped opaque identities include their project generation and must
+be reacquired after every successful `Update`. Declaration-backed durable
+identities may survive updates. Module-visible target symbols use a canonical
+declaring-path/name identity; other durable symbols include their declaration
+span.
 
 ## Native integration pins
 
@@ -58,13 +61,20 @@ All unstable shim modules are replaced from the same tsgolint pseudo-version in
 `go.mod`. No `go:linkname` or native compiler type is allowed outside
 `internal/typefacts/tsgo` and its pinned dependencies.
 
-`AffectedSet` is derived from the union of the old and updated resolved-module
-graphs. This keeps removed or redirected imports conservative while excluding
-unrelated project files. A single accepted, non-deleted source edit uses
-TypeScript-Go's `Program.UpdateProgram`; its structural checks fall back to a
-new program for import-graph changes. Added or deleted files, `tsconfig` edits,
-and multi-file batches explicitly rebuild the complete program. Both paths
-remain behind the same transactional interface.
+`AffectedSet` starts from the union of the old and updated resolved-module
+graphs. For a single accepted external-module edit, diagnostic-free forced
+declaration emit may stop propagation at the edited file when the canonical
+`.d.ts` shape and resolved imports are unchanged and external exports pair
+bijectively. Canonical module-visible IDs are rebound to their new declaration
+spans, so an implementation edit above an export can retain importer facts.
+Any failed safety gate retains the transitive reverse-import set. This keeps
+removed or redirected imports, inferred exported-type changes, global/module
+augmentation, diagnostics, and ambiguous export changes conservative. A
+single accepted, non-deleted source edit uses TypeScript-Go's
+`Program.UpdateProgram`; its structural checks fall back to a new program for
+import-graph changes. Added or deleted files, `tsconfig` edits, and multi-file
+batches explicitly rebuild the complete program. Both paths remain behind the
+same transactional interface.
 
 The retained shim surface and evidence-based removal sequence are documented in
 [tsgolint-extraction.md](tsgolint-extraction.md).

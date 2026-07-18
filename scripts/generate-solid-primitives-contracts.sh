@@ -12,11 +12,6 @@ if [ -z "$checker" ]; then
   echo "SOLID_CHECK_BIN must point to a built solid-check binary" >&2
   exit 2
 fi
-if [ -z "${SOLID_COMPILER_FACTS_BIN:-}" ]; then
-  echo "SOLID_COMPILER_FACTS_BIN must point to solid-compiler-facts" >&2
-  exit 2
-fi
-
 failures=$(mktemp)
 trap 'rm -f "$failures"' EXIT
 

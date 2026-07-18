@@ -1,7 +1,7 @@
 # solid-check CLI package
 
-This private workspace package is the user-facing launcher for the native
-checker. It is not published.
+This private workspace package is the user-facing launcher for the Rust CLI
+and language server. It is not published yet.
 
 An application installs one package and uses its binary directly:
 
@@ -40,9 +40,9 @@ npm run lint:fix
 
 `npm run lint --fix` is not equivalent: npm consumes `--fix` as its own option.
 
-The launcher forwards arguments, stdio, signals, and exit status to the native
-binary. A packaged release can place `solid-check` and
-`solid-compiler-facts` under `native/<platform>-<architecture>/`. While running
-from this monorepo, it discovers the checkout, builds missing development
-binaries with `make build`, and supplies the compiler-sidecar location
-automatically.
+The launcher forwards arguments, stdio, signals, and exit status. A packaged
+release places `solid-check`, `solid-checkd`, and the matching Go
+`solid-typefacts` helper under `native/<platform>-<architecture>/`; the Rust
+entry points supervise the helper and verify its schema/build handshake. While
+running from this monorepo, the launcher builds missing binaries with
+`make build-rust`.
