@@ -32,7 +32,7 @@ pub(super) fn leaf_owner_operations_for_file(
         let owner = primitive_name(
             file.path.as_str(),
             owner_call.callee,
-            owner_call.static_callee.as_deref(),
+            owner_call.static_callee(&file.source),
             entities,
             symbol_names,
         );
@@ -49,7 +49,7 @@ pub(super) fn leaf_owner_operations_for_file(
             let primitive = primitive_name(
                 file.path.as_str(),
                 call.callee,
-                call.static_callee.as_deref(),
+                call.static_callee(&file.source),
                 entities,
                 symbol_names,
             );
@@ -108,7 +108,7 @@ where
         let primitive = primitive_name(
             file.path.as_str(),
             call.callee,
-            call.static_callee.as_deref(),
+            call.static_callee(&file.source),
             entities,
             symbol_names,
         );

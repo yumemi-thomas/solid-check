@@ -58,9 +58,19 @@ pub struct CallFact {
     pub direct_callee: bool,
     pub type_arguments: bool,
     pub arguments: Vec<ArgumentFact>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub static_callee: Option<String>,
+    pub static_callee: bool,
     pub owned_write_option: bool,
+}
+
+impl CallFact {
+    /// Returns the callee text only when extraction certified it as a static
+    /// identifier or dotted identifier path.
+    #[must_use]
+    pub fn static_callee<'s>(&self, source: &'s str) -> Option<&'s str> {
+        self.static_callee
+            .then_some(self.callee)
+            .and_then(|span| source.get(span.start as usize..span.end as usize))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -490,18 +500,13 @@ impl<'s> Collector<'s> {
         }
     }
 
-    fn static_callee(&self, callee: OxcSpan) -> Option<String> {
-        let text = self
-            .source
-            .get(usize::try_from(callee.start).ok()?..usize::try_from(callee.end).ok()?)?;
-        if text
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'.'))
-        {
-            Some(text.to_owned())
-        } else {
-            None
-        }
+    fn is_static_callee(&self, callee: OxcSpan) -> bool {
+        self.source
+            .get(callee.start as usize..callee.end as usize)
+            .is_some_and(|text| {
+                text.bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'.'))
+            })
     }
 
     fn argument_fact(argument: &Argument<'_>) -> ArgumentFact {
@@ -586,7 +591,7 @@ impl<'a> Visit<'a> for Collector<'_> {
             direct_callee: matches!(call.callee, Expression::Identifier(_)),
             type_arguments: call.type_arguments.is_some(),
             arguments: call.arguments.iter().map(Self::argument_fact).collect(),
-            static_callee: self.static_callee(callee_span),
+            static_callee: self.is_static_callee(callee_span),
             owned_write_option: call.arguments.get(1).is_some_and(|argument| {
                 let Argument::ObjectExpression(options) = argument else {
                     return false;
@@ -621,7 +626,7 @@ impl<'a> Visit<'a> for Collector<'_> {
                 .iter()
                 .map(Self::argument_fact)
                 .collect(),
-            static_callee: self.static_callee(callee_span),
+            static_callee: self.is_static_callee(callee_span),
             owned_write_option: false,
         });
         walk::walk_new_expression(self, expression);
@@ -1030,13 +1035,13 @@ export async function App(props: { title: string }) {
             facts
                 .calls
                 .iter()
-                .any(|call| call.static_callee.as_deref() == Some("signal"))
+                .any(|call| call.static_callee(source) == Some("signal"))
         );
         assert!(
             facts
                 .calls
                 .iter()
-                .any(|call| call.static_callee.as_deref() == Some("createEffect"))
+                .any(|call| call.static_callee(source) == Some("createEffect"))
         );
         assert!(facts.bindings.iter().any(|binding| {
             binding.shape == BindingShape::Array
@@ -1086,6 +1091,21 @@ export async function App(props: { title: string }) {
         let facts = extract("state.ts", source).unwrap();
         assert_eq!(facts.bindings.len(), 1);
         assert!(facts.bindings[0].call_initializer.is_some());
+    }
+
+    #[test]
+    fn certifies_static_callee_spans_without_retaining_their_text() {
+        let source = "solid.createEffect(); (factory())();";
+        let facts = extract("calls.ts", source).unwrap();
+        let callees = facts
+            .calls
+            .iter()
+            .map(|call| call.static_callee(source))
+            .collect::<Vec<_>>();
+
+        assert!(callees.contains(&Some("solid.createEffect")));
+        assert!(callees.contains(&Some("factory")));
+        assert!(callees.contains(&None));
     }
 
     #[test]

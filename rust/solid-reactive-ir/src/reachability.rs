@@ -210,7 +210,7 @@ fn discover_reachability_file(
             primitive_name(
                 file.path.as_str(),
                 call.callee,
-                call.static_callee.as_deref(),
+                call.static_callee(&file.source),
                 entities,
                 symbol_names,
             )
@@ -677,7 +677,7 @@ pub(super) fn reachable_call_multiplicity(
                 primitive_name(
                     file.path.as_str(),
                     call.callee,
-                    call.static_callee.as_deref(),
+                    call.static_callee(&file.source),
                     entities,
                     symbol_names,
                 )

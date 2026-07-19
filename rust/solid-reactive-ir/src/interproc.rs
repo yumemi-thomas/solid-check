@@ -679,23 +679,23 @@ fn interprocedural_result_reads_for_file(
                 nodes[target]
                     .name
                     .clone()
-                    .or_else(|| call.static_callee.clone())
+                    .or_else(|| call.static_callee(&file.source).map(str::to_owned))
                     .unwrap_or_else(|| "helper".into()),
                 summaries[target].to_vec(),
                 Some(target),
             )
         } else if let Some(summary) = returned_bindings.get(symbol) {
             (
-                call.static_callee
-                    .clone()
+                call.static_callee(&file.source)
+                    .map(str::to_owned)
                     .unwrap_or_else(|| "returned helper".into()),
                 summary.clone(),
                 None,
             )
         } else if contract_callbacks.contains_key(symbol) {
             (
-                call.static_callee
-                    .clone()
+                call.static_callee(&file.source)
+                    .map(str::to_owned)
                     .unwrap_or_else(|| "contract callback".into()),
                 Vec::new(),
                 None,
@@ -1397,7 +1397,7 @@ fn interprocedural_reads(
                                 primitive_name(
                                     file.path.as_str(),
                                     call.callee,
-                                    call.static_callee.as_deref(),
+                                    call.static_callee(&file.source),
                                     entities,
                                     symbol_names,
                                 )

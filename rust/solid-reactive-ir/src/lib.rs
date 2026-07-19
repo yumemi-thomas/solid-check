@@ -1184,7 +1184,7 @@ fn discover_file_sources(
         let primitive = primitive_name(
             file.path.as_str(),
             call.callee,
-            call.static_callee.as_deref(),
+            call.static_callee(&file.source),
             entities,
             symbol_names,
         );
@@ -1715,7 +1715,7 @@ fn discover_sources(
                     let primitive = primitive_name(
                         file.path.as_str(),
                         call.callee,
-                        call.static_callee.as_deref(),
+                        call.static_callee(&file.source),
                         entities,
                         symbol_names,
                     );
@@ -2036,7 +2036,7 @@ fn discover_sources(
             if !primitive_name(
                 file.path.as_str(),
                 call.callee,
-                call.static_callee.as_deref(),
+                call.static_callee(&file.source),
                 entities,
                 symbol_names,
             )
@@ -2215,7 +2215,7 @@ fn discover_sources(
                         let primitive = primitive_name(
                             file.path.as_str(),
                             call.callee,
-                            call.static_callee.as_deref(),
+                            call.static_callee(&file.source),
                             entities,
                             symbol_names,
                         );
@@ -2708,13 +2708,17 @@ fn build_with_contracts_measured_incremental(
                     .iter()
                     .find(|file| file.path.as_str() == call.path)
                     .and_then(|file| {
-                        file.ast.calls.iter().find(|candidate| {
-                            u64::from(candidate.callee.start) == call.start_byte
-                                && u64::from(candidate.callee.end) == call.end_byte
-                        })
+                        file.ast
+                            .calls
+                            .iter()
+                            .find(|candidate| {
+                                u64::from(candidate.callee.start) == call.start_byte
+                                    && u64::from(candidate.callee.end) == call.end_byte
+                            })
+                            .map(|candidate| (file, candidate))
                     });
                 let display = ast_call
-                    .and_then(|candidate| candidate.static_callee.as_deref())
+                    .and_then(|(file, candidate)| candidate.static_callee(&file.source))
                     .unwrap_or(name);
                 let diagnostic_location = Location {
                     path: call.path.clone(),
@@ -2746,7 +2750,7 @@ fn build_with_contracts_measured_incremental(
                         let primitive = primitive_name(
                             file.path.as_str(),
                             candidate.callee,
-                            candidate.static_callee.as_deref(),
+                            candidate.static_callee(&file.source),
                             entities,
                             &symbol_names,
                         )?;
@@ -3060,7 +3064,7 @@ fn build_with_contracts_measured_incremental(
                 && let Some(primitive) = primitive_name(
                     file.path.as_str(),
                     call.callee,
-                    call.static_callee.as_deref(),
+                    call.static_callee(&file.source),
                     entities,
                     &symbol_names,
                 )
@@ -3476,7 +3480,7 @@ fn find_missing_owners(
                     primitive_name(
                         file.path.as_str(),
                         call.callee,
-                        call.static_callee.as_deref(),
+                        call.static_callee(&file.source),
                         entities,
                         symbol_names,
                     )
@@ -3826,7 +3830,7 @@ fn discover_owner_file(
             primitive_name(
                 file.path.as_str(),
                 call.callee,
-                call.static_callee.as_deref(),
+                call.static_callee(&file.source),
                 entities,
                 symbol_names,
             )
@@ -4345,7 +4349,7 @@ fn containing_leaf_owner(
             let owner = primitive_name(
                 file.path.as_str(),
                 call.callee,
-                call.static_callee.as_deref(),
+                call.static_callee(&file.source),
                 entities,
                 symbol_names,
             )?;
@@ -4479,7 +4483,7 @@ fn inside_lowercase_named_function(file: &solid_facts::FileFacts, span: Span) ->
         return false;
     }
     if file.ast.arguments_containing(span).any(|(call, _)| {
-        call.static_callee.as_deref().is_some_and(|callee| {
+        call.static_callee(&file.source).is_some_and(|callee| {
             matches!(
                 callee.rsplit('.').next(),
                 Some(
@@ -4642,7 +4646,7 @@ fn inside_effect_apply(
                 primitive_name(
                     file.path.as_str(),
                     call.callee,
-                    call.static_callee.as_deref(),
+                    call.static_callee(&file.source),
                     entities,
                     symbol_names,
                 )
@@ -4830,7 +4834,7 @@ fn analysis_context(
         && let Some(primitive) = primitive_name(
             file.path.as_str(),
             call.callee,
-            call.static_callee.as_deref(),
+            call.static_callee(&file.source),
             entities,
             symbol_names,
         )
@@ -5318,11 +5322,11 @@ impl LocalAccessContext<'_> {
                 && seen.insert(key.clone())
             {
                 let origin = self.accessor_origins.get(symbol);
-                let display_name = call.static_callee.as_ref().unwrap_or(name);
+                let display_name = call.static_callee(&file.source).unwrap_or(name);
                 result.reads.push(ReactiveRead {
                     kind: "accessor".into(),
                     accessor: origin
-                        .map_or_else(|| display_name.clone(), |origin| origin.0.clone()),
+                        .map_or_else(|| display_name.to_owned(), |origin| origin.0.clone()),
                     location: location(file.path.as_str(), call.span),
                     declaration: origin
                         .map_or_else(|| declaration.clone(), |origin| origin.2.clone()),

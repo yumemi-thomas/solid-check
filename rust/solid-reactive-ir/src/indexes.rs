@@ -259,7 +259,7 @@ impl<'a> SemanticLookup<'a> {
                         super::primitive_name(
                             file.path.as_str(),
                             call.callee,
-                            call.static_callee.as_deref(),
+                            call.static_callee(&file.source),
                             self.entities,
                             self.symbol_names,
                         )
