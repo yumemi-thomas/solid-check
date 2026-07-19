@@ -508,6 +508,8 @@ struct InterproceduralGraphContribution {
     edges: Vec<(Span, InterproceduralGraphTarget)>,
     invoked_parameters: Vec<(Span, usize)>,
     callbacks: Vec<(Span, ContractCallback)>,
+    returned_bindings: Vec<(String, String)>,
+    factory_calls: Vec<(Span, String)>,
 }
 
 struct CachedInterproceduralGraph {

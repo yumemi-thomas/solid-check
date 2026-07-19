@@ -337,6 +337,11 @@ fn discover_interprocedural_graph(
         let Some(symbol) = entities.get(&callee) else {
             continue;
         };
+        if call.direct_callee {
+            contribution
+                .factory_calls
+                .push((owner_span, symbol.clone()));
+        }
         if !call.type_arguments
             && let Some(contracted) = contract_reads.get(symbol)
         {
@@ -437,6 +442,31 @@ fn discover_interprocedural_graph(
             }
         }
     }
+    for binding in &file.ast.bindings {
+        let Some(initializer) = binding.call_initializer else {
+            continue;
+        };
+        let Some(call) = file
+            .ast
+            .calls
+            .iter()
+            .find(|call| call.span == initializer)
+        else {
+            continue;
+        };
+        let Some(target_symbol) = entities.get(&location(file.path.as_str(), call.callee)) else {
+            continue;
+        };
+        for name in &binding.names {
+            if let Some(binding_symbol) =
+                entities.get(&location(file.path.as_str(), name.span))
+            {
+                contribution
+                    .returned_bindings
+                    .push((binding_symbol.clone(), target_symbol.clone()));
+            }
+        }
+    }
     contribution
 }
 
@@ -448,6 +478,8 @@ struct InterproceduralGraphAssembly<'a> {
     callback_summaries: &'a mut [Vec<ContractCallback>],
     edges: &'a mut [Vec<usize>],
     invoked_parameters: &'a mut [Vec<usize>],
+    returned_bindings: &'a mut Vec<(String, String)>,
+    factory_calls: &'a mut Vec<(usize, String)>,
 }
 
 impl InterproceduralGraphAssembly<'_> {
@@ -486,6 +518,13 @@ impl InterproceduralGraphAssembly<'_> {
         for (owner, callback) in &contribution.callbacks {
             if let Some(owner) = node_index(*owner) {
                 push_contract_callback(&mut self.callback_summaries[owner], callback.clone());
+            }
+        }
+        self.returned_bindings
+            .extend(contribution.returned_bindings.iter().cloned());
+        for (owner, symbol) in &contribution.factory_calls {
+            if let Some(owner) = node_index(*owner) {
+                self.factory_calls.push((owner, symbol.clone()));
             }
         }
     }
@@ -1118,6 +1157,8 @@ fn interprocedural_reads(
     let mut callback_summaries = vec![Vec::<ContractCallback>::new(); nodes.len()];
     let mut edges = vec![Vec::<usize>::new(); nodes.len()];
     let mut invoked_parameters = vec![Vec::<usize>::new(); nodes.len()];
+    let mut returned_binding_candidates = Vec::new();
+    let mut factory_call_candidates = Vec::new();
     let mut graph_reused_files = 0;
     let mut graph_recomputed_files = 0;
     {
@@ -1129,6 +1170,8 @@ fn interprocedural_reads(
             callback_summaries: &mut callback_summaries,
             edges: &mut edges,
             invoked_parameters: &mut invoked_parameters,
+            returned_bindings: &mut returned_binding_candidates,
+            factory_calls: &mut factory_call_candidates,
         };
         match interprocedural_graph_cache {
             None => {
@@ -1455,58 +1498,21 @@ fn interprocedural_reads(
     let factory_propagation_started = Instant::now();
     let mut returned_bindings = HashMap::<String, Vec<SummaryRead>>::new();
     if returned.iter().any(|summary| !summary.is_empty()) {
-        for file in &facts.files {
-            for binding in &file.ast.bindings {
-                let Some(initializer) = binding.call_initializer else {
-                    continue;
-                };
-                let Some(call) = project_indexes
-                    .ast_files_by_path
-                    .get(file.path.as_str())
-                    .and_then(|index| index.call_by_span(initializer))
-                else {
-                    continue;
-                };
-                let Some(target_symbol) = entities.get(&location(file.path.as_str(), call.callee))
-                else {
-                    continue;
-                };
-                let Some(target) = by_symbol.get(target_symbol).copied() else {
-                    continue;
-                };
-                for name in &binding.names {
-                    if let Some(binding_symbol) =
-                        entities.get(&location(file.path.as_str(), name.span))
-                    {
-                        let mut summary = returned[target].to_vec();
-                        for read in &mut summary {
-                            if read.origin_context.is_empty() {
-                                read.origin_context =
-                                    nodes[target].name.clone().unwrap_or_default();
-                            }
-                        }
-                        returned_bindings.insert(binding_symbol.clone(), summary);
-                    }
+        for (binding_symbol, target_symbol) in &returned_binding_candidates {
+            let Some(target) = by_symbol.get(target_symbol).copied() else {
+                continue;
+            };
+            let mut summary = returned[target].to_vec();
+            for read in &mut summary {
+                if read.origin_context.is_empty() {
+                    read.origin_context = nodes[target].name.clone().unwrap_or_default();
                 }
             }
+            returned_bindings.insert(binding_symbol.clone(), summary);
         }
         let mut factory_reads_added = false;
-        for file in &facts.files {
-            for call in &file.ast.calls {
-                if !call.direct_callee {
-                    continue;
-                }
-                let Some(owner) = containing_summary_function_indexed(
-                    &nodes,
-                    &nodes_by_path,
-                    file.path.as_str(),
-                    call.span,
-                ) else {
-                    continue;
-                };
-                let Some(symbol) = entities.get(&location(file.path.as_str(), call.callee)) else {
-                    continue;
-                };
+        if !returned_bindings.is_empty() {
+            for (owner, symbol) in &factory_call_candidates {
                 if accessors.contains_key(symbol) {
                     continue;
                 }
@@ -1514,9 +1520,9 @@ fn interprocedural_reads(
                     continue;
                 };
                 for read in factory_reads {
-                    let previous_len = summaries[owner].len();
-                    summaries[owner].push_unique(read.clone());
-                    factory_reads_added |= summaries[owner].len() != previous_len;
+                    let previous_len = summaries[*owner].len();
+                    summaries[*owner].push_unique(read.clone());
+                    factory_reads_added |= summaries[*owner].len() != previous_len;
                 }
             }
         }
