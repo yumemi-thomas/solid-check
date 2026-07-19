@@ -10,7 +10,7 @@ use std::{
 };
 
 use directives::{DirectiveCreationCollector, is_created_primitive, push_directive_creation};
-use indexes::{CachedAstFileIndex, EntitySymbols, ProjectIndexes};
+use indexes::{CachedAstFileIndex, EntitySymbols, ProjectIndexes, SemanticLookup};
 use serde::{Deserialize, Serialize};
 use solid_facts::{FileFacts, ProjectFacts};
 use solid_facts_core::{SourceHash, Span};
@@ -663,6 +663,7 @@ struct LocalAccessSymbolState {
     contract_reads: Option<Vec<(String, String, Location, String)>>,
     source_kind: Option<ReactiveSourceKind>,
     prop_source: Option<(String, Location)>,
+    source_declaration: Option<Declaration>,
     symbol_name: Option<String>,
 }
 
@@ -706,6 +707,7 @@ fn same_reachability_ast(
         && previous.returns == current.returns
         && previous.jsx_elements == current.jsx_elements
         && previous.members == current.members
+        && previous.spreads == current.spreads
         && previous.conditional_tests == current.conditional_tests
 }
 
@@ -1189,7 +1191,7 @@ fn source_discovery_identity_matches(
 }
 
 fn discover_file_sources(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &FileFacts,
     ast_index: &CachedAstFileIndex,
     entities: &EntitySymbols,
@@ -1253,6 +1255,24 @@ fn discover_file_sources(
                     result
                         .actions
                         .push((symbol.clone(), (name.name.clone(), location)));
+                }
+            }
+            continue;
+        }
+        if primitive.as_deref() == Some("dynamic") {
+            if let Some(name) = binding.names.first() {
+                let declaration = location(file.path.as_str(), name.span);
+                if let Some(symbol) = entities.get(&declaration) {
+                    result
+                        .source_primitives
+                        .push((symbol.clone(), "dynamic".into()));
+                    if call
+                        .arguments
+                        .first()
+                        .is_some_and(|argument| computation_is_async(lookup, file, argument.span))
+                    {
+                        result.async_sources.push(symbol.clone());
+                    }
                 }
             }
             continue;
@@ -1351,7 +1371,7 @@ fn discover_file_sources(
                 if call
                     .arguments
                     .first()
-                    .is_some_and(|argument| computation_is_async(facts, file, argument.span))
+                    .is_some_and(|argument| computation_is_async(lookup, file, argument.span))
                 {
                     result.async_sources.push(symbol.clone());
                 }
@@ -1731,6 +1751,8 @@ fn build_with_contracts_measured_incremental(
     let substage_started = Instant::now();
     let resolved_contracts = resolve_contract_imports(facts, contracts, entities);
     build_timings.contract_resolution = substage_started.elapsed();
+    let semantic_lookup = SemanticLookup::new(facts, entities);
+    let semantic_lookup = &semantic_lookup;
     let owned_reachable_calls;
     let reachable_calls = if let Some(cache) = reachability_cache {
         let can_reuse = typescript_unchanged
@@ -1948,6 +1970,20 @@ fn build_with_contracts_measured_incremental(
                         }
                         continue;
                     }
+                    if primitive.as_deref() == Some("dynamic") {
+                        if let Some(name) = binding.names.first() {
+                            let declaration = location(file.path.as_str(), name.span);
+                            if let Some(symbol) = entities.get(&declaration) {
+                                source_primitives.insert(symbol.clone(), "dynamic".into());
+                                if call.arguments.first().is_some_and(|argument| {
+                                    computation_is_async(semantic_lookup, file, argument.span)
+                                }) {
+                                    async_sources.insert(symbol.clone());
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if !matches!(
                         primitive.as_deref(),
                         Some(
@@ -2047,7 +2083,7 @@ fn build_with_contracts_measured_incremental(
                             }
                             source_owned_write.insert(symbol.clone(), call.owned_write_option);
                             if call.arguments.first().is_some_and(|argument| {
-                                computation_is_async(facts, file, argument.span)
+                                computation_is_async(semantic_lookup, file, argument.span)
                             }) {
                                 async_sources.insert(symbol.clone());
                             }
@@ -2102,7 +2138,7 @@ fn build_with_contracts_measured_incremental(
                 }
                 let identity = source_discovery_identity(file, &project_indexes);
                 let contribution = discover_file_sources(
-                    facts,
+                    semantic_lookup,
                     file,
                     project_indexes
                         .ast_files_by_path
@@ -2187,12 +2223,194 @@ fn build_with_contracts_measured_incremental(
             .or_insert((name, declaration_location));
         source_phases.entry(symbol.clone()).or_insert(1);
     }
+    for file in &facts.files {
+        for element in &file.ast.jsx_elements {
+            let primitive = jsx_primitive_name(file, element, entities, &symbol_names);
+            let keyed = element
+                .boolean_properties
+                .iter()
+                .find(|property| property.name == "keyed")
+                .map(|property| property.value);
+            let custom_key = keyed.is_none()
+                && element
+                    .properties
+                    .iter()
+                    .any(|property| property == "keyed");
+            let parameter_indices: &[usize] = match (primitive.as_deref(), keyed) {
+                (Some("Show" | "Match"), Some(true)) => &[],
+                (Some("Show" | "Match"), _) => &[0],
+                (Some("For"), _) if custom_key => &[0, 1],
+                (Some("For"), Some(false)) => &[0],
+                (Some("For"), _) => &[1],
+                _ => &[],
+            };
+            if parameter_indices.is_empty() {
+                continue;
+            }
+            for function in file.ast.functions.iter().filter(|function| {
+                element.span.contains(function.span)
+                    && !file.ast.functions.iter().any(|outer| {
+                        outer.span != function.span
+                            && element.span.contains(outer.span)
+                            && outer.span.contains(function.span)
+                    })
+            }) {
+                for index in parameter_indices {
+                    let Some(parameter) = function
+                        .parameters
+                        .get(*index)
+                        .and_then(|parameter| parameter.names.first())
+                    else {
+                        continue;
+                    };
+                    let declaration = location(file.path.as_str(), parameter.span);
+                    if let Some(symbol) = entities.get(&declaration) {
+                        accessors
+                            .entry(symbol.clone())
+                            .or_insert((parameter.name.clone(), declaration));
+                    }
+                }
+            }
+        }
+    }
+    for file in &facts.files {
+        for call in &file.ast.calls {
+            if !primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                &symbol_names,
+            )
+            .is_some_and(|primitive| {
+                matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
+            }) {
+                continue;
+            }
+            let Some(compute) = call.arguments.first().and_then(|argument| {
+                file.ast
+                    .functions
+                    .iter()
+                    .filter(|function| argument.span.contains(function.span))
+                    .max_by_key(|function| function.span.end - function.span.start)
+            }) else {
+                continue;
+            };
+            let returned = compute.expression_return.as_ref().or_else(|| {
+                file.ast.returns.iter().find(|returned| {
+                    compute.body.contains(returned.span)
+                        && containing_ast_function(&file.ast.functions, returned.span)
+                            .is_some_and(|owner| owner.span == compute.span)
+                })
+            });
+            let Some(source_symbol) = returned
+                .and_then(|returned| {
+                    entities
+                        .get(&location(file.path.as_str(), returned.span))
+                        .or_else(|| {
+                            returned.identifier.as_deref().and_then(|name| {
+                                source_declarations
+                                    .iter()
+                                    .find_map(|(symbol, declaration)| {
+                                        (declaration.name == name
+                                            && declaration.location.path == file.path.as_str())
+                                        .then_some(symbol)
+                                    })
+                            })
+                        })
+                })
+                .filter(|symbol| {
+                    source_kinds.get(*symbol) == Some(&ReactiveSourceKind::Store)
+                        || matches!(
+                            source_primitives.get(*symbol).map(String::as_str),
+                            Some("createStore" | "createOptimisticStore")
+                        )
+                })
+            else {
+                continue;
+            };
+            let Some(apply) = call.arguments.get(1).and_then(|argument| {
+                file.ast
+                    .functions
+                    .iter()
+                    .filter(|function| argument.span.contains(function.span))
+                    .max_by_key(|function| function.span.end - function.span.start)
+            }) else {
+                continue;
+            };
+            let Some(parameter) = apply
+                .parameters
+                .first()
+                .and_then(|parameter| parameter.names.first())
+            else {
+                continue;
+            };
+            let parameter_location = location(file.path.as_str(), parameter.span);
+            let Some(parameter_symbol) = entities.get(&parameter_location) else {
+                continue;
+            };
+            let (display, declaration) =
+                accessors.get(source_symbol).cloned().unwrap_or_else(|| {
+                    (
+                        parameter.name.clone(),
+                        location(file.path.as_str(), parameter.span),
+                    )
+                });
+            accessors.insert(parameter_symbol.clone(), (display, declaration));
+            source_kinds.insert(parameter_symbol.clone(), ReactiveSourceKind::Store);
+        }
+    }
+    loop {
+        let mut setter_aliases = Vec::new();
+        let mut action_aliases = Vec::new();
+        for file in &facts.files {
+            for binding in &file.ast.bindings {
+                let Some(source_symbol) =
+                    binding
+                        .initializer_identifier
+                        .as_ref()
+                        .and_then(|identifier| {
+                            entities.get(&location(file.path.as_str(), identifier.span))
+                        })
+                else {
+                    continue;
+                };
+                let setter = setters.get(source_symbol).cloned();
+                let action = actions.get(source_symbol).cloned();
+                if setter.is_none() && action.is_none() {
+                    continue;
+                }
+                for name in &binding.names {
+                    let declaration = location(file.path.as_str(), name.span);
+                    let Some(symbol) = entities.get(&declaration) else {
+                        continue;
+                    };
+                    if let Some((_, source, owned_write)) = &setter
+                        && !setters.contains_key(symbol)
+                    {
+                        setter_aliases.push((
+                            symbol.clone(),
+                            (name.name.clone(), source.clone(), *owned_write),
+                        ));
+                    }
+                    if let Some((_, source)) = &action
+                        && !actions.contains_key(symbol)
+                    {
+                        action_aliases.push((symbol.clone(), (name.name.clone(), source.clone())));
+                    }
+                }
+            }
+        }
+        if setter_aliases.is_empty() && action_aliases.is_empty() {
+            break;
+        }
+        setters.extend(setter_aliases);
+        actions.extend(action_aliases);
+    }
     let mut prop_sources = HashMap::<String, (String, Location)>::new();
     for file in &facts.files {
         for function in &file.ast.functions {
-            if !function
-                .name
-                .as_ref()
+            if !function_binding_name(file, function)
                 .and_then(|name| name.name.chars().next())
                 .is_some_and(char::is_uppercase)
             {
@@ -2271,38 +2489,6 @@ fn build_with_contracts_measured_incremental(
             break;
         }
     }
-    for file in &facts.files {
-        for element in &file.ast.jsx_elements {
-            let control_flow = primitive_name(
-                file.path.as_str(),
-                element.name.span,
-                Some(&element.name.name),
-                entities,
-                &symbol_names,
-            );
-            if !matches!(control_flow.as_deref(), Some("Show" | "Match" | "Switch")) {
-                continue;
-            }
-            for function in file
-                .ast
-                .functions
-                .iter()
-                .filter(|function| element.span.contains(function.span))
-            {
-                let Some(parameter) = function
-                    .parameters
-                    .first()
-                    .and_then(|parameter| parameter.names.first())
-                else {
-                    continue;
-                };
-                let declaration = location(file.path.as_str(), parameter.span);
-                if let Some(symbol) = entities.get(&declaration) {
-                    accessors.insert(symbol.clone(), (parameter.name.clone(), declaration));
-                }
-            }
-        }
-    }
     finish_stage!(
         prop_propagation_and_control_flow,
         "prop-propagation-and-control-flow"
@@ -2331,9 +2517,7 @@ fn build_with_contracts_measured_incremental(
     let mut seen_static = HashSet::new();
     for file in &facts.files {
         for function in &file.ast.functions {
-            if function
-                .name
-                .as_ref()
+            if function_binding_name(file, function)
                 .and_then(|name| name.name.chars().next())
                 .is_some_and(char::is_uppercase)
                 && let Some(parameter) = function
@@ -2352,9 +2536,7 @@ fn build_with_contracts_measured_incremental(
                         rule: "component-props-destructure".into(),
                         message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
                         location,
-                        analysis_context: function
-                            .name
-                            .as_ref()
+                        analysis_context: function_binding_name(file, function)
                             .map_or_else(String::new, |name| name.name.clone()),
                         fixes: component_props_parameter_fix(
                             facts,
@@ -2430,47 +2612,45 @@ fn build_with_contracts_measured_incremental(
                         .map_or(function.symbol.as_str(), String::as_str),
                     &facts.typescript,
                 );
-                let analysis_context = facts
-                    .files
-                    .iter()
-                    .find_map(|file| {
-                        file.ast.calls.iter().find_map(|candidate| {
-                            let argument = candidate.arguments.first()?;
-                            let lexical = file.path.as_str() == function.expression.path
-                                && argument.span.contains(Span::new(
-                                    u32::try_from(function.expression.start_byte).ok()?,
-                                    u32::try_from(function.expression.end_byte).ok()?,
-                                ));
-                            let semantic = entities
-                                .get(&location(file.path.as_str(), argument.span))
-                                .is_some_and(|symbol| {
-                                    async_symbol_root(symbol, &facts.typescript) == function_symbol
-                                });
-                            if !lexical && !semantic {
-                                return None;
-                            }
-                            let primitive = primitive_name(
-                                file.path.as_str(),
-                                candidate.callee,
-                                candidate.static_callee.as_deref(),
-                                entities,
-                                &symbol_names,
-                            )?;
-                            matches!(
-                                primitive.as_str(),
-                                "createMemo"
-                                    | "createEffect"
-                                    | "createRenderEffect"
-                                    | "createProjection"
-                                    | "createSignal"
-                                    | "createStore"
-                                    | "createOptimistic"
-                                    | "createOptimisticStore"
-                            )
-                            .then(|| format!("{primitive} async computation"))
-                        })
+                let Some(analysis_context) = facts.files.iter().find_map(|file| {
+                    file.ast.calls.iter().find_map(|candidate| {
+                        let argument = candidate.arguments.first()?;
+                        let lexical = file.path.as_str() == function.expression.path
+                            && argument.span.contains(Span::new(
+                                u32::try_from(function.expression.start_byte).ok()?,
+                                u32::try_from(function.expression.end_byte).ok()?,
+                            ));
+                        let semantic = entities
+                            .get(&location(file.path.as_str(), argument.span))
+                            .is_some_and(|symbol| {
+                                async_symbol_root(symbol, &facts.typescript) == function_symbol
+                            });
+                        if !lexical && !semantic {
+                            return None;
+                        }
+                        let primitive = primitive_name(
+                            file.path.as_str(),
+                            candidate.callee,
+                            candidate.static_callee.as_deref(),
+                            entities,
+                            &symbol_names,
+                        )?;
+                        matches!(
+                            primitive.as_str(),
+                            "createMemo"
+                                | "createEffect"
+                                | "createRenderEffect"
+                                | "createProjection"
+                                | "createSignal"
+                                | "createStore"
+                                | "createOptimistic"
+                                | "createOptimisticStore"
+                        )
+                        .then(|| format!("{primitive} async computation"))
                     })
-                    .unwrap_or_default();
+                }) else {
+                    continue;
+                };
                 if seen_static.insert((
                     "reactive-read-after-await",
                     call.path.clone(),
@@ -2493,6 +2673,7 @@ fn build_with_contracts_measured_incremental(
     finish_stage!(static_prepass, "static-prepass");
     let local_access_context = LocalAccessContext {
         facts,
+        lookup: semantic_lookup,
         entities,
         symbol_names: &symbol_names,
         reachable_calls,
@@ -2502,6 +2683,7 @@ fn build_with_contracts_measured_incremental(
         actions: &actions,
         source_primitives: &source_primitives,
         async_sources: &async_sources,
+        source_declarations,
         contract_reads: &contract_reads,
         source_kinds: &source_kinds,
         prop_sources: &prop_sources,
@@ -2665,6 +2847,65 @@ fn build_with_contracts_measured_incremental(
         interprocedural.timings.result_recomputed_files;
     strict_read_obligations += interprocedural.reads.len();
     reads.extend(interprocedural.reads);
+    for file in &facts.files {
+        for function in &file.ast.functions {
+            let Some(name) = function_binding_name(file, function).or(function.name.as_ref())
+            else {
+                continue;
+            };
+            if !name.name.chars().next().is_some_and(char::is_uppercase) {
+                continue;
+            }
+            let mut direct_returns = file
+                .ast
+                .returns
+                .iter()
+                .filter(|returned| {
+                    function.body.contains(returned.span)
+                        && containing_ast_function(&file.ast.functions, returned.span)
+                            .is_some_and(|owner| owner.span == function.span)
+                })
+                .collect::<Vec<_>>();
+            if let Some(returned) = &function.expression_return {
+                direct_returns.push(returned);
+            }
+            for test in file.ast.conditional_tests.iter().filter(|test| {
+                function.body.contains(**test)
+                    && containing_ast_function(&file.ast.functions, **test)
+                        .is_some_and(|owner| owner.span == function.span)
+            }) {
+                let reactive = reads.iter().any(|read| {
+                    read.location.path == file.path.as_str()
+                        && u64::from(test.start) <= read.location.start_byte
+                        && read.location.end_byte <= u64::from(test.end)
+                });
+                let conditional_return = direct_returns.iter().any(|returned| {
+                    returned.control_tests.contains(test)
+                        || (returned.conditional
+                            && returned
+                                .argument
+                                .is_some_and(|argument| argument.contains(*test)))
+                });
+                if reactive && conditional_return {
+                    let location = location(file.path.as_str(), *test);
+                    if seen_static.insert((
+                        "component-returns-conditionally",
+                        location.path.clone(),
+                        location.start_byte,
+                    )) {
+                        static_violations.push(StaticViolation {
+                            id: "SC1004".into(),
+                            rule: "component-returns-conditionally".into(),
+                            message: "a component executes once, so a reactive conditional return becomes stale; return one JSX structure and move the condition inside it".into(),
+                            location,
+                            analysis_context: name.name.clone(),
+                            fixes: vec![],
+                        });
+                    }
+                }
+            }
+        }
+    }
     let contract_exports = interprocedural.exports;
     leaf_operations.extend(
         parallel_file_results(&facts.files, |file| {
@@ -2675,14 +2916,14 @@ fn build_with_contracts_measured_incremental(
     );
     finish_stage!(leaf_and_cleanup, "leaf-and-cleanup");
     for (invalid, unresolved) in parallel_file_results(&facts.files, |file| {
-        cleanup_returns_for_file(facts, file, entities, &symbol_names)
+        cleanup_returns_for_file(semantic_lookup, file, &symbol_names)
     }) {
         invalid_cleanup_returns.extend(invalid);
         unresolved_cleanup_returns.extend(unresolved);
     }
     finish_stage!(static_api, "static-api");
     let static_api = StaticApiContext {
-        facts,
+        lookup: semantic_lookup,
         entities,
         symbol_names: &symbol_names,
         source_kinds: &source_kinds,
@@ -2731,11 +2972,10 @@ fn build_with_contracts_measured_incremental(
                 .filter(|call| callback.span.contains(call.span))
             {
                 if let Some((target_file, target)) =
-                    function_called_at(facts, file, call.callee, entities)
+                    semantic_lookup.function_called_at(file.path.as_str(), call.callee)
                 {
                     DirectiveCreationCollector::new(
-                        facts,
-                        entities,
+                        semantic_lookup,
                         &symbol_names,
                         &mut directive_creations,
                         &mut seen_directive_creations,
@@ -2763,8 +3003,8 @@ fn build_with_contracts_measured_incremental(
         if let Some(cache) = late_stage_cache.and_then(Option::as_mut) {
             let (requirements, timings) = find_missing_owners_incremental(
                 facts,
+                semantic_lookup,
                 &project_indexes,
-                entities,
                 &symbol_names,
                 &retained_source_paths,
                 &mut cache.owner_files,
@@ -2779,8 +3019,8 @@ fn build_with_contracts_measured_incremental(
         } else {
             missing_owners.extend(find_missing_owners(
                 facts,
+                semantic_lookup,
                 &project_indexes,
-                entities,
                 &symbol_names,
             ));
             build_timings.owner_recomputed_files =
@@ -2982,12 +3222,15 @@ fn leaf_owner_operations_for_file(
     operations
 }
 
-fn cleanup_returns_for_file(
-    facts: &ProjectFacts,
-    file: &FileFacts,
-    entities: &EntitySymbols,
+fn cleanup_returns_for_file<'a, 'f>(
+    lookup: &SemanticLookup<'a>,
+    file: &'f FileFacts,
     symbol_names: &HashMap<String, String>,
-) -> (Vec<InvalidCleanupReturn>, Vec<UnresolvedCleanupReturn>) {
+) -> (Vec<InvalidCleanupReturn>, Vec<UnresolvedCleanupReturn>)
+where
+    'a: 'f,
+{
+    let entities = lookup.entities();
     let mut invalid = Vec::new();
     let mut unresolved = Vec::new();
     for call in &file.ast.calls {
@@ -3006,18 +3249,9 @@ fn cleanup_returns_for_file(
         let Some(argument) = call.arguments.get(callback_index) else {
             continue;
         };
-        let Some((callback_file, callback)) =
-            callback_function(facts, file, argument.span, entities)
-        else {
-            let callback_type = facts
-                .typescript
-                .entities
-                .iter()
-                .find(|entity| {
-                    entity.location.path == file.path.as_str()
-                        && entity.location.start_byte == u64::from(argument.span.start)
-                        && entity.location.end_byte == u64::from(argument.span.end)
-                })
+        let Some((callback_file, callback)) = callback_function(lookup, file, argument.span) else {
+            let callback_type = lookup
+                .entity_at(file.path.as_str(), argument.span)
                 .and_then(|entity| entity.type_descriptor.as_ref())
                 .map(|descriptor| descriptor.text.as_str());
             if callback_type.is_some_and(callable_returns_cleanup_compatible) {
@@ -3046,7 +3280,7 @@ fn cleanup_returns_for_file(
                         .is_some_and(|function| function.span == callback.span)
                 }));
         for returned in returns {
-            match cleanup_return_status(facts, callback_file, returned, entities) {
+            match cleanup_return_status(lookup, callback_file, returned) {
                 CleanupReturnStatus::Valid => {}
                 CleanupReturnStatus::Invalid => {
                     invalid.push(InvalidCleanupReturn {
@@ -3072,15 +3306,17 @@ fn cleanup_returns_for_file(
     (invalid, unresolved)
 }
 
-fn callback_function<'a>(
-    facts: &'a ProjectFacts,
-    call_file: &'a solid_facts::FileFacts,
+fn callback_function<'a, 'f>(
+    lookup: &SemanticLookup<'a>,
+    call_file: &'f solid_facts::FileFacts,
     argument: Span,
-    entities: &EntitySymbols,
 ) -> Option<(
-    &'a solid_facts::FileFacts,
-    &'a solid_ast_facts::FunctionFact,
-)> {
+    &'f solid_facts::FileFacts,
+    &'f solid_ast_facts::FunctionFact,
+)>
+where
+    'a: 'f,
+{
     if let Some(function) = call_file
         .ast
         .functions
@@ -3090,36 +3326,8 @@ fn callback_function<'a>(
     {
         return Some((call_file, function));
     }
-    let symbol = entities.get(&location(call_file.path.as_str(), argument))?;
-    for file in &facts.files {
-        if let Some(function) = file.ast.functions.iter().find(|function| {
-            function.name.as_ref().is_some_and(|name| {
-                entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-            })
-        }) {
-            return Some((file, function));
-        }
-        for binding in &file.ast.bindings {
-            if !binding.initializer_function
-                || !binding.names.iter().any(|name| {
-                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-                })
-            {
-                continue;
-            }
-            let initializer = binding.initializer?;
-            if let Some(function) = file
-                .ast
-                .functions
-                .iter()
-                .filter(|function| initializer.contains(function.span))
-                .max_by_key(|function| function.span.end - function.span.start)
-            {
-                return Some((file, function));
-            }
-        }
-    }
-    None
+    let symbol = lookup.entities().at(call_file.path.as_str(), argument)?;
+    lookup.function_for_symbol(symbol)
 }
 
 enum CleanupReturnStatus {
@@ -3307,11 +3515,11 @@ fn component_props_parameter_fix(
 }
 
 fn cleanup_return_status(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &solid_facts::FileFacts,
     returned: &solid_ast_facts::ReturnFact,
-    entities: &EntitySymbols,
 ) -> CleanupReturnStatus {
+    let entities = lookup.entities();
     match returned.value {
         solid_ast_facts::ReturnValueKind::Undefined
         | solid_ast_facts::ReturnValueKind::Function => CleanupReturnStatus::Valid,
@@ -3321,12 +3529,8 @@ fn cleanup_return_status(
             let Some(callee) = returned.callee else {
                 return CleanupReturnStatus::Unresolved;
             };
-            let callee_location = location(file.path.as_str(), callee);
-            let return_type = facts
-                .typescript
-                .entities
-                .iter()
-                .find(|entity| entity.location == callee_location)
+            let return_type = lookup
+                .entity_at(file.path.as_str(), callee)
                 .and_then(|entity| entity.resolved_call.as_ref())
                 .map(|call| call.return_type_text.trim());
             match return_type {
@@ -3381,47 +3585,6 @@ fn containing_ast_function(
         .iter()
         .filter(|function| function.body.contains(span))
         .min_by_key(|function| function.body.end - function.body.start)
-}
-
-fn function_called_at<'a>(
-    facts: &'a ProjectFacts,
-    call_file: &'a solid_facts::FileFacts,
-    callee: Span,
-    entities: &EntitySymbols,
-) -> Option<(
-    &'a solid_facts::FileFacts,
-    &'a solid_ast_facts::FunctionFact,
-)> {
-    let symbol = entities.get(&location(call_file.path.as_str(), callee))?;
-    for file in &facts.files {
-        if let Some(function) = file.ast.functions.iter().find(|function| {
-            function.name.as_ref().is_some_and(|name| {
-                entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-            })
-        }) {
-            return Some((file, function));
-        }
-        for binding in &file.ast.bindings {
-            if !binding.initializer_function
-                || !binding.names.iter().any(|name| {
-                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-                })
-            {
-                continue;
-            }
-            let initializer = binding.initializer?;
-            if let Some(function) = file
-                .ast
-                .functions
-                .iter()
-                .filter(|function| initializer.contains(function.span))
-                .max_by_key(|function| function.span.end - function.span.start)
-            {
-                return Some((file, function));
-            }
-        }
-    }
-    None
 }
 
 const OWNER_CONTEXT_OWNED: u8 = 1;
@@ -3502,10 +3665,11 @@ struct OwnerIncrementalTimings {
 
 fn find_missing_owners(
     facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> Vec<OwnerRequirement> {
+    let entities = lookup.entities();
     let owner_file_indexes = facts
         .files
         .iter()
@@ -3585,7 +3749,11 @@ fn find_missing_owners(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: function.name.as_ref().map(|name| name.name.clone()),
+                name: function
+                    .name
+                    .as_ref()
+                    .or_else(|| function_binding_name(file, function))
+                    .map(|name| name.name.clone()),
                 symbol,
                 exported,
             });
@@ -3766,12 +3934,7 @@ fn find_missing_owners(
                                     .functions
                                     .iter()
                                     .find(|candidate| candidate.span == node.span)?;
-                                Some(function_returns_cleanup(
-                                    facts,
-                                    callback_file,
-                                    callback,
-                                    entities,
-                                ))
+                                Some(function_returns_cleanup(lookup, callback_file, callback))
                             })
                             .unwrap_or(false)
                         }) =>
@@ -3905,11 +4068,15 @@ fn discover_owner_file(
         .functions
         .iter()
         .map(|function| {
-            let symbol = function.name.as_ref().and_then(|name| {
-                entities
-                    .get(&location(file.path.as_str(), name.span))
-                    .cloned()
-            });
+            let symbol = function
+                .name
+                .as_ref()
+                .or_else(|| function_binding_name(file, function))
+                .and_then(|name| {
+                    entities
+                        .get(&location(file.path.as_str(), name.span))
+                        .cloned()
+                });
             let exported =
                 indexes
                     .typescript_file(file.path.as_str())
@@ -3979,7 +4146,8 @@ fn discover_owner_file(
                 | "createStore"
                 | "createProjection"
                 | "createOptimistic"
-                | "createOptimisticStore",
+                | "createOptimisticStore"
+                | "dynamic",
             ) => &[(0, OwnerEdgeKind::Owned)],
             Some("createEffect" | "createRenderEffect") => {
                 &[(0, OwnerEdgeKind::Owned), (1, OwnerEdgeKind::Unowned)]
@@ -4097,13 +4265,14 @@ fn resolve_owner_target(
 
 fn find_missing_owners_incremental(
     facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
     retained_source_paths: &HashSet<String>,
     cache: &mut HashMap<String, CachedOwnerFile>,
     build_timings: &mut BuildTimings,
 ) -> (Vec<OwnerRequirement>, OwnerIncrementalTimings) {
+    let entities = lookup.entities();
     let total_started = Instant::now();
     let current_paths = facts
         .files
@@ -4243,12 +4412,7 @@ fn find_missing_owners_incremental(
                             .functions
                             .iter()
                             .find(|function| function.span == node.span)?;
-                        Some(function_returns_cleanup(
-                            facts,
-                            callback_file,
-                            callback,
-                            entities,
-                        ))
+                        Some(function_returns_cleanup(lookup, callback_file, callback))
                     })
                     .unwrap_or(false);
                 if !returns_cleanup {
@@ -4349,10 +4513,9 @@ fn owner_context_at(
 }
 
 fn function_returns_cleanup(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &solid_facts::FileFacts,
     function: &solid_ast_facts::FunctionFact,
-    entities: &EntitySymbols,
 ) -> bool {
     function
         .expression_return
@@ -4361,20 +4524,19 @@ fn function_returns_cleanup(
             containing_ast_function(&file.ast.functions, returned.span)
                 .is_some_and(|owner| owner.span == function.span)
         }))
-        .any(|returned| cleanup_return_is_function(facts, file, returned, entities))
+        .any(|returned| cleanup_return_is_function(lookup, file, returned))
 }
 
 fn cleanup_return_is_function(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &solid_facts::FileFacts,
     returned: &solid_ast_facts::ReturnFact,
-    entities: &EntitySymbols,
 ) -> bool {
     match returned.value {
         solid_ast_facts::ReturnValueKind::Function => true,
         solid_ast_facts::ReturnValueKind::Identifier => {
             matches!(
-                cleanup_return_status(facts, file, returned, entities),
+                cleanup_return_status(lookup, file, returned),
                 CleanupReturnStatus::Valid
             )
         }
@@ -4382,12 +4544,8 @@ fn cleanup_return_is_function(
             let Some(callee) = returned.callee else {
                 return false;
             };
-            let callee_location = location(file.path.as_str(), callee);
-            facts
-                .typescript
-                .entities
-                .iter()
-                .find(|entity| entity.location == callee_location)
+            lookup
+                .entity_at(file.path.as_str(), callee)
                 .and_then(|entity| entity.resolved_call.as_ref())
                 .map(|call| call.return_type_text.trim())
                 .is_some_and(|return_type| {
@@ -4461,12 +4619,12 @@ fn containing_leaf_owner(
 }
 
 fn read_is_under_loading(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &solid_facts::FileFacts,
     span: Span,
-    entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> bool {
+    let entities = lookup.entities();
     if file.ast.jsx_elements.iter().any(|element| {
         element.span.contains(span) && jsx_element_is_loading(file, element, entities, symbol_names)
     }) {
@@ -4474,19 +4632,12 @@ fn read_is_under_loading(
     }
     if file.ast.jsx_elements.iter().any(|element| {
         element.span.contains(span)
-            && jsx_target_function(facts, file, element, entities).is_some_and(
-                |(target_file, target)| {
-                    target_file.ast.jsx_elements.iter().any(|candidate| {
-                        target.body.contains(candidate.span)
-                            && jsx_element_is_loading(
-                                target_file,
-                                candidate,
-                                entities,
-                                symbol_names,
-                            )
-                    })
-                },
-            )
+            && jsx_target_function(lookup, file, element).is_some_and(|(target_file, target)| {
+                target_file.ast.jsx_elements.iter().any(|candidate| {
+                    target.body.contains(candidate.span)
+                        && jsx_element_is_loading(target_file, candidate, entities, symbol_names)
+                })
+            })
     }) {
         return true;
     }
@@ -4499,15 +4650,15 @@ fn read_is_under_loading(
     else {
         return false;
     };
-    facts.files.iter().any(|caller_file| {
+    lookup.facts().files.iter().any(|caller_file| {
         caller_file.ast.jsx_elements.iter().any(|element| {
-            jsx_target_function(facts, caller_file, element, entities).is_some_and(
+            jsx_target_function(lookup, caller_file, element).is_some_and(
                 |(target_file, target)| target_file.path == file.path && target.span == owner.span,
             ) && (caller_file.ast.jsx_elements.iter().any(|boundary| {
                 boundary.span.contains(element.span)
                     && boundary.span != element.span
                     && jsx_element_is_loading(caller_file, boundary, entities, symbol_names)
-            }) || jsx_target_function(facts, caller_file, element, entities).is_some_and(
+            }) || jsx_target_function(lookup, caller_file, element).is_some_and(
                 |(wrapper_file, wrapper)| {
                     wrapper_file.ast.jsx_elements.iter().any(|candidate| {
                         wrapper.body.contains(candidate.span)
@@ -4542,30 +4693,31 @@ fn jsx_element_is_loading(
 }
 
 fn jsx_target_function<'a>(
-    facts: &'a ProjectFacts,
-    file: &'a solid_facts::FileFacts,
+    lookup: &SemanticLookup<'a>,
+    file: &solid_facts::FileFacts,
     element: &solid_ast_facts::JsxElementFact,
-    entities: &EntitySymbols,
 ) -> Option<(
     &'a solid_facts::FileFacts,
     &'a solid_ast_facts::FunctionFact,
 )> {
-    function_called_at(facts, file, element.name.span, entities)
+    lookup.function_called_at(file.path.as_str(), element.name.span)
 }
 
 fn computation_is_async(
-    facts: &ProjectFacts,
+    lookup: &SemanticLookup<'_>,
     file: &solid_facts::FileFacts,
     argument: Span,
 ) -> bool {
-    if facts.typescript.files.iter().any(|typescript_file| {
-        typescript_file.path == file.path.as_str()
-            && typescript_file.async_functions.iter().any(|function| {
+    if lookup
+        .typescript_file(file.path.as_str())
+        .is_some_and(|typescript_file| {
+            typescript_file.async_functions.iter().any(|function| {
                 function.can_return_async
                     && u64::from(argument.start) <= function.expression.start_byte
                     && function.expression.end_byte <= u64::from(argument.end)
             })
-    }) {
+        })
+    {
         return true;
     }
     file.ast
@@ -4584,15 +4736,15 @@ fn computation_is_async(
                     }))
                     .any(|returned| {
                         returned.callee.is_some_and(|callee| {
-                            let callee_location = location(file.path.as_str(), callee);
-                            facts.typescript.entities.iter().any(|entity| {
-                                entity.location == callee_location
-                                    && entity.resolved_call.as_ref().is_some_and(|call| {
+                            lookup
+                                .entity_at(file.path.as_str(), callee)
+                                .is_some_and(|entity| {
+                                    entity.resolved_call.as_ref().is_some_and(|call| {
                                         ["Promise", "PromiseLike", "AsyncIterable"]
                                             .iter()
                                             .any(|kind| call.return_type_text.contains(kind))
                                     })
-                            })
+                                })
                         })
                     })
         })
@@ -4630,9 +4782,7 @@ fn inside_lowercase_named_function(file: &solid_facts::FileFacts, span: Span) ->
     }
     file.ast.functions.iter().any(|function| {
         function.body.contains(span)
-            && function
-                .name
-                .as_ref()
+            && function_binding_name(file, function)
                 .and_then(|name| name.name.chars().next())
                 .is_some_and(char::is_lowercase)
     })
@@ -4652,7 +4802,7 @@ fn inside_unclassified_callback(file: &solid_facts::FileFacts, span: Span) -> bo
         .iter()
         .filter(|function| function.body.contains(span))
         .min_by_key(|function| function.body.end - function.body.start)
-        .is_some_and(|function| function.name.is_none())
+        .is_some_and(|function| function_binding_name(file, function).is_none())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6880,11 +7030,85 @@ fn value_contract_export() -> ContractExport {
 fn enclosing_render_function(file: &solid_facts::FileFacts, span: Span) -> bool {
     file.ast.functions.iter().any(|function| {
         function.body.contains(span)
-            && function
-                .name
-                .as_ref()
+            && function_binding_name(file, function)
+                .or(function.name.as_ref())
                 .and_then(|name| name.name.chars().next())
                 .is_some_and(char::is_uppercase)
+    })
+}
+
+fn function_is_solid_callback(
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> bool {
+    if file.ast.jsx_elements.iter().any(|element| {
+        element.span.contains(function.span)
+            && !file.ast.functions.iter().any(|outer| {
+                outer.span != function.span
+                    && element.span.contains(outer.span)
+                    && outer.span.contains(function.span)
+            })
+            && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
+                matches!(
+                    primitive.as_str(),
+                    "For" | "Repeat" | "Show" | "Match" | "Switch"
+                )
+            })
+    }) {
+        return true;
+    }
+    let Some(symbol) = function_symbol(file, function, entities) else {
+        return false;
+    };
+    let binding_name = function
+        .name
+        .as_ref()
+        .or_else(|| function_binding_name(file, function))
+        .map(|name| name.name.as_str());
+    file.ast.calls.iter().any(|call| {
+        primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )
+        .is_some_and(|primitive| {
+            matches!(
+                primitive.as_str(),
+                "createMemo"
+                    | "createEffect"
+                    | "createRenderEffect"
+                    | "createTrackedEffect"
+                    | "createSignal"
+                    | "createStore"
+                    | "createProjection"
+                    | "createOptimistic"
+                    | "createOptimisticStore"
+                    | "dynamic"
+            )
+        }) && call.arguments.iter().any(|argument| {
+            argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
+        })
+    }) || file.ast.jsx_elements.iter().any(|element| {
+        jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
+            matches!(
+                primitive.as_str(),
+                "For" | "Repeat" | "Show" | "Match" | "Switch"
+            )
+        }) && file.ast.identifiers.iter().any(|identifier| {
+            element.span.contains(identifier.span)
+                && identifier.role == solid_ast_facts::IdentifierRole::Reference
+                && !file.ast.jsx_elements.iter().any(|nested| {
+                    nested.span != element.span
+                        && element.span.contains(nested.span)
+                        && nested.span.contains(identifier.span)
+                })
+                && (entities.get(&location(file.path.as_str(), identifier.span)) == Some(symbol)
+                    || binding_name == Some(identifier.name.as_str()))
+        })
     })
 }
 
@@ -6960,7 +7184,8 @@ fn analysis_context(
                 | "createStore"
                 | "createProjection"
                 | "createOptimistic"
-                | "createOptimisticStore",
+                | "createOptimisticStore"
+                | "dynamic",
                 0,
             ) => Some("compute"),
             _ => None,
@@ -7175,8 +7400,21 @@ fn discover_reachability_file(
                 .as_deref()
                 .and_then(|name| name.chars().next())
                 .is_some_and(char::is_uppercase)
+                || file
+                    .ast
+                    .functions
+                    .iter()
+                    .find(|candidate| candidate.span == function.span)
+                    .is_some_and(|candidate| {
+                        function_is_solid_callback(file, candidate, entities, symbol_names)
+                    })
                 || exported_bodies
                     .contains(&(u64::from(function.body.start), u64::from(function.body.end)))
+                || file
+                    .ast
+                    .exports
+                    .iter()
+                    .any(|export| export.span.contains(function.span))
         })
         .map(|function| ReachabilityTarget::LocalSpan(function.span))
         .collect::<Vec<_>>();
@@ -7225,6 +7463,12 @@ fn discover_reachability_file(
                     | "createEffect"
                     | "createRenderEffect"
                     | "createTrackedEffect"
+                    | "createSignal"
+                    | "createStore"
+                    | "createProjection"
+                    | "createOptimistic"
+                    | "createOptimisticStore"
+                    | "dynamic"
                     | "createReaction"
                     | "untrack"
                     | "onSettled"
@@ -7236,6 +7480,26 @@ fn discover_reachability_file(
                     .arguments
                     .iter()
                     .any(|argument| argument.span.contains(function.span))
+                {
+                    edges.push(ReachabilityEdge {
+                        owner,
+                        target: ReachabilityTarget::LocalSpan(function.span),
+                    });
+                }
+            }
+            for property in call
+                .arguments
+                .iter()
+                .flat_map(|argument| &argument.identifier_properties)
+            {
+                if let Some(symbol) = entities.get(&location(file.path.as_str(), property.span)) {
+                    edges.push(ReachabilityEdge {
+                        owner,
+                        target: ReachabilityTarget::Symbol(symbol.clone()),
+                    });
+                } else if let Some(function) = functions
+                    .iter()
+                    .find(|function| function.name.as_deref() == Some(property.name.as_str()))
                 {
                     edges.push(ReachabilityEdge {
                         owner,
@@ -7605,6 +7869,20 @@ fn reachable_call_multiplicity(
             .as_deref()
             .and_then(|name| name.chars().next())
             .is_some_and(char::is_uppercase);
+        let callback = facts
+            .files
+            .iter()
+            .find(|file| file.path.as_str() == function.path)
+            .and_then(|file| {
+                file.ast
+                    .functions
+                    .iter()
+                    .find(|candidate| candidate.span == function.span)
+                    .map(|candidate| (file, candidate))
+            })
+            .is_some_and(|(file, candidate)| {
+                function_is_solid_callback(file, candidate, entities, symbol_names)
+            });
         let exported = exported_bodies
             .get(function.path.as_str())
             .is_some_and(|bodies| {
@@ -7614,7 +7892,7 @@ fn reachable_call_multiplicity(
                 .symbol
                 .as_ref()
                 .is_some_and(|symbol| exported_symbols.contains(symbol));
-        if component || exported {
+        if component || callback || exported {
             roots.push(index);
         }
     }
@@ -7646,6 +7924,12 @@ fn reachable_call_multiplicity(
                     "createMemo"
                         | "createEffect"
                         | "createRenderEffect"
+                        | "createSignal"
+                        | "createStore"
+                        | "createProjection"
+                        | "createOptimistic"
+                        | "createOptimisticStore"
+                        | "dynamic"
                         | "createTrackedEffect"
                         | "createReaction"
                         | "untrack"
@@ -7857,18 +8141,13 @@ fn semantic_execution_role(
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> ExecutionRole {
-    if file
-        .compiler
-        .tracked_regions
-        .iter()
-        .any(|region| region.span.contains(span))
-    {
-        return ExecutionRole::TrackedJsx;
+    if let Some(role) = named_callback_execution_role(file, span, entities, symbol_names) {
+        return role;
     }
     if file.ast.calls.iter().any(|call| {
         call.arguments
             .get(1)
-            .is_some_and(|argument| argument.span.contains(span))
+            .is_some_and(|argument| direct_callback_contains(file, argument.span, span))
             && primitive_name(
                 file.path.as_str(),
                 call.callee,
@@ -7881,6 +8160,20 @@ fn semantic_execution_role(
             })
     }) {
         return ExecutionRole::EffectApply;
+    }
+    if allowed.iter().any(|region| region.contains(span)) {
+        return ExecutionRole::DeferredCallback;
+    }
+    if let Some(role) = control_flow_execution_role(file, span, entities, symbol_names) {
+        return role;
+    }
+    if file
+        .compiler
+        .tracked_regions
+        .iter()
+        .any(|region| region.span.contains(span))
+    {
+        return ExecutionRole::TrackedJsx;
     }
     if file.ast.calls.iter().any(|call| {
         call.arguments.first().is_some_and(|argument| {
@@ -7904,17 +8197,280 @@ fn semantic_execution_role(
                 "createMemo"
                     | "createEffect"
                     | "createRenderEffect"
+                    | "createTrackedEffect"
                     | "createSignal"
                     | "createStore"
                     | "createProjection"
                     | "createOptimistic"
                     | "createOptimisticStore"
+                    | "dynamic"
             )
         })
     }) {
         return ExecutionRole::TrackedJsx;
     }
     execution_role(&file.compiler, span, allowed)
+}
+
+fn control_flow_execution_role(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Option<ExecutionRole> {
+    let element = file
+        .ast
+        .jsx_elements
+        .iter()
+        .filter(|element| {
+            element.span.contains(span)
+                && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(
+                    |primitive| {
+                        matches!(
+                            primitive.as_str(),
+                            "For" | "Repeat" | "Show" | "Match" | "Switch"
+                        )
+                    },
+                )
+        })
+        .min_by_key(|element| element.span.end - element.span.start)?;
+    let callback = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| element.span.contains(function.span) && function.body.contains(span))
+        .max_by_key(|function| function.body.end - function.body.start)?;
+    let owner = containing_ast_function(&file.ast.functions, span)?;
+    if owner.span != callback.span {
+        return Some(ExecutionRole::DeferredCallback);
+    }
+    if file
+        .ast
+        .jsx_elements
+        .iter()
+        .any(|nested| callback.body.contains(nested.span) && nested.span.contains(span))
+    {
+        Some(ExecutionRole::TrackedJsx)
+    } else {
+        Some(ExecutionRole::UntrackedRendering)
+    }
+}
+
+fn named_callback_execution_role(
+    file: &solid_facts::FileFacts,
+    span: Span,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Option<ExecutionRole> {
+    let callback = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| function.body.contains(span))
+        .find(|function| {
+            let Some(symbol) = function_symbol(file, function, entities) else {
+                return false;
+            };
+            let binding_name = function
+                .name
+                .as_ref()
+                .or_else(|| function_binding_name(file, function))
+                .map(|name| name.name.as_str());
+            file.ast.calls.iter().any(|call| {
+                let primitive = primitive_name(
+                    file.path.as_str(),
+                    call.callee,
+                    call.static_callee.as_deref(),
+                    entities,
+                    symbol_names,
+                );
+                let argument_index = match primitive.as_deref() {
+                    Some("createEffect" | "createRenderEffect") => 1,
+                    Some(
+                        "createMemo"
+                        | "createTrackedEffect"
+                        | "createSignal"
+                        | "createStore"
+                        | "createProjection"
+                        | "createOptimistic"
+                        | "createOptimisticStore"
+                        | "dynamic"
+                        | "flush"
+                        | "untrack"
+                        | "onSettled"
+                        | "createReaction"
+                        | "action",
+                    ) => 0,
+                    _ => return false,
+                };
+                call.arguments.get(argument_index).is_some_and(|argument| {
+                    argument_references_callback_symbol(
+                        file,
+                        argument,
+                        symbol,
+                        entities,
+                        symbol_names,
+                    ) || argument
+                        .identifier_properties
+                        .iter()
+                        .any(|property| binding_name == Some(property.name.as_str()))
+                })
+            }) || file.ast.jsx_elements.iter().any(|element| {
+                jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
+                    matches!(
+                        primitive.as_str(),
+                        "For" | "Repeat" | "Show" | "Match" | "Switch"
+                    )
+                }) && file.ast.identifiers.iter().any(|identifier| {
+                    element.span.contains(identifier.span)
+                        && identifier.role == solid_ast_facts::IdentifierRole::Reference
+                        && !file.ast.jsx_elements.iter().any(|nested| {
+                            nested.span != element.span
+                                && element.span.contains(nested.span)
+                                && nested.span.contains(identifier.span)
+                        })
+                        && (entities.get(&location(file.path.as_str(), identifier.span))
+                            == Some(symbol)
+                            || binding_name == Some(identifier.name.as_str()))
+                })
+            })
+        })?;
+    let owner = containing_ast_function(&file.ast.functions, span)?;
+    if owner.span != callback.span {
+        return Some(ExecutionRole::DeferredCallback);
+    }
+    if file.ast.calls.iter().any(|call| {
+        primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        )
+        .is_some_and(|primitive| {
+            matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
+        }) && call.arguments.get(1).is_some_and(|argument| {
+            function_symbol(file, callback, entities).is_some_and(|symbol| {
+                argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
+            }) || function_binding_name(file, callback)
+                .or(callback.name.as_ref())
+                .is_some_and(|name| {
+                    argument
+                        .identifier_properties
+                        .iter()
+                        .any(|property| property.name == name.name)
+                })
+        })
+    }) {
+        return Some(ExecutionRole::EffectApply);
+    }
+    if file.ast.calls.iter().any(|call| {
+        let primitive = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        matches!(
+            primitive.as_deref(),
+            Some(
+                "createMemo"
+                    | "createTrackedEffect"
+                    | "createSignal"
+                    | "createStore"
+                    | "createProjection"
+                    | "createOptimistic"
+                    | "createOptimisticStore"
+                    | "dynamic"
+            )
+        ) && call.arguments.first().is_some_and(|argument| {
+            function_symbol(file, callback, entities).is_some_and(|symbol| {
+                entities.get(&location(file.path.as_str(), argument.span)) == Some(symbol)
+            })
+        })
+    }) {
+        return Some(ExecutionRole::TrackedJsx);
+    }
+    if file.ast.calls.iter().any(|call| {
+        let primitive = primitive_name(
+            file.path.as_str(),
+            call.callee,
+            call.static_callee.as_deref(),
+            entities,
+            symbol_names,
+        );
+        matches!(
+            primitive.as_deref(),
+            Some("flush" | "untrack" | "onSettled" | "createReaction" | "action")
+        ) && call.arguments.first().is_some_and(|argument| {
+            function_symbol(file, callback, entities).is_some_and(|symbol| {
+                entities.get(&location(file.path.as_str(), argument.span)) == Some(symbol)
+            })
+        })
+    }) {
+        return Some(ExecutionRole::DeferredCallback);
+    }
+    if file
+        .ast
+        .jsx_elements
+        .iter()
+        .any(|element| callback.body.contains(element.span) && element.span.contains(span))
+    {
+        Some(ExecutionRole::TrackedJsx)
+    } else {
+        Some(ExecutionRole::UntrackedRendering)
+    }
+}
+
+fn function_symbol<'a>(
+    file: &solid_facts::FileFacts,
+    function: &solid_ast_facts::FunctionFact,
+    entities: &'a EntitySymbols,
+) -> Option<&'a String> {
+    let name = function
+        .name
+        .as_ref()
+        .or_else(|| function_binding_name(file, function))?;
+    entities.get(&location(file.path.as_str(), name.span))
+}
+
+fn argument_references_callback_symbol(
+    file: &solid_facts::FileFacts,
+    argument: &solid_ast_facts::ArgumentFact,
+    symbol: &str,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> bool {
+    entities
+        .get(&location(file.path.as_str(), argument.span))
+        .map(String::as_str)
+        == Some(symbol)
+        || argument.identifier_properties.iter().any(|property| {
+            entities
+                .get(&location(file.path.as_str(), property.span))
+                .map(String::as_str)
+                == Some(symbol)
+                || symbol_names.get(symbol) == Some(&property.name)
+        })
+}
+
+fn direct_callback_contains(file: &solid_facts::FileFacts, argument: Span, span: Span) -> bool {
+    if !argument.contains(span) {
+        return false;
+    }
+    let callback = file
+        .ast
+        .functions
+        .iter()
+        .filter(|function| argument.contains(function.span))
+        .max_by_key(|function| function.span.end - function.span.start);
+    let owner = containing_ast_function(&file.ast.functions, span);
+    match (callback, owner) {
+        (Some(callback), Some(owner)) => callback.span == owner.span,
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn read_analysis_context(
@@ -7973,9 +8529,7 @@ fn allowed_callback_spans(
         );
         let indices: &[usize] = match primitive.as_deref() {
             Some("createEffect" | "createRenderEffect") => &[1],
-            Some("untrack" | "onSettled" | "createTrackedEffect" | "createReaction" | "action") => {
-                &[0]
-            }
+            Some("flush" | "untrack" | "onSettled" | "createReaction" | "action") => &[0],
             _ => &[],
         };
         for index in indices {
@@ -7989,6 +8543,7 @@ fn allowed_callback_spans(
 
 struct LocalAccessContext<'a> {
     facts: &'a ProjectFacts,
+    lookup: &'a SemanticLookup<'a>,
     entities: &'a EntitySymbols,
     symbol_names: &'a HashMap<String, String>,
     reachable_calls: &'a HashMap<Location, usize>,
@@ -7998,6 +8553,7 @@ struct LocalAccessContext<'a> {
     actions: &'a HashMap<String, (String, Location)>,
     source_primitives: &'a HashMap<String, String>,
     async_sources: &'a HashSet<String>,
+    source_declarations: &'a HashMap<String, Declaration>,
     contract_reads: &'a HashMap<String, Vec<(String, String, Location, String)>>,
     source_kinds: &'a HashMap<String, ReactiveSourceKind>,
     prop_sources: &'a HashMap<String, (String, Location)>,
@@ -8160,6 +8716,7 @@ impl LocalAccessContext<'_> {
             .iter()
             .map(|call| call.callee)
             .chain(file.ast.members.iter().map(|member| member.object))
+            .chain(file.ast.spreads.iter().map(|spread| spread.argument))
             .chain(
                 file.ast
                     .jsx_elements
@@ -8185,6 +8742,7 @@ impl LocalAccessContext<'_> {
             contract_reads: self.contract_reads.get(symbol).cloned(),
             source_kind: self.source_kinds.get(symbol).copied(),
             prop_source: self.prop_sources.get(symbol).cloned(),
+            source_declaration: self.source_declarations.get(symbol).cloned(),
             symbol_name: self.symbol_names.get(symbol).cloned(),
         }
     }
@@ -8227,7 +8785,21 @@ impl LocalAccessContext<'_> {
         let allowed = allowed_callback_spans(file, self.entities, self.symbol_names);
         for call in &file.ast.calls {
             let callee = location(file.path.as_str(), call.callee);
-            let Some(symbol) = self.entities.get(&callee) else {
+            let entity_symbol = self.entities.get(&callee).or_else(|| {
+                self.facts
+                    .typescript
+                    .entities
+                    .iter()
+                    .filter(|entity| {
+                        entity.location.path == callee.path
+                            && callee.start_byte <= entity.location.start_byte
+                            && entity.location.end_byte <= callee.end_byte
+                            && !entity.symbol.is_empty()
+                    })
+                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
+                    .map(|entity| &entity.symbol)
+            });
+            let Some(symbol) = entity_symbol else {
                 continue;
             };
             let inside_function = file
@@ -8251,9 +8823,6 @@ impl LocalAccessContext<'_> {
                     callee.end_byte,
                 ));
             }
-            let Some(multiplicity) = self.reachable_calls.get(&callee).copied() else {
-                continue;
-            };
             let execution = semantic_execution_role(
                 file,
                 call.callee,
@@ -8261,9 +8830,55 @@ impl LocalAccessContext<'_> {
                 self.entities,
                 self.symbol_names,
             );
+            let typed_effect_accessor = execution == ExecutionRole::EffectApply
+                && call.arguments.is_empty()
+                && self
+                    .facts
+                    .typescript
+                    .entities
+                    .iter()
+                    .filter(|entity| {
+                        entity.location.path == callee.path
+                            && callee.start_byte <= entity.location.start_byte
+                            && entity.location.end_byte <= callee.end_byte
+                            && entity.type_descriptor.is_some()
+                    })
+                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
+                    .and_then(|entity| entity.type_descriptor.as_ref())
+                    .is_some_and(go_solid_accessor_descriptor);
+            let Some(multiplicity) = self.reachable_calls.get(&callee).copied().or_else(|| {
+                (typed_effect_accessor
+                    || (self.accessors.contains_key(symbol)
+                        && (execution == ExecutionRole::EffectApply
+                            || control_flow_execution_role(
+                                file,
+                                call.callee,
+                                self.entities,
+                                self.symbol_names,
+                            )
+                            .is_some()
+                            || named_callback_execution_role(
+                                file,
+                                call.callee,
+                                self.entities,
+                                self.symbol_names,
+                            )
+                            .is_some()
+                            || enclosing_render_function(file, call.callee))))
+                .then_some(1)
+            }) else {
+                continue;
+            };
             let key = (callee.path.clone(), callee.start_byte, callee.end_byte);
             if let Some((name, declaration)) = self.accessors.get(symbol)
-                && !inside_lowercase_named_function(file, call.callee)
+                && (!inside_lowercase_named_function(file, call.callee)
+                    || named_callback_execution_role(
+                        file,
+                        call.callee,
+                        self.entities,
+                        self.symbol_names,
+                    )
+                    .is_some())
                 && seen.insert(key.clone())
             {
                 let origin = self.accessor_origins.get(symbol);
@@ -8302,14 +8917,55 @@ impl LocalAccessContext<'_> {
                             self.symbol_names,
                         ),
                         under_loading: read_is_under_loading(
-                            self.facts,
+                            self.lookup,
                             file,
                             call.callee,
-                            self.entities,
                             self.symbol_names,
                         ),
                     });
                 }
+            }
+            if !self.accessors.contains_key(symbol)
+                && execution == ExecutionRole::EffectApply
+                && call.arguments.is_empty()
+                && let Some(descriptor) = self
+                    .facts
+                    .typescript
+                    .entities
+                    .iter()
+                    .filter(|entity| {
+                        entity.location.path == callee.path
+                            && callee.start_byte <= entity.location.start_byte
+                            && entity.location.end_byte <= callee.end_byte
+                            && entity.type_descriptor.is_some()
+                    })
+                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
+                    .and_then(|entity| entity.type_descriptor.as_ref())
+                    .filter(|descriptor| go_solid_accessor_descriptor(descriptor))
+                && seen.insert(key.clone())
+            {
+                let display = usize::try_from(call.callee.start)
+                    .ok()
+                    .zip(usize::try_from(call.callee.end).ok())
+                    .and_then(|(start, end)| file.source.get(start..end))
+                    .unwrap_or("accessor")
+                    .to_string();
+                let declaration = descriptor.alias_declarations.first().map_or_else(
+                    || callee.clone(),
+                    |declaration| declaration.location.clone(),
+                );
+                result.reads.push(ReactiveRead {
+                    kind: "accessor".into(),
+                    accessor: display,
+                    location: location(file.path.as_str(), call.span),
+                    declaration,
+                    execution,
+                    context: read_analysis_context(file, call.span, execution),
+                    via: String::new(),
+                    origin: None,
+                    origin_context: String::new(),
+                });
+                result.strict_read_obligations += 1;
             }
             if let Some(contracted) = self.contract_reads.get(symbol)
                 && !inside_lowercase_named_function(file, call.callee)
@@ -8375,12 +9031,35 @@ impl LocalAccessContext<'_> {
             }
         }
         for member in &file.ast.members {
+            if file
+                .ast
+                .members
+                .iter()
+                .any(|candidate| candidate.object == member.span)
+            {
+                continue;
+            }
             let object = location(file.path.as_str(), member.object);
             let Some(symbol) = self.entities.get(&object) else {
                 continue;
             };
-            if inside_lowercase_named_function(file, member.span)
-                || inside_unclassified_callback(file, member.span)
+            let execution = semantic_execution_role(
+                file,
+                member.span,
+                &allowed,
+                self.entities,
+                self.symbol_names,
+            );
+            if (inside_lowercase_named_function(file, member.span)
+                || inside_unclassified_callback(file, member.span))
+                && named_callback_execution_role(
+                    file,
+                    member.span,
+                    self.entities,
+                    self.symbol_names,
+                )
+                .is_none()
+                && execution != ExecutionRole::EffectApply
             {
                 continue;
             }
@@ -8396,20 +9075,22 @@ impl LocalAccessContext<'_> {
             if !seen.insert(key) {
                 continue;
             }
-            let execution = semantic_execution_role(
-                file,
-                member.span,
-                &allowed,
-                self.entities,
-                self.symbol_names,
-            );
+            let accessor = usize::try_from(member.span.start)
+                .ok()
+                .zip(usize::try_from(member.span.end).ok())
+                .and_then(|(start, end)| file.source.get(start..end))
+                .and_then(|path| {
+                    path.find('.')
+                        .map(|index| format!("{name}{}", &path[index..]))
+                })
+                .unwrap_or_else(|| format!("{name}.{}", member.property.name));
             result.reads.push(ReactiveRead {
                 kind: if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
                     "store-path".into()
                 } else {
                     "component-props".into()
                 },
-                accessor: format!("{name}.{}", member.property.name),
+                accessor,
                 location: location(file.path.as_str(), member.span),
                 declaration: declaration.clone(),
                 execution,
@@ -8441,14 +9122,102 @@ impl LocalAccessContext<'_> {
                         self.symbol_names,
                     ),
                     under_loading: read_is_under_loading(
-                        self.facts,
+                        self.lookup,
                         file,
                         member.span,
-                        self.entities,
                         self.symbol_names,
                     ),
                 });
             }
+        }
+        for spread in &file.ast.spreads {
+            let argument = location(file.path.as_str(), spread.argument);
+            let Some(symbol) = self.entities.get(&argument) else {
+                continue;
+            };
+            let execution = semantic_execution_role(
+                file,
+                spread.span,
+                &allowed,
+                self.entities,
+                self.symbol_names,
+            );
+            if (inside_lowercase_named_function(file, spread.span)
+                || inside_unclassified_callback(file, spread.span))
+                && named_callback_execution_role(
+                    file,
+                    spread.span,
+                    self.entities,
+                    self.symbol_names,
+                )
+                .is_none()
+                && execution != ExecutionRole::EffectApply
+            {
+                continue;
+            }
+            let source = if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
+                self.accessors.get(symbol)
+            } else {
+                self.prop_sources.get(symbol)
+            };
+            let Some((name, declaration)) = source else {
+                continue;
+            };
+            result.reads.push(ReactiveRead {
+                kind: if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
+                    "store-path".into()
+                } else {
+                    "component-props".into()
+                },
+                accessor: format!("{name} spread"),
+                location: location(file.path.as_str(), spread.span),
+                declaration: declaration.clone(),
+                execution,
+                context: read_analysis_context(file, spread.span, execution),
+                via: String::new(),
+                origin: None,
+                origin_context: String::new(),
+            });
+            if !matches!(
+                self.source_primitives.get(symbol).map(String::as_str),
+                Some("createOptimistic" | "createOptimisticStore")
+            ) && counts_as_strict_read_root(file, spread.span, execution)
+            {
+                result.strict_read_obligations += 1;
+            }
+        }
+        for element in &file.ast.jsx_elements {
+            let name_location = location(file.path.as_str(), element.name.span);
+            let Some(symbol) = self.entities.get(&name_location) else {
+                continue;
+            };
+            if !self.async_sources.contains(symbol)
+                || self.source_primitives.get(symbol).map(String::as_str) != Some("dynamic")
+            {
+                continue;
+            }
+            let execution = ExecutionRole::TrackedJsx;
+            result.async_reads.push(AsyncRead {
+                accessor: format!("<{}>", element.name.name),
+                location: location(file.path.as_str(), element.span),
+                declaration: self.source_declarations.get(symbol).map_or_else(
+                    || name_location.clone(),
+                    |declaration| declaration.location.clone(),
+                ),
+                execution,
+                leaf_owner: containing_leaf_owner(
+                    file,
+                    element.name.span,
+                    self.entities,
+                    self.symbol_names,
+                ),
+                under_loading: read_is_under_loading(
+                    self.lookup,
+                    file,
+                    element.name.span,
+                    self.symbol_names,
+                ),
+            });
         }
         result
     }
@@ -8500,6 +9269,35 @@ fn primitive_name(
     }
 }
 
+fn jsx_primitive_name(
+    file: &solid_facts::FileFacts,
+    element: &solid_ast_facts::JsxElementFact,
+    entities: &EntitySymbols,
+    symbol_names: &HashMap<String, String>,
+) -> Option<String> {
+    primitive_name(
+        file.path.as_str(),
+        element.name.span,
+        Some(&element.name.name),
+        entities,
+        symbol_names,
+    )
+    .or_else(|| {
+        file.ast
+            .imports
+            .iter()
+            .filter(|import| import.module == "solid-js")
+            .flat_map(|import| &import.bindings)
+            .find(|binding| binding.local.name == element.name.name)
+            .map(|binding| {
+                binding
+                    .imported
+                    .clone()
+                    .unwrap_or_else(|| binding.local.name.clone())
+            })
+    })
+}
+
 fn add_solid_namespace_names(
     facts: &ProjectFacts,
     entities: &EntitySymbols,
@@ -8507,18 +9305,8 @@ fn add_solid_namespace_names(
 ) {
     for file in &facts.files {
         for import in &file.ast.imports {
-            if import.module != "solid-js" {
-                continue;
-            }
-            for binding in &import.bindings {
-                if binding.kind != solid_ast_facts::ImportKind::Namespace {
-                    continue;
-                }
-                let location = location(file.path.as_str(), binding.local.span);
-                let Some(symbol) = entities.get(&location) else {
-                    continue;
-                };
-                for primitive in [
+            let primitives: &[&str] = if import.module == "solid-js" {
+                &[
                     "createSignal",
                     "createMemo",
                     "mapArray",
@@ -8544,8 +9332,22 @@ fn add_solid_namespace_names(
                     "refresh",
                     "affects",
                     "action",
-                ] {
-                    names.insert(format!("{symbol}::{primitive}"), primitive.into());
+                ]
+            } else if import.module.starts_with("@solidjs/") {
+                &["dynamic"]
+            } else {
+                continue;
+            };
+            for binding in &import.bindings {
+                if binding.kind != solid_ast_facts::ImportKind::Namespace {
+                    continue;
+                }
+                let location = location(file.path.as_str(), binding.local.span);
+                let Some(symbol) = entities.get(&location) else {
+                    continue;
+                };
+                for primitive in primitives {
+                    names.insert(format!("{symbol}::{primitive}"), (*primitive).into());
                 }
             }
         }
@@ -8969,6 +9771,7 @@ fn solid_primitive_declaration(declaration: &Declaration) -> bool {
                 | "createProjection"
                 | "createOptimistic"
                 | "createOptimisticStore"
+                | "dynamic"
                 | "createEffect"
                 | "createRenderEffect"
                 | "createTrackedEffect"

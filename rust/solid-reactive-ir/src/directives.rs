@@ -3,26 +3,23 @@
 
 use super::*;
 
-pub(super) struct DirectiveCreationCollector<'a> {
-    facts: &'a ProjectFacts,
-    entities: &'a EntitySymbols,
-    symbol_names: &'a HashMap<String, String>,
+pub(super) struct DirectiveCreationCollector<'a, 'c> {
+    lookup: &'c SemanticLookup<'a>,
+    symbol_names: &'c HashMap<String, String>,
     visiting: HashSet<(String, Span)>,
-    creations: &'a mut Vec<PrimitiveCreation>,
-    seen: &'a mut HashSet<(String, u64, u64)>,
+    creations: &'c mut Vec<PrimitiveCreation>,
+    seen: &'c mut HashSet<(String, u64, u64)>,
 }
 
-impl<'a> DirectiveCreationCollector<'a> {
+impl<'a, 'c> DirectiveCreationCollector<'a, 'c> {
     pub(super) fn new(
-        facts: &'a ProjectFacts,
-        entities: &'a EntitySymbols,
-        symbol_names: &'a HashMap<String, String>,
-        creations: &'a mut Vec<PrimitiveCreation>,
-        seen: &'a mut HashSet<(String, u64, u64)>,
+        lookup: &'c SemanticLookup<'a>,
+        symbol_names: &'c HashMap<String, String>,
+        creations: &'c mut Vec<PrimitiveCreation>,
+        seen: &'c mut HashSet<(String, u64, u64)>,
     ) -> Self {
         Self {
-            facts,
-            entities,
+            lookup,
             symbol_names,
             visiting: HashSet::new(),
             creations,
@@ -61,7 +58,7 @@ impl<'a> DirectiveCreationCollector<'a> {
                 solid_ast_facts::ReturnValueKind::Call => {
                     if let Some(callee) = returned.callee
                         && let Some((target_file, target)) =
-                            function_called_at(self.facts, file, callee, self.entities)
+                            self.lookup.function_called_at(file.path.as_str(), callee)
                     {
                         self.collect_returned(target_file, target);
                     }
@@ -89,7 +86,7 @@ impl<'a> DirectiveCreationCollector<'a> {
                 file.path.as_str(),
                 call.callee,
                 call.static_callee.as_deref(),
-                self.entities,
+                self.lookup.entities(),
                 self.symbol_names,
             )
             .filter(|primitive| is_created_primitive(primitive))
@@ -102,8 +99,9 @@ impl<'a> DirectiveCreationCollector<'a> {
                     call.callee,
                     true,
                 );
-            } else if let Some((target_file, target)) =
-                function_called_at(self.facts, file, call.callee, self.entities)
+            } else if let Some((target_file, target)) = self
+                .lookup
+                .function_called_at(file.path.as_str(), call.callee)
             {
                 self.collect_function(target_file, target);
             }

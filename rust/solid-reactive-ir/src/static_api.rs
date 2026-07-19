@@ -9,7 +9,7 @@ pub(super) struct StaticDirectiveFileResult {
 }
 
 pub(super) struct StaticApiContext<'a> {
-    pub(super) facts: &'a ProjectFacts,
+    pub(super) lookup: &'a SemanticLookup<'a>,
     pub(super) entities: &'a EntitySymbols,
     pub(super) symbol_names: &'a HashMap<String, String>,
     pub(super) source_kinds: &'a HashMap<String, ReactiveSourceKind>,
@@ -70,7 +70,7 @@ impl StaticApiContext<'_> {
                 && call
                     .arguments
                     .first()
-                    .is_some_and(|argument| computation_is_async(self.facts, file, argument.span))
+                    .is_some_and(|argument| computation_is_async(self.lookup, file, argument.span))
             {
                 result.violations.push(StaticViolation {
                     id: "SC7002".into(),
