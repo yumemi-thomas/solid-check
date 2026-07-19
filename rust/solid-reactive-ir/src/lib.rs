@@ -1158,7 +1158,7 @@ fn discover_file_sources(
                 if let Some(symbol) = entities.get(&declaration) {
                     result.accessors.push((
                         symbol.clone(),
-                        (name.name.clone(), contracted.contract_location.clone()),
+                        (file.source_text(name.span).unwrap_or_default().to_owned(), contracted.contract_location.clone()),
                     ));
                     result.contracted_accessor_symbols.push(symbol.clone());
                     result.accessor_origins.push((
@@ -1194,7 +1194,7 @@ fn discover_file_sources(
                 if let Some(symbol) = entities.get(&location) {
                     result
                         .actions
-                        .push((symbol.clone(), (name.name.clone(), location)));
+                        .push((symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), location)));
                 }
             }
             continue;
@@ -1243,7 +1243,7 @@ fn discover_file_sources(
             if let Some(symbol) = entities.get(&declaration) {
                 result
                     .accessors
-                    .push((symbol.clone(), (name.name.clone(), declaration)));
+                    .push((symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), declaration)));
                 let go_returned_source = binding.shape == solid_ast_facts::BindingShape::Array
                     && matches!(primitive.as_deref(), Some("createSignal" | "createStore"))
                     && go_binding_pattern_accepts_call(file.source.as_str(), binding, call);
@@ -1328,7 +1328,7 @@ fn discover_file_sources(
             if let Some(symbol) = entities.get(&declaration) {
                 result.setters.push((
                     symbol.clone(),
-                    (name.name.clone(), declaration, call.owned_write_option),
+                    (file.source_text(name.span).unwrap_or_default().to_owned(), declaration, call.owned_write_option),
                 ));
             }
         }
@@ -1689,7 +1689,7 @@ fn discover_sources(
                             if let Some(symbol) = entities.get(&declaration) {
                                 accessors.insert(
                                     symbol.clone(),
-                                    (name.name.clone(), contracted.contract_location.clone()),
+                                    (file.source_text(name.span).unwrap_or_default().to_owned(), contracted.contract_location.clone()),
                                 );
                                 contracted_accessor_symbols.insert(symbol.clone());
                                 accessor_origins.insert(
@@ -1723,7 +1723,7 @@ fn discover_sources(
                         if let Some(name) = binding.names.first() {
                             let location = location(file.path.as_str(), name.span);
                             if let Some(symbol) = entities.get(&location) {
-                                actions.insert(symbol.clone(), (name.name.clone(), location));
+                                actions.insert(symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), location));
                             }
                         }
                         continue;
@@ -1766,7 +1766,7 @@ fn discover_sources(
                     if let Some(name) = source_name {
                         let declaration = location(file.path.as_str(), name.span);
                         if let Some(symbol) = entities.get(&declaration) {
-                            accessors.insert(symbol.clone(), (name.name.clone(), declaration));
+                            accessors.insert(symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), declaration));
                             let go_returned_source = binding.shape
                                 == solid_ast_facts::BindingShape::Array
                                 && matches!(
@@ -1859,7 +1859,7 @@ fn discover_sources(
                         if let Some(symbol) = entities.get(&declaration) {
                             setters.insert(
                                 symbol.clone(),
-                                (name.name.clone(), declaration, call.owned_write_option),
+                                (file.source_text(name.span).unwrap_or_default().to_owned(), declaration, call.owned_write_option),
                             );
                         }
                     }
@@ -2025,7 +2025,7 @@ fn discover_sources(
                     if let Some(symbol) = entities.get(&declaration) {
                         accessors
                             .entry(symbol.clone())
-                            .or_insert((parameter.name.clone(), declaration));
+                            .or_insert((file.source_text(parameter.span).unwrap_or_default().to_owned(), declaration));
                     }
                 }
             }
@@ -2111,7 +2111,7 @@ fn discover_sources(
             let (display, declaration) =
                 accessors.get(source_symbol).cloned().unwrap_or_else(|| {
                     (
-                        parameter.name.clone(),
+                        file.source_text(parameter.span).unwrap_or_default().to_owned(),
                         location(file.path.as_str(), parameter.span),
                     )
                 });
@@ -2149,13 +2149,13 @@ fn discover_sources(
                     {
                         setter_aliases.push((
                             symbol.clone(),
-                            (name.name.clone(), source.clone(), *owned_write),
+                            (file.source_text(name.span).unwrap_or_default().to_owned(), source.clone(), *owned_write),
                         ));
                     }
                     if let Some((_, source)) = &action
                         && !actions.contains_key(symbol)
                     {
-                        action_aliases.push((symbol.clone(), (name.name.clone(), source.clone())));
+                        action_aliases.push((symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), source.clone())));
                     }
                 }
             }
@@ -2170,7 +2170,7 @@ fn discover_sources(
     for file in &facts.files {
         for function in &file.ast.functions {
             if !function_binding_name(file, function)
-                .and_then(|name| name.name.chars().next())
+                .and_then(|name| file.source_text(name.span).unwrap_or_default().chars().next())
                 .is_some_and(char::is_uppercase)
             {
                 continue;
@@ -2185,7 +2185,7 @@ fn discover_sources(
             };
             let declaration = location(file.path.as_str(), parameter.span);
             if let Some(symbol) = entities.get(&declaration) {
-                prop_sources.insert(symbol.clone(), (parameter.name.clone(), declaration));
+                prop_sources.insert(symbol.clone(), (file.source_text(parameter.span).unwrap_or_default().to_owned(), declaration));
             }
         }
     }
@@ -2238,7 +2238,7 @@ fn discover_sources(
                         && !prop_sources.contains_key(symbol)
                     {
                         prop_sources
-                            .insert(symbol.clone(), (name.name.clone(), declaration.clone()));
+                            .insert(symbol.clone(), (file.source_text(name.span).unwrap_or_default().to_owned(), declaration.clone()));
                         changed = true;
                     }
                 }
@@ -2633,7 +2633,7 @@ fn build_with_contracts_measured_incremental(
     for file in &facts.files {
         for function in &file.ast.functions {
             if function_binding_name(file, function)
-                .and_then(|name| name.name.chars().next())
+                .and_then(|name| file.source_text(name.span).unwrap_or_default().chars().next())
                 .is_some_and(char::is_uppercase)
                 && let Some(parameter) = function
                     .parameters
@@ -2652,7 +2652,7 @@ fn build_with_contracts_measured_incremental(
                         message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
                         location,
                         analysis_context: function_binding_name(file, function)
-                            .map_or_else(String::new, |name| name.name.clone()),
+                            .map_or_else(String::new, |name| file.source_text(name.span).unwrap_or_default().to_owned()),
                         fixes: component_props_parameter_fix(
                             facts,
                             file,
@@ -2969,7 +2969,7 @@ fn build_with_contracts_measured_incremental(
             else {
                 continue;
             };
-            if !name.name.chars().next().is_some_and(char::is_uppercase) {
+            if !file.source_text(name.span).unwrap_or_default().chars().next().is_some_and(char::is_uppercase) {
                 continue;
             }
             let mut direct_returns = file
@@ -3014,7 +3014,7 @@ fn build_with_contracts_measured_incremental(
                             rule: "component-returns-conditionally".into(),
                             message: "a component executes once, so a reactive conditional return becomes stale; return one JSX structure and move the condition inside it".into(),
                             location,
-                            analysis_context: name.name.clone(),
+                            analysis_context: file.source_text(name.span).unwrap_or_default().to_owned(),
                             fixes: vec![],
                         });
                     }
@@ -3284,7 +3284,7 @@ fn component_props_parameter_fix(
         if !file.source.as_bytes()[cursor..start]
             .iter()
             .all(|byte| byte.is_ascii_whitespace() || *byte == b',')
-            || file.source.get(start..end)? != name.name
+            || file.source.get(start..end)? != file.source_text(name.span)?
         {
             return None;
         }
@@ -3349,13 +3349,16 @@ fn component_props_parameter_fix(
             }
             let start = usize::try_from(reference.start_byte).ok()?;
             let end = usize::try_from(reference.end_byte).ok()?;
-            if file.source.get(start..end)? != name.name {
+            if file.source.get(start..end)? != file.source_text(name.span)? {
                 return None;
             }
             body_references += 1;
             edits.push(TextEdit {
                 location: reference.clone(),
-                new_text: format!("{parameter_name}.{}", name.name),
+                new_text: format!(
+                    "{parameter_name}.{}",
+                    file.source_text(name.span).unwrap_or_default()
+                ),
             });
         }
     }
@@ -3544,7 +3547,7 @@ fn find_missing_owners(
                     .name
                     .as_ref()
                     .or_else(|| function_binding_name(file, function))
-                    .map(|name| name.name.clone()),
+                    .map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
                 exported,
             });
@@ -3775,7 +3778,7 @@ fn find_missing_owners(
             let boundary = primitive_name(
                 file.path.as_str(),
                 element.name.span,
-                Some(&element.name.name),
+                Some(&file.source_text(element.name.span).unwrap_or_default()),
                 entities,
                 symbol_names,
             );
@@ -3890,7 +3893,7 @@ fn discover_owner_file(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: function.name.as_ref().map(|name| name.name.clone()),
+                name: function.name.as_ref().map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
                 exported,
             }
@@ -4013,7 +4016,7 @@ fn discover_owner_file(
         let boundary = primitive_name(
             file.path.as_str(),
             element.name.span,
-            Some(&element.name.name),
+            Some(&file.source_text(element.name.span).unwrap_or_default()),
             entities,
             symbol_names,
         );
@@ -4402,7 +4405,7 @@ fn jsx_element_is_loading(
     primitive_name(
         file.path.as_str(),
         element.name.span,
-        Some(&element.name.name),
+        Some(&file.source_text(element.name.span).unwrap_or_default()),
         entities,
         symbol_names,
     )
@@ -4495,7 +4498,7 @@ fn inside_lowercase_named_function(file: &solid_facts::FileFacts, span: Span) ->
     }
     file.ast.functions_body_containing(span).any(|function| {
         function_binding_name(file, function)
-            .and_then(|name| name.name.chars().next())
+            .and_then(|name| file.source_text(name.span).unwrap_or_default().chars().next())
             .is_some_and(char::is_lowercase)
     })
 }
@@ -4698,7 +4701,7 @@ fn enclosing_render_function(file: &solid_facts::FileFacts, span: Span) -> bool 
     file.ast.functions_body_containing(span).any(|function| {
         function_binding_name(file, function)
             .or(function.name.as_ref())
-            .and_then(|name| name.name.chars().next())
+            .and_then(|name| file.source_text(name.span).unwrap_or_default().chars().next())
             .is_some_and(char::is_uppercase)
     })
 }
@@ -4732,7 +4735,7 @@ fn function_is_solid_callback(
         .name
         .as_ref()
         .or_else(|| function_binding_name(file, function))
-        .map(|name| name.name.as_str());
+        .map(|name| file.source_text(name.span).unwrap_or_default());
     file.ast.calls.iter().enumerate().any(|(call_index, call)| {
         primitives.calls[call_index]
             .as_deref()
@@ -4794,9 +4797,9 @@ fn enclosing_function_label(file: &solid_facts::FileFacts, span: Span) -> String
         return String::new();
     };
     if let Some(name) = &function.name {
-        return name.name.clone();
+        return file.source_text(name.span).unwrap_or_default().to_owned();
     }
-    function_binding_name(file, function).map_or_else(String::new, |name| name.name.clone())
+    function_binding_name(file, function).map_or_else(String::new, |name| file.source_text(name.span).unwrap_or_default().to_owned())
 }
 
 fn analysis_context(
@@ -4810,10 +4813,13 @@ fn analysis_context(
         .ast
         .functions_body_containing(span)
         .filter_map(|function| function.name.as_ref())
-        .filter(|name| name.name.chars().next().is_some_and(char::is_uppercase))
+        .filter(|name| file.source_text(name.span).unwrap_or_default().chars().next().is_some_and(char::is_uppercase))
         .min_by_key(|name| name.span.end - name.span.start)
     {
-        return rendering.name.clone();
+        return file
+            .source_text(rendering.span)
+            .unwrap_or_default()
+            .to_owned();
     }
     let callback = file
         .ast
@@ -5628,7 +5634,7 @@ impl LocalAccessContext<'_> {
             }
             let execution = ExecutionRole::TrackedJsx;
             result.async_reads.push(AsyncRead {
-                accessor: format!("<{}>", element.name.name),
+                accessor: format!("<{}>", file.source_text(element.name.span).unwrap_or_default()),
                 location: location(file.path.as_str(), element.span),
                 declaration: self.source_declarations.get(symbol).map_or_else(
                     || name_location.clone(),
@@ -5708,7 +5714,7 @@ fn jsx_primitive_name(
     primitive_name(
         file.path.as_str(),
         element.name.span,
-        Some(&element.name.name),
+        Some(&file.source_text(element.name.span).unwrap_or_default()),
         entities,
         symbol_names,
     )
@@ -5718,12 +5724,18 @@ fn jsx_primitive_name(
             .iter()
             .filter(|import| import.module == "solid-js")
             .flat_map(|import| &import.bindings)
-            .find(|binding| binding.local.name == element.name.name)
+            .find(|binding| {
+                file.source_text(binding.local.span) == file.source_text(element.name.span)
+            })
             .map(|binding| {
                 binding
                     .imported
                     .clone()
-                    .unwrap_or_else(|| binding.local.name.clone())
+                    .unwrap_or_else(|| {
+                        file.source_text(binding.local.span)
+                            .unwrap_or_default()
+                            .to_owned()
+                    })
             })
     })
 }

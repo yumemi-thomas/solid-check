@@ -300,7 +300,7 @@ fn discover_summary_nodes(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: binding_name.as_ref().map(|name| name.name.clone()),
+                name: binding_name.as_ref().map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
                 parameters,
                 exported: source_function.map_or_else(

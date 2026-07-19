@@ -37,7 +37,7 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
         for binding in import
             .bindings
             .iter()
-            .filter(|binding| !binding.local.name.is_empty())
+            .filter(|binding| binding.kind != solid_ast_facts::ImportKind::SideEffect)
         {
             add_symbol(binding.local.span, true);
         }

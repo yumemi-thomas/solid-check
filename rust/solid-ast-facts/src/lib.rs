@@ -10,8 +10,8 @@ use oxc_ast::ast::{
     ComputedMemberExpression, ConditionalExpression, Declaration, ExportAllDeclaration,
     ExportDefaultDeclaration, ExportNamedDeclaration, Expression, Function, FunctionType,
     IdentifierReference, IfStatement, ImportDeclaration, ImportDeclarationSpecifier,
-    JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement, JSXElementName,
-    JSXExpression, ModuleExportName, NewExpression, ObjectPropertyKind, PropertyKey,
+    JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement, JSXExpression,
+    ModuleExportName, NewExpression, ObjectPropertyKind, PropertyKey,
     ReturnStatement, SpreadElement, StaticMemberExpression, TSModuleDeclarationName,
     VariableDeclarator,
 };
@@ -142,7 +142,6 @@ pub struct FunctionFact {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NamedSpan {
-    pub name: String,
     pub span: Span,
 }
 
@@ -275,7 +274,7 @@ impl AstFacts {
                 self.imports
                     .iter()
                     .flat_map(|import| import.bindings.iter())
-                    .filter(|binding| !binding.local.name.is_empty())
+                    .filter(|binding| binding.kind != ImportKind::SideEffect)
                     .map(|binding| binding.local.span),
             )
             .chain(
@@ -418,7 +417,6 @@ impl<'s> Collector<'s> {
                 .get_binding_identifiers()
                 .into_iter()
                 .map(|identifier| NamedSpan {
-                    name: identifier.name.to_string(),
                     span: span(identifier.span),
                 })
                 .collect(),
@@ -431,7 +429,6 @@ impl<'s> Collector<'s> {
                             element.as_ref().and_then(|pattern| {
                                 pattern.get_binding_identifiers().into_iter().next().map(
                                     |identifier| NamedSpan {
-                                        name: identifier.name.to_string(),
                                         span: span(identifier.span),
                                     },
                                 )
@@ -564,7 +561,6 @@ impl<'s> Collector<'s> {
                         return None;
                     };
                     Some(NamedSpan {
-                        name: value.name.to_string(),
                         span: span(value.span),
                     })
                 })
@@ -644,7 +640,6 @@ impl<'a> Visit<'a> for Collector<'_> {
                 return None;
             };
             Some(NamedSpan {
-                name: identifier.name.to_string(),
                 span: span(identifier.span),
             })
         });
@@ -678,7 +673,6 @@ impl<'a> Visit<'a> for Collector<'_> {
                     }
                 },
                 name: function.id.as_ref().map(|identifier| NamedSpan {
-                    name: identifier.name.to_string(),
                     span: span(identifier.span),
                 }),
                 parameters: function
@@ -747,7 +741,6 @@ impl<'a> Visit<'a> for Collector<'_> {
             bindings.push(ImportBindingFact {
                 kind,
                 local: NamedSpan {
-                    name: local.name.to_string(),
                     span: span(local.span),
                 },
                 imported: match specifier {
@@ -773,7 +766,6 @@ impl<'a> Visit<'a> for Collector<'_> {
             bindings.push(ImportBindingFact {
                 kind: ImportKind::SideEffect,
                 local: NamedSpan {
-                    name: String::new(),
                     span: span(declaration.source.span),
                 },
                 imported: None,
@@ -803,7 +795,6 @@ impl<'a> Visit<'a> for Collector<'_> {
                 .iter()
                 .map(|specifier| ExportSpecifierFact {
                     local: NamedSpan {
-                        name: module_export_name(&specifier.local),
                         span: span(specifier.local.span()),
                     },
                     exported: module_export_name(&specifier.exported),
@@ -888,24 +879,9 @@ impl<'a> Visit<'a> for Collector<'_> {
 
     fn visit_jsx_element(&mut self, element: &JSXElement<'a>) {
         let name_span = element.opening_element.name.span();
-        let name = match &element.opening_element.name {
-            JSXElementName::Identifier(identifier) => identifier.name.to_string(),
-            JSXElementName::IdentifierReference(identifier) => identifier.name.to_string(),
-            _ => self
-                .source
-                .get(
-                    usize::try_from(name_span.start).unwrap_or_default()
-                        ..usize::try_from(name_span.end).unwrap_or_default(),
-                )
-                .unwrap_or_default()
-                .to_owned(),
-        };
         self.jsx_elements.push(JsxElementFact {
             span: span(element.span),
-            name: NamedSpan {
-                name,
-                span: span(name_span),
-            },
+            name: NamedSpan { span: span(name_span) },
             properties: element
                 .opening_element
                 .attributes
@@ -994,7 +970,6 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
 fn export_declaration_names(declaration: &Declaration<'_>) -> Vec<ExportSpecifierFact> {
     let named = |name: &oxc_ast::ast::BindingIdentifier<'_>, type_only| ExportSpecifierFact {
         local: NamedSpan {
-            name: name.name.to_string(),
             span: span(name.span),
         },
         exported: name.name.to_string(),
@@ -1068,7 +1043,9 @@ export async function App(props: { title: string }) {
                 && binding
                     .names
                     .iter()
-                    .map(|name| name.name.as_str())
+                    .filter_map(|name| {
+                        source.get(name.span.start as usize..name.span.end as usize)
+                    })
                     .collect::<Vec<_>>()
                     == ["count", "setCount"]
         }));
@@ -1076,13 +1053,21 @@ export async function App(props: { title: string }) {
             function
                 .name
                 .as_ref()
-                .is_some_and(|name| name.name == "App")
+                .is_some_and(|name| {
+                    source.get(name.span.start as usize..name.span.end as usize) == Some("App")
+                })
                 && function.r#async
         }));
         assert_eq!(facts.awaits.len(), 1);
         assert_eq!(facts.returns.len(), 1);
         assert_eq!(facts.jsx_elements.len(), 1);
-        assert_eq!(facts.jsx_elements[0].name.name, "button");
+        assert_eq!(
+            source.get(
+                facts.jsx_elements[0].name.span.start as usize
+                    ..facts.jsx_elements[0].name.span.end as usize
+            ),
+            Some("button")
+        );
         assert!(
             facts
                 .members
@@ -1121,7 +1106,11 @@ const mixed = () => {
         let cleanup = facts
             .bindings
             .iter()
-            .find(|binding| binding.names[0].name == "cleanup")
+            .find(|binding| {
+                source.get(
+                    binding.names[0].span.start as usize..binding.names[0].span.end as usize,
+                ) == Some("cleanup")
+            })
             .unwrap();
         assert!(cleanup.initializer_function);
         let values = facts
@@ -1191,11 +1180,9 @@ const mixed = () => {
             facts.calls[0].arguments[1].identifier_properties,
             [
                 NamedSpan {
-                    name: "apply".into(),
                     span: Span::new(32, 37),
                 },
                 NamedSpan {
-                    name: "handle".into(),
                     span: Span::new(46, 52),
                 },
             ]
@@ -1296,6 +1283,20 @@ const mixed = () => {
                 .filter(|binding| binding.imported.as_deref() != Some("Shape"))
                 .all(|binding| !binding.type_only)
         );
+    }
+
+    #[test]
+    fn represents_side_effect_imports_without_an_empty_name_sentinel() {
+        let source = r#"import "./setup";"#;
+        let facts = extract("setup.ts", source).unwrap();
+        let binding = &facts.imports[0].bindings[0];
+
+        assert_eq!(binding.kind, ImportKind::SideEffect);
+        assert_eq!(
+            source.get(binding.local.span.start as usize..binding.local.span.end as usize),
+            Some(r#""./setup""#)
+        );
+        assert!(facts.structural_seed_spans().is_empty());
     }
 
     #[test]

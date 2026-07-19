@@ -184,7 +184,7 @@ pub(super) fn named_callback_execution_role(
                 .name
                 .as_ref()
                 .or_else(|| function_binding_name(file, function))
-                .map(|name| name.name.as_str());
+                .map(|name| file.source_text(name.span).unwrap_or_default());
             file.ast.calls.iter().enumerate().any(|(call_index, call)| {
                 let primitive = &primitives.calls[call_index];
                 let argument_index = match primitive.as_deref() {
@@ -216,7 +216,7 @@ pub(super) fn named_callback_execution_role(
                     ) || argument
                         .identifier_properties
                         .iter()
-                        .any(|property| binding_name == Some(property.name.as_str()))
+                        .any(|property| binding_name == file.source_text(property.span))
                 })
             }) || file.ast.jsx_elements.iter().enumerate().any(|(element_index, element)| {
                 primitives.jsx[element_index].as_deref().is_some_and(|primitive| {
@@ -248,7 +248,9 @@ pub(super) fn named_callback_execution_role(
                     argument
                         .identifier_properties
                         .iter()
-                        .any(|property| property.name == name.name)
+                        .any(|property| {
+                            file.source_text(property.span) == file.source_text(name.span)
+                        })
                 })
         })
     }) {
@@ -326,7 +328,8 @@ pub(super) fn argument_references_callback_symbol(
                 .get(&location(file.path.as_str(), property.span))
                 .map(String::as_str)
                 == Some(symbol)
-                || symbol_names.get(symbol) == Some(&property.name)
+                || symbol_names.get(symbol).map(String::as_str)
+                    == file.source_text(property.span)
         })
 }
 

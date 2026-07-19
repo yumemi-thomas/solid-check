@@ -94,7 +94,10 @@ pub(super) fn resolve_contract_imports(
                     continue;
                 };
                 let resolved = ResolvedContractBinding {
-                    local_name: binding.local.name.clone(),
+                    local_name: file
+                        .source_text(binding.local.span)
+                        .unwrap_or_default()
+                        .to_owned(),
                     imported_name: imported.into(),
                     package_name: contract.package.name.clone(),
                     symbol: symbol.clone(),
@@ -277,7 +280,7 @@ fn contract_export_fragment(
                         node_contracts.get(&node_keys[index]).cloned()
                     })
                     .unwrap_or_else(value_contract_export);
-                fragment.syntax.push((name.name.clone(), summary, false));
+                fragment.syntax.push((file.source_text(name.span).unwrap_or_default().to_owned(), summary, false));
             }
         }
     }
@@ -482,14 +485,15 @@ pub(super) fn contract_export_summaries(
                     })
             }) {
                 for name in &binding.names {
-                    if !exports.contains_key(&name.name) {
+                    let name_text = file.source_text(name.span).unwrap_or_default();
+                    if !exports.contains_key(name_text) {
                         let summary = graph
                             .entities
                             .get(&location(file.path.as_str(), name.span))
                             .and_then(|symbol| by_symbol.get(symbol))
                             .cloned()
                             .unwrap_or_else(value_contract_export);
-                        exports.insert(name.name.clone(), summary);
+                        exports.insert(name_text.to_owned(), summary);
                     }
                 }
             }
