@@ -210,8 +210,14 @@ fn v3_updates_and_reanalyzes_a_retained_project() {
     let stateful = service.lifecycle(reset).unwrap();
     assert_eq!(stateful.table_mode, "full");
     assert!(stateful.table.is_none());
-    let compact = stateful.compact_table.expect("compact full frame");
-    assert!(compact.expand().is_ok());
+    assert!(stateful.compact_table.is_none());
+    assert!(
+        solid_ts_facts::v3::decode_packed_fact_table(
+            &stateful.packed_table,
+            stateful.project_id.clone()
+        )
+        .is_ok()
+    );
     assert!(
         service
             .lifecycle(lifecycle_request(Operation::Analyze, project_id, 1))

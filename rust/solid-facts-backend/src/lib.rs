@@ -2349,17 +2349,31 @@ impl TypeFactsSidecar {
             _ => TypeScriptChanges::default(),
         });
         let table = match response.table_mode.as_str() {
-            "full" => match (response.table.take(), response.compact_table.take()) {
-                (Some(table), _) => table,
-                (None, Some(compact)) => compact.expand().map_err(|error| {
-                    BackendError::Process(format!("TypeFacts compact table invalid: {error}"))
-                })?,
-                (None, None) => {
-                    return Err(BackendError::Process(
-                        "TypeFacts full response returned no table".into(),
-                    ));
+            "full" => {
+                if !response.packed_table.is_empty() {
+                    solid_ts_facts::v3::decode_packed_fact_table(
+                        &response.packed_table,
+                        response.project_id.clone(),
+                    )
+                    .map_err(|error| {
+                        BackendError::Process(format!("TypeFacts packed table invalid: {error}"))
+                    })?
+                } else {
+                    match (response.table.take(), response.compact_table.take()) {
+                        (Some(table), _) => table,
+                        (None, Some(compact)) => compact.expand().map_err(|error| {
+                            BackendError::Process(format!(
+                                "TypeFacts compact table invalid: {error}"
+                            ))
+                        })?,
+                        (None, None) => {
+                            return Err(BackendError::Process(
+                                "TypeFacts full response returned no table".into(),
+                            ));
+                        }
+                    }
                 }
-            },
+            }
             "reuse" => {
                 let mut table = self.retained_table.clone().ok_or_else(|| {
                     BackendError::Process("TypeFacts requested reuse without retained table".into())
