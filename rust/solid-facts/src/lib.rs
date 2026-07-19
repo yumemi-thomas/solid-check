@@ -100,6 +100,15 @@ impl FileFacts {
             .collect()
     }
 
+    /// Returns the UTF-8 source text covered by a fact span.
+    ///
+    /// Fact consumers use this instead of retaining owned copies of verbatim
+    /// source names. Invalid or non-character-boundary spans fail closed.
+    #[must_use]
+    pub fn source_text(&self, span: Span) -> Option<&str> {
+        self.source.get(span.start as usize..span.end as usize)
+    }
+
     #[must_use]
     pub fn structural_seed_locations(&self) -> Vec<Location> {
         self.ast
@@ -189,5 +198,37 @@ mod tests {
         };
         let joined = ProjectFacts::join(generation, "project", vec![file], table).unwrap();
         assert_eq!(joined.files.len(), 1);
+    }
+
+    #[test]
+    fn resolves_fact_text_without_retaining_an_owned_name() {
+        let source = "const café = 1; café;";
+        let ast = extract("src/a.ts", source).unwrap();
+        let compiler = ExecutionMap {
+            compiler_facts_protocol: COMPILER_FACTS_PROTOCOL,
+            source_hash: SourceHash::of(source),
+            tracked_regions: vec![],
+            untracked_regions: vec![],
+            ownership_regions: vec![],
+            callback_roles: vec![],
+            jsx_operations: vec![],
+        };
+        let generation = Generation::new(1).unwrap();
+        let file = FileFacts::new(generation, source, ast, compiler).unwrap();
+
+        let names = file
+            .ast
+            .identifiers
+            .iter()
+            .filter_map(|identifier| file.source_text(identifier.span))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["café", "café"]);
+        assert_eq!(file.source_text(Span::new(9, 10)), None);
+        assert_eq!(file.source_text(Span::new(0, u32::MAX)), None);
+    }
+
+    #[test]
+    fn identifier_facts_remain_compact() {
+        assert!(std::mem::size_of::<solid_ast_facts::IdentifierFact>() <= 16);
     }
 }

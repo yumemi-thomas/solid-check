@@ -228,7 +228,7 @@ pub(super) fn named_callback_execution_role(
                         })
                         && (entities.get(&location(file.path.as_str(), identifier.span))
                             == Some(symbol)
-                            || binding_name == Some(identifier.name.as_str()))
+                            || binding_name == file.source_text(identifier.span))
                 })
             })
         })?;

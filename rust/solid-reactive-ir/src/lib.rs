@@ -3301,7 +3301,7 @@ fn component_props_parameter_fix(
         .identifiers
         .iter()
         .filter(|identifier| function.body.contains(identifier.span))
-        .map(|identifier| identifier.name.as_str())
+        .filter_map(|identifier| file.source_text(identifier.span))
         .collect::<HashSet<_>>();
     let parameter_name = (1..)
         .map(|suffix| {
@@ -4771,7 +4771,7 @@ fn function_is_solid_callback(
                         })
                         && (entities.get(&location(file.path.as_str(), identifier.span))
                             == Some(symbol)
-                            || binding_name == Some(identifier.name.as_str()))
+                            || binding_name == file.source_text(identifier.span))
                 })
         })
 }

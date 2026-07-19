@@ -212,7 +212,6 @@ pub enum IdentifierRole {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentifierFact {
-    pub name: String,
     pub span: Span,
     pub role: IdentifierRole,
 }
@@ -371,8 +370,7 @@ impl<'s> Collector<'s> {
         self.functions.sort_by_key(|fact| fact.span);
         self.imports.sort_by_key(|fact| fact.span);
         self.exports.sort_by_key(|fact| fact.span);
-        self.identifiers
-            .sort_by(|left, right| (left.span, &left.name).cmp(&(right.span, &right.name)));
+        self.identifiers.sort_by_key(|identifier| identifier.span);
         self.awaits.sort_unstable();
         self.returns.sort_by_key(|fact| fact.span);
         self.jsx_elements.sort_by_key(|fact| fact.span);
@@ -854,7 +852,6 @@ impl<'a> Visit<'a> for Collector<'_> {
 
     fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
         self.identifiers.push(IdentifierFact {
-            name: identifier.name.to_string(),
             span: span(identifier.span),
             role: IdentifierRole::Reference,
         });
@@ -863,7 +860,6 @@ impl<'a> Visit<'a> for Collector<'_> {
 
     fn visit_binding_identifier(&mut self, identifier: &oxc_ast::ast::BindingIdentifier<'a>) {
         self.identifiers.push(IdentifierFact {
-            name: identifier.name.to_string(),
             span: span(identifier.span),
             role: IdentifierRole::Binding,
         });
