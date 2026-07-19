@@ -16,6 +16,7 @@ use solid_ts_facts::{Declaration, FactTable, Location, SymbolFact};
 use super::{
     CachedTypeScriptIndexes, EntitySymbols, SourceDiscoverySymbolSemantics,
     SourceDiscoveryTypeScriptDelta, location, location_order,
+    source_discovery_declaration_semantic, source_discovery_declaration_semantics,
 };
 
 pub(super) fn add_solid_namespace_names(
@@ -121,7 +122,7 @@ pub(super) fn source_discovery_symbol_semantics(
                 symbol.id.clone(),
                 SourceDiscoverySymbolSemantics {
                     alias_target: symbol.alias_target.clone(),
-                    declarations: symbol.declarations.clone(),
+                    declarations: source_discovery_declaration_semantics(&symbol.declarations),
                 },
             )
         })
@@ -238,7 +239,9 @@ pub(super) fn patch_typescript_indexes(
                     .get(id.as_str())
                     .map(|symbol| SourceDiscoverySymbolSemantics {
                         alias_target: symbol.alias_target.clone(),
-                        declarations: symbol.declarations.clone(),
+                        declarations: source_discovery_declaration_semantics(
+                            &symbol.declarations,
+                        ),
                     });
             cache.source_discovery_symbol_semantics.get(id.as_str()) != current.as_ref()
         })
@@ -271,7 +274,10 @@ pub(super) fn patch_typescript_indexes(
             (
                 root.clone(),
                 (
-                    cache.source_declarations.get(root).cloned(),
+                    cache
+                        .source_declarations
+                        .get(root)
+                        .map(source_discovery_declaration_semantic),
                     cache.symbol_names.get(root).cloned(),
                 ),
             )
@@ -297,7 +303,7 @@ pub(super) fn patch_typescript_indexes(
                 id.clone(),
                 SourceDiscoverySymbolSemantics {
                     alias_target: symbol.alias_target.clone(),
-                    declarations: symbol.declarations.clone(),
+                    declarations: source_discovery_declaration_semantics(&symbol.declarations),
                 },
             );
         } else {
@@ -352,7 +358,11 @@ pub(super) fn patch_typescript_indexes(
                 retained_root_semantics
                     .get(root.as_str())
                     .is_none_or(|(declaration, name)| {
-                        cache.source_declarations.get(root.as_str()) != declaration.as_ref()
+                        cache
+                            .source_declarations
+                            .get(root.as_str())
+                            .map(source_discovery_declaration_semantic)
+                            != *declaration
                             || cache.symbol_names.get(root.as_str()) != name.as_ref()
                     })
             })

@@ -112,6 +112,10 @@ fn native_incremental_session_reuses_oxc_and_solid_facts() {
     // A no-op analysis must reuse both native fact domains without growing
     // either cache.
     session.analyze().unwrap();
+    assert!(
+        session.last_build_timings().source_analysis.is_zero(),
+        "an unchanged generation should reuse its completed source facts"
+    );
     assert!(!session.last_build_timings().exchange.server_materialized);
     assert_eq!(
         session.cache_stats(),

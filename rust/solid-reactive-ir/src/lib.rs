@@ -454,7 +454,7 @@ struct RetainedBuild {
 struct SourceSymbolIdentity {
     id: String,
     alias_target: String,
-    declarations: Vec<Declaration>,
+    declarations: Vec<SourceDiscoveryDeclarationSemantics>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -581,7 +581,33 @@ struct CachedContractExports {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SourceDiscoverySymbolSemantics {
     alias_target: String,
-    declarations: Vec<Declaration>,
+    declarations: Vec<SourceDiscoveryDeclarationSemantics>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SourceDiscoveryDeclarationSemantics {
+    name: String,
+    kind: String,
+    runtime: bool,
+}
+
+fn source_discovery_declaration_semantics(
+    declarations: &[Declaration],
+) -> Vec<SourceDiscoveryDeclarationSemantics> {
+    declarations
+        .iter()
+        .map(source_discovery_declaration_semantic)
+        .collect()
+}
+
+fn source_discovery_declaration_semantic(
+    declaration: &Declaration,
+) -> SourceDiscoveryDeclarationSemantics {
+    SourceDiscoveryDeclarationSemantics {
+        name: declaration.name.clone(),
+        kind: declaration.kind.clone(),
+        runtime: !declaration.location.path.ends_with(".d.ts"),
+    }
 }
 
 struct SourceDiscoveryTypeScriptDelta {
@@ -1038,7 +1064,7 @@ fn source_discovery_identity(
                 .map(|symbol| SourceSymbolIdentity {
                     id,
                     alias_target: symbol.alias_target.clone(),
-                    declarations: symbol.declarations.clone(),
+                    declarations: source_discovery_declaration_semantics(&symbol.declarations),
                 })
         })
         .collect::<Vec<_>>();
@@ -1096,7 +1122,8 @@ fn source_discovery_identity_matches(
             .get(retained.id.as_str())
             .is_some_and(|current| {
                 current.alias_target == retained.alias_target
-                    && current.declarations == retained.declarations
+                    && source_discovery_declaration_semantics(&current.declarations)
+                        == retained.declarations
             })
     })
 }
@@ -5893,7 +5920,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .semantic_symbol_ids,
-            ["new-alias", "old-alias", "root"]
+            ["new-alias", "old-alias"]
                 .into_iter()
                 .map(str::to_owned)
                 .collect()
@@ -5949,6 +5976,105 @@ mod tests {
                 .unwrap()
                 .semantic_symbol_ids
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn exact_index_patch_does_not_treat_declaration_offsets_as_source_semantics() {
+        let table = |start| FactTable {
+            schema: 2,
+            generation: 1,
+            project_id: "fixture".into(),
+            sources: Vec::new(),
+            entities: Vec::new(),
+            symbols: vec![SymbolFact {
+                id: "root".into(),
+                alias_target: String::new(),
+                declarations: vec![declaration("root", "fixture.ts", start)],
+                references: Vec::new(),
+            }],
+            files: Vec::new(),
+        };
+        let old = table(10);
+        let current = table(30);
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: Vec::new(),
+            symbol_ids: vec!["root".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
+        );
+        assert_eq!(
+            patched.source_declarations,
+            typescript_index_cache(&current).source_declarations
+        );
+        assert!(
+            patched
+                .source_discovery_delta
+                .as_ref()
+                .unwrap()
+                .semantic_symbol_ids
+                .is_empty(),
+            "moving a declaration without changing its source semantics must not invalidate importers"
+        );
+    }
+
+    #[test]
+    fn exact_index_patch_does_not_invalidate_when_a_runtime_representative_moves_files() {
+        let table = |path| FactTable {
+            schema: 2,
+            generation: 1,
+            project_id: "fixture".into(),
+            sources: Vec::new(),
+            entities: Vec::new(),
+            symbols: vec![SymbolFact {
+                id: "root".into(),
+                alias_target: String::new(),
+                declarations: vec![declaration("createSignal", path, 10)],
+                references: Vec::new(),
+            }],
+            files: Vec::new(),
+        };
+        let old = table("a.ts");
+        let current = table("b.ts");
+        let symbols_by_id = current
+            .symbols
+            .iter()
+            .map(|symbol| (symbol.id.as_str(), symbol))
+            .collect::<HashMap<_, _>>();
+        let mut patched = typescript_index_cache(&old);
+        let changes = solid_facts::TypeScriptChanges {
+            unchanged: false,
+            entity_paths: Vec::new(),
+            symbol_ids: vec!["root".into()],
+            file_paths: Vec::new(),
+        };
+
+        assert!(
+            patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
+        );
+        assert_eq!(
+            patched.source_declarations["root"].location.path,
+            "b.ts",
+            "the current representative location must still be patched"
+        );
+        assert!(
+            patched
+                .source_discovery_delta
+                .as_ref()
+                .unwrap()
+                .semantic_symbol_ids
+                .is_empty(),
+            "choosing another runtime declaration for the same root must not invalidate importers"
         );
     }
 

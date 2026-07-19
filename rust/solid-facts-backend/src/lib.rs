@@ -293,6 +293,7 @@ pub struct NativeIncrementalSession {
     generation: u64,
     sources: HashMap<String, SourceFile>,
     cache: FactsCache,
+    last_facts: Option<Arc<ProjectFacts>>,
     typescript: TypeFactsSidecar,
     known_paths: HashSet<String>,
     last_build_timings: NativeBuildTimings,
@@ -336,6 +337,7 @@ impl NativeIncrementalSession {
                 .map(|source| (source.path.clone(), source))
                 .collect(),
             cache: FactsCache::default(),
+            last_facts: None,
             typescript,
             last_build_timings: NativeBuildTimings::default(),
         }
@@ -352,7 +354,7 @@ impl NativeIncrementalSession {
         &mut self,
         changes: Vec<SourceChange>,
         cancelled: Option<&std::sync::atomic::AtomicBool>,
-    ) -> Result<ProjectFacts, BackendError> {
+    ) -> Result<Arc<ProjectFacts>, BackendError> {
         check_cancelled(cancelled)?;
         if changes.is_empty() {
             return self.analyze_with_recovery(cancelled);
@@ -429,7 +431,11 @@ impl NativeIncrementalSession {
                     }
                     return Err(error);
                 }
-                Ok(facts) => return Ok(facts),
+                Ok(facts) => {
+                    let facts = Arc::new(facts);
+                    self.last_facts = Some(Arc::clone(&facts));
+                    return Ok(facts);
+                }
             }
         }
     }
@@ -521,7 +527,7 @@ impl NativeIncrementalSession {
     fn analyze_with_recovery(
         &mut self,
         cancelled: Option<&std::sync::atomic::AtomicBool>,
-    ) -> Result<ProjectFacts, BackendError> {
+    ) -> Result<Arc<ProjectFacts>, BackendError> {
         let mut attempt = 0_u32;
         loop {
             let result = match cancelled {
@@ -546,7 +552,15 @@ impl NativeIncrementalSession {
         }
     }
 
-    pub fn analyze(&mut self) -> Result<ProjectFacts, BackendError> {
+    pub fn analyze(&mut self) -> Result<Arc<ProjectFacts>, BackendError> {
+        if let Some(facts) = self
+            .last_facts
+            .as_ref()
+            .filter(|facts| facts.generation.get() == self.generation)
+        {
+            self.last_build_timings = NativeBuildTimings::default();
+            return Ok(Arc::clone(facts));
+        }
         let mut sources = self.sources.values().cloned().collect::<Vec<_>>();
         sources.sort_by(|left, right| left.path.cmp(&right.path));
         let (facts, timings) = build_project_native_cached_measured(
@@ -557,13 +571,24 @@ impl NativeIncrementalSession {
             &mut self.cache,
         )?;
         self.last_build_timings = timings;
+        let facts = Arc::new(facts);
+        self.last_facts = Some(Arc::clone(&facts));
         Ok(facts)
     }
 
     pub fn analyze_cancellable(
         &mut self,
         cancelled: &std::sync::atomic::AtomicBool,
-    ) -> Result<ProjectFacts, BackendError> {
+    ) -> Result<Arc<ProjectFacts>, BackendError> {
+        check_cancelled(Some(cancelled))?;
+        if let Some(facts) = self
+            .last_facts
+            .as_ref()
+            .filter(|facts| facts.generation.get() == self.generation)
+        {
+            self.last_build_timings = NativeBuildTimings::default();
+            return Ok(Arc::clone(facts));
+        }
         let mut sources = self.sources.values().cloned().collect::<Vec<_>>();
         sources.sort_by(|left, right| left.path.cmp(&right.path));
         let (facts, timings) = build_project_native_cached_measured_inner(
@@ -575,6 +600,8 @@ impl NativeIncrementalSession {
             Some(cancelled),
         )?;
         self.last_build_timings = timings;
+        let facts = Arc::new(facts);
+        self.last_facts = Some(Arc::clone(&facts));
         Ok(facts)
     }
 
