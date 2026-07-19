@@ -2066,15 +2066,16 @@ fn discover_sources(
                     entities
                         .get(&location(file.path.as_str(), returned.span))
                         .or_else(|| {
-                            returned.identifier.as_deref().and_then(|name| {
-                                source_declarations
-                                    .iter()
-                                    .find_map(|(symbol, declaration)| {
+                            (returned.value == solid_ast_facts::ReturnValueKind::Identifier)
+                                .then_some(returned.span)
+                                .and_then(|span| file.source_text(span))
+                                .and_then(|name| {
+                                    source_declarations.iter().find_map(|(symbol, declaration)| {
                                         (declaration.name == name
                                             && declaration.location.path == file.path.as_str())
                                         .then_some(symbol)
                                     })
-                            })
+                                })
                         })
                 })
                 .filter(|symbol| {

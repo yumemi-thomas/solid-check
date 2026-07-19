@@ -226,8 +226,6 @@ pub struct ReturnFact {
     pub value: ReturnValueKind,
     pub conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub identifier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub callee: Option<Span>,
 }
 
@@ -458,37 +456,32 @@ impl<'s> Collector<'s> {
                 control_tests: self.conditional_control_stack.clone(),
                 value: ReturnValueKind::Undefined,
                 conditional: false,
-                identifier: None,
                 callee: None,
             };
         };
         let argument_span = span(expression.span());
         let expression = expression.get_inner_expression();
         let conditional = matches!(expression, Expression::ConditionalExpression(_));
-        let (value, identifier, callee) = match expression {
+        let (value, callee) = match expression {
             Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
-                (ReturnValueKind::Function, None, None)
+                (ReturnValueKind::Function, None)
             }
             Expression::Identifier(identifier) if identifier.name == "undefined" => {
-                (ReturnValueKind::Undefined, None, None)
+                (ReturnValueKind::Undefined, None)
             }
-            Expression::Identifier(identifier) => (
-                ReturnValueKind::Identifier,
-                Some(identifier.name.to_string()),
-                None,
-            ),
+            Expression::Identifier(_) => (ReturnValueKind::Identifier, None),
             Expression::CallExpression(call) => {
-                (ReturnValueKind::Call, None, Some(span(call.callee.span())))
+                (ReturnValueKind::Call, Some(span(call.callee.span())))
             }
             Expression::StaticMemberExpression(_)
             | Expression::ComputedMemberExpression(_)
-            | Expression::PrivateFieldExpression(_) => (ReturnValueKind::Member, None, None),
+            | Expression::PrivateFieldExpression(_) => (ReturnValueKind::Member, None),
             Expression::UnaryExpression(unary)
                 if unary.operator == oxc_syntax::operator::UnaryOperator::Void =>
             {
-                (ReturnValueKind::Undefined, None, None)
+                (ReturnValueKind::Undefined, None)
             }
-            _ => (ReturnValueKind::Other, None, None),
+            _ => (ReturnValueKind::Other, None),
         };
         ReturnFact {
             span: span(expression.span()),
@@ -496,7 +489,6 @@ impl<'s> Collector<'s> {
             control_tests: self.conditional_control_stack.clone(),
             value,
             conditional,
-            identifier,
             callee,
         }
     }
@@ -1155,6 +1147,17 @@ const mixed = () => {
                 ReturnValueKind::Function,
                 ReturnValueKind::Other,
             ]
+        );
+        let returned_identifier = facts
+            .returns
+            .iter()
+            .find(|returned| returned.value == ReturnValueKind::Identifier)
+            .unwrap();
+        assert_eq!(
+            source.get(
+                returned_identifier.span.start as usize..returned_identifier.span.end as usize
+            ),
+            Some("cleanup")
         );
         assert!(facts.functions.iter().any(|function| {
             function.r#async

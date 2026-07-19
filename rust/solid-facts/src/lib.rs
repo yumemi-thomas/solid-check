@@ -230,5 +230,6 @@ mod tests {
     #[test]
     fn identifier_facts_remain_compact() {
         assert!(std::mem::size_of::<solid_ast_facts::IdentifierFact>() <= 16);
+        assert!(std::mem::size_of::<solid_ast_facts::ReturnFact>() <= 64);
     }
 }
