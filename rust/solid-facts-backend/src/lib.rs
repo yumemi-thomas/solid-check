@@ -1106,10 +1106,8 @@ fn build_project_native_cached_measured_inner(
     let compiler_facts = compiler_started.elapsed();
     check_cancelled(cancelled)?;
     let assembly_started = Instant::now();
-    for (((file, ast), execution), index) in prepared
-        .into_iter()
-        .zip(executions)
-        .zip(pending_indices)
+    for (((file, ast), execution), index) in
+        prepared.into_iter().zip(executions).zip(pending_indices)
     {
         let facts = FileFacts::new(generation, &file.source, ast, execution)?;
         files[index] = Some(facts);
@@ -1482,7 +1480,7 @@ fn hydrate_structural_file_facts(table: &mut solid_ts_facts::FactTable, files: &
         .iter()
         .map(|file| (file.path.as_str(), file))
         .collect::<HashMap<_, _>>();
-    for target in &mut table.files {
+    for target in Arc::make_mut(&mut table.files) {
         let Some(file) = files_by_path.get(target.path.as_str()).copied() else {
             continue;
         };
@@ -1499,7 +1497,7 @@ fn hydrate_structural_file_facts_cached(
         .iter()
         .map(|file| (file.path.as_str(), file))
         .collect::<HashMap<_, _>>();
-    for target in &mut table.files {
+    for target in Arc::make_mut(&mut table.files) {
         let Some(file) = files_by_path.get(target.path.as_str()).copied() else {
             continue;
         };
@@ -2115,15 +2113,59 @@ fn sources_request(project_id: &str, generation: u64) -> solid_ts_facts::v3::Req
 pub fn decode_source_files(
     response: solid_ts_facts::v3::Response,
 ) -> Result<Vec<SourceFile>, BackendError> {
+    let arena = if response.source_arena.is_empty() {
+        None
+    } else {
+        let bytes = std::fs::read(&response.source_arena).map_err(|error| {
+            BackendError::Process(format!(
+                "read TypeFacts source arena {:?}: {error}",
+                response.source_arena
+            ))
+        })?;
+        let _ = std::fs::remove_file(&response.source_arena);
+        Some(bytes)
+    };
+    if let Some(arena) = arena.as_deref() {
+        if response.source_lengths.len() != response.sources.len() {
+            return Err(BackendError::Process(
+                "TypeFacts source arena descriptor count mismatch".into(),
+            ));
+        }
+        let mut offset = 0usize;
+        let mut sources = Vec::with_capacity(response.sources.len());
+        for (source, length) in response.sources.into_iter().zip(response.source_lengths) {
+            let length = usize::try_from(length)
+                .map_err(|_| BackendError::Process("source arena length overflow".into()))?;
+            let end = offset
+                .checked_add(length)
+                .ok_or_else(|| BackendError::Process("source arena range overflow".into()))?;
+            let bytes = arena.get(offset..end).ok_or_else(|| {
+                BackendError::Process("source arena range is out of bounds".into())
+            })?;
+            offset = end;
+            sources.push(decode_source_file(source, Some(bytes))?);
+        }
+        if offset != arena.len() {
+            return Err(BackendError::Process(
+                "TypeFacts source arena has trailing bytes".into(),
+            ));
+        }
+        return Ok(sources);
+    }
     response
         .sources
         .into_iter()
-        .map(decode_source_file)
+        .map(|source| decode_source_file(source, None))
         .collect()
 }
 
-fn decode_source_file(source: solid_ts_facts::v3::SourceFile) -> Result<SourceFile, BackendError> {
-    let bytes = if source.local {
+fn decode_source_file(
+    source: solid_ts_facts::v3::SourceFile,
+    arena: Option<&[u8]>,
+) -> Result<SourceFile, BackendError> {
+    let bytes = if let Some(arena) = arena {
+        arena.to_vec()
+    } else if source.local {
         std::fs::read(&source.path).map_err(|error| {
             BackendError::Process(format!("read configured source {:?}: {error}", source.path))
         })?
@@ -2414,14 +2456,13 @@ fn apply_table_delta(
         .iter()
         .map(String::as_str)
         .collect();
-    table.sources.retain(|value| {
+    let sources = Arc::make_mut(&mut table.sources);
+    sources.retain(|value| {
         !source_paths.contains(value.path.as_str())
             && !removed_source_paths.contains(value.path.as_str())
     });
-    table.sources.extend(delta.sources.iter().cloned());
-    table
-        .sources
-        .sort_by(|left, right| left.path.cmp(&right.path));
+    sources.extend(delta.sources.iter().cloned());
+    sources.sort_by(|left, right| left.path.cmp(&right.path));
 
     let entity_paths: HashSet<_> = delta
         .entity_files
@@ -2433,14 +2474,15 @@ fn apply_table_delta(
         .iter()
         .map(String::as_str)
         .collect();
-    table.entities.retain(|value| {
+    let entities = Arc::make_mut(&mut table.entities);
+    entities.retain(|value| {
         !entity_paths.contains(value.location.path.as_str())
             && !removed_entity_paths.contains(value.location.path.as_str())
     });
     for file in &delta.entity_files {
-        table.entities.extend(file.entities.iter().cloned());
+        entities.extend(file.entities.iter().cloned());
     }
-    table.entities.sort_by(|left, right| {
+    entities.sort_by(|left, right| {
         (
             &left.location.path,
             left.location.start_byte,
@@ -2463,11 +2505,12 @@ fn apply_table_delta(
         .iter()
         .map(String::as_str)
         .collect();
-    table.symbols.retain(|value| {
+    let symbols = Arc::make_mut(&mut table.symbols);
+    symbols.retain(|value| {
         !symbol_ids.contains(value.id.as_str()) && !removed_symbol_ids.contains(value.id.as_str())
     });
-    table.symbols.extend(delta.symbols.iter().cloned());
-    table.symbols.sort_by(|left, right| left.id.cmp(&right.id));
+    symbols.extend(delta.symbols.iter().cloned());
+    symbols.sort_by(|left, right| left.id.cmp(&right.id));
     for replacement in &delta.symbol_reference_files {
         if replacement
             .references
@@ -2480,21 +2523,14 @@ fn apply_table_delta(
             )));
         }
         if replacement.references.windows(2).any(|pair| {
-            (
-                pair[0].start_byte,
-                pair[0].end_byte,
-            ) > (
-                pair[1].start_byte,
-                pair[1].end_byte,
-            )
+            (pair[0].start_byte, pair[0].end_byte) > (pair[1].start_byte, pair[1].end_byte)
         }) {
             return Err(BackendError::Process(format!(
                 "TypeFacts reference delta for {:?} is not ordered",
                 replacement.id
             )));
         }
-        let symbol_index = table
-            .symbols
+        let symbol_index = symbols
             .binary_search_by(|symbol| symbol.id.cmp(&replacement.id))
             .map_err(|_| {
                 BackendError::Process(format!(
@@ -2502,7 +2538,7 @@ fn apply_table_delta(
                     replacement.id
                 ))
             })?;
-        let symbol = &mut table.symbols[symbol_index];
+        let symbol = &mut symbols[symbol_index];
         let start = symbol
             .references
             .partition_point(|reference| reference.path < replacement.path);
@@ -2524,14 +2560,13 @@ fn apply_table_delta(
         .iter()
         .map(String::as_str)
         .collect();
-    table.files.retain(|value| {
+    let files = Arc::make_mut(&mut table.files);
+    files.retain(|value| {
         !file_paths.contains(value.path.as_str())
             && !removed_file_paths.contains(value.path.as_str())
     });
-    table.files.extend(delta.files.iter().cloned());
-    table
-        .files
-        .sort_by(|left, right| left.path.cmp(&right.path));
+    files.extend(delta.files.iter().cloned());
+    files.sort_by(|left, right| left.path.cmp(&right.path));
     table.generation = delta.generation;
     Ok(())
 }
@@ -2763,10 +2798,10 @@ mod tests {
                     schema: TYPE_FACTS_SCHEMA,
                     project_id: request.project_id.clone(),
                     generation: request.generation,
-                    sources: vec![self.source.clone()],
-                    entities: vec![],
-                    symbols: vec![],
-                    files: vec![],
+                    sources: vec![self.source.clone()].into(),
+                    entities: vec![].into(),
+                    symbols: vec![].into(),
+                    files: vec![].into(),
                 },
             })
         }
@@ -2798,20 +2833,26 @@ mod tests {
             std::process::id()
         ));
         std::fs::write(&path, "export const local = 1;\n").unwrap();
-        let local = decode_source_file(solid_ts_facts::v3::SourceFile {
-            path: path.to_string_lossy().into_owned(),
-            local: true,
-            source: vec![],
-        })
+        let local = decode_source_file(
+            solid_ts_facts::v3::SourceFile {
+                path: path.to_string_lossy().into_owned(),
+                local: true,
+                source: vec![],
+            },
+            None,
+        )
         .unwrap();
         assert_eq!(local.source, "export const local = 1;\n");
         std::fs::remove_file(path).unwrap();
 
-        let inline = decode_source_file(solid_ts_facts::v3::SourceFile {
-            path: "/virtual/generated.ts".into(),
-            local: false,
-            source: b"export const generated = 2;\n".to_vec(),
-        })
+        let inline = decode_source_file(
+            solid_ts_facts::v3::SourceFile {
+                path: "/virtual/generated.ts".into(),
+                local: false,
+                source: b"export const generated = 2;\n".to_vec(),
+            },
+            None,
+        )
         .unwrap();
         assert_eq!(inline.source, "export const generated = 2;\n");
     }
@@ -2837,9 +2878,9 @@ mod tests {
             schema: TYPE_FACTS_SCHEMA,
             project_id: "project".into(),
             generation: 1,
-            sources: vec![],
-            entities: vec![],
-            symbols: vec![],
+            sources: vec![].into(),
+            entities: vec![].into(),
+            symbols: vec![].into(),
             files: files
                 .iter()
                 .rev()
@@ -2850,7 +2891,8 @@ mod tests {
                     functions: vec![],
                     async_functions: vec![],
                 })
-                .collect(),
+                .collect::<Vec<_>>()
+                .into(),
         };
         let mut retained_table = fresh_table.clone();
         hydrate_structural_file_facts(&mut fresh_table, &files);
@@ -2938,7 +2980,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(project.files.len(), 1);
-        assert_eq!(project.typescript.sources, vec![types.source]);
+        assert_eq!(project.typescript.sources.as_slice(), &[types.source]);
     }
 
     #[test]

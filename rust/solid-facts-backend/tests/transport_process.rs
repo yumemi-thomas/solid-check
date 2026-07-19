@@ -138,7 +138,12 @@ fn v3_updates_and_reanalyzes_a_retained_project() {
         .iter()
         .find(|source| source.path.ends_with("App.tsx"))
         .expect("App.tsx source descriptor exists");
-    assert!(app_descriptor.local);
+    assert!(!source_response.source_arena.is_empty());
+    assert_eq!(
+        source_response.source_lengths.len(),
+        source_response.sources.len()
+    );
+    assert!(!app_descriptor.local);
     assert!(app_descriptor.source.is_empty());
 
     let hydrated_sources = decode_source_files(source_response).expect("local sources hydrate");
@@ -159,16 +164,22 @@ fn v3_updates_and_reanalyzes_a_retained_project() {
         deleted: false,
     });
     service.lifecycle(update).unwrap();
-    let updated_sources = service
+    let updated_source_response = service
         .lifecycle(lifecycle_request(Operation::Sources, project_id.clone(), 2))
-        .unwrap()
-        .sources;
-    let app_overlay = updated_sources
+        .unwrap();
+    let app_overlay = updated_source_response
+        .sources
         .iter()
         .find(|source| source.path.ends_with("App.tsx"))
         .expect("updated App.tsx source descriptor exists");
     assert!(!app_overlay.local);
-    assert!(!app_overlay.source.is_empty());
+    assert!(app_overlay.source.is_empty());
+    assert!(
+        decode_source_files(updated_source_response)
+            .expect("updated source arena hydrates")
+            .iter()
+            .any(|source| source.path.ends_with("App.tsx") && !source.source.is_empty())
+    );
     assert!(
         service
             .lifecycle(lifecycle_request(Operation::Analyze, project_id.clone(), 2))

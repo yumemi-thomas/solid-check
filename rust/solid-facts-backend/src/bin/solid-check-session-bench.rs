@@ -18,6 +18,15 @@ struct Options {
     warmups: usize,
     edit: Option<PathBuf>,
     edit_mode: EditMode,
+    limits: TransferLimits,
+}
+
+#[derive(Default)]
+struct TransferLimits {
+    first_request_bytes: Option<u64>,
+    first_response_bytes: Option<u64>,
+    sample_request_bytes: Option<u64>,
+    sample_response_bytes: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -111,6 +120,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         timing_samples.push(timings);
     }
     let chronological_samples = samples.clone();
+    enforce_transfer_limits(&options.limits, first_timings, &timing_samples)?;
     let chronological_breakdown = timing_samples
         .iter()
         .enumerate()
@@ -170,6 +180,52 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }))?
     );
+    Ok(())
+}
+
+fn enforce_transfer_limits(
+    limits: &TransferLimits,
+    first: AnalysisTimings,
+    samples: &[AnalysisTimings],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let max_request = samples
+        .iter()
+        .map(|timing| timing.facts.exchange.request_bytes)
+        .max()
+        .unwrap_or(0);
+    let max_response = samples
+        .iter()
+        .map(|timing| timing.facts.exchange.response_bytes)
+        .max()
+        .unwrap_or(0);
+    for (name, actual, limit) in [
+        (
+            "first request bytes",
+            first.facts.exchange.request_bytes,
+            limits.first_request_bytes,
+        ),
+        (
+            "first response bytes",
+            first.facts.exchange.response_bytes,
+            limits.first_response_bytes,
+        ),
+        (
+            "sample request bytes",
+            max_request,
+            limits.sample_request_bytes,
+        ),
+        (
+            "sample response bytes",
+            max_response,
+            limits.sample_response_bytes,
+        ),
+    ] {
+        if let Some(limit) = limit
+            && actual > limit
+        {
+            return Err(format!("{name} {actual} exceeds limit {limit}").into());
+        }
+    }
     Ok(())
 }
 
@@ -414,6 +470,7 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
     let mut warmups = 3_usize;
     let mut edit = None;
     let mut edit_mode = EditMode::Prefix;
+    let mut limits = TransferLimits::default();
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     let mut index = 0;
     while index < arguments.len() {
@@ -438,6 +495,18 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
                     mode => return Err(format!("unsupported edit mode {mode:?}").into()),
                 }
             }
+            "--max-first-request-bytes" => {
+                limits.first_request_bytes = Some(value(&mut index)?.parse()?)
+            }
+            "--max-first-response-bytes" => {
+                limits.first_response_bytes = Some(value(&mut index)?.parse()?)
+            }
+            "--max-sample-request-bytes" => {
+                limits.sample_request_bytes = Some(value(&mut index)?.parse()?)
+            }
+            "--max-sample-response-bytes" => {
+                limits.sample_response_bytes = Some(value(&mut index)?.parse()?)
+            }
             "-h" | "--help" => {
                 println!(
                     "Usage: solid-check-session-bench [OPTIONS]\n\n\
@@ -446,7 +515,11 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
                      --iterations <COUNT>   Measured iterations (default: 20)\n\
                      --warmups <COUNT>      Warm-up iterations (default: 3)\n\
                      --edit <PATH>          Alternate an in-memory edit before each analysis\n\
-                     --edit-mode <MODE>     prefix (default) or same-span-body"
+                     --edit-mode <MODE>     prefix (default) or same-span-body\n\
+                     --max-first-request-bytes <BYTES>\n\
+                     --max-first-response-bytes <BYTES>\n\
+                     --max-sample-request-bytes <BYTES>\n\
+                     --max-sample-response-bytes <BYTES>"
                 );
                 std::process::exit(0);
             }
@@ -467,5 +540,6 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
         warmups,
         edit,
         edit_mode,
+        limits,
     })
 }

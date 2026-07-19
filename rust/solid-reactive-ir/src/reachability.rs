@@ -9,9 +9,10 @@ use solid_ts_facts::Location;
 
 use super::{
     CachedReachabilityFile, EntitySymbols, FunctionNode, ProjectIndexes, ReachabilityEdge,
-    ReachabilityTarget, SourceDiscoveryTypeScriptDelta, SemanticLookup, containing_function_indexed,
-    function_indices_by_path, function_is_solid_callback, location, primitive_name,
-    same_compiler_semantics, source_discovery_identity, source_discovery_identity_matches,
+    ReachabilityTarget, SemanticLookup, SourceDiscoveryTypeScriptDelta,
+    containing_function_indexed, function_indices_by_path, function_is_solid_callback, location,
+    primitive_name, same_compiler_semantics, source_discovery_identity,
+    source_discovery_identity_matches,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -584,7 +585,7 @@ pub(super) fn reachable_call_multiplicity(
         .filter_map(|(index, function)| function.symbol.clone().map(|symbol| (symbol, index)))
         .collect::<HashMap<_, _>>();
     let mut exported_bodies = HashMap::<&str, HashSet<(u64, u64)>>::new();
-    for file in &facts.typescript.files {
+    for file in facts.typescript.files.iter() {
         for function in &file.functions {
             if function.exported {
                 exported_bodies

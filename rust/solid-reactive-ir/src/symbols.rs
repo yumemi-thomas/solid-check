@@ -81,7 +81,7 @@ pub(super) fn alias_roots_and_source_declarations(
     let targets = symbol_alias_targets(table);
     let mut roots = HashMap::with_capacity(table.symbols.len());
     let mut declarations = HashMap::new();
-    for symbol in &table.symbols {
+    for symbol in table.symbols.iter() {
         let mut root = symbol.id.clone();
         for _ in 0..=targets.len() {
             let Some(next) = targets.get(&root) else {
@@ -134,7 +134,7 @@ pub(super) fn symbols_by_root(
     aliases: &HashMap<String, String>,
 ) -> HashMap<String, Vec<String>> {
     let mut by_root = HashMap::<String, Vec<String>>::new();
-    for symbol in &table.symbols {
+    for symbol in table.symbols.iter() {
         let root = aliases
             .get(&symbol.id)
             .cloned()
@@ -239,9 +239,7 @@ pub(super) fn patch_typescript_indexes(
                     .get(id.as_str())
                     .map(|symbol| SourceDiscoverySymbolSemantics {
                         alias_target: symbol.alias_target.clone(),
-                        declarations: source_discovery_declaration_semantics(
-                            &symbol.declarations,
-                        ),
+                        declarations: source_discovery_declaration_semantics(&symbol.declarations),
                     });
             cache.source_discovery_symbol_semantics.get(id.as_str()) != current.as_ref()
         })
@@ -453,7 +451,7 @@ pub(super) fn symbol_names(
     roots: &HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut names = HashMap::new();
-    for symbol in &table.symbols {
+    for symbol in table.symbols.iter() {
         let root = roots
             .get(&symbol.id)
             .cloned()
@@ -472,7 +470,7 @@ pub(super) fn references_by_source(
     roots: &HashMap<String, String>,
 ) -> HashMap<String, Vec<Location>> {
     let mut references = HashMap::<String, Vec<Location>>::new();
-    for symbol in &table.symbols {
+    for symbol in table.symbols.iter() {
         if symbol.references.is_empty() {
             continue;
         }

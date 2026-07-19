@@ -1944,7 +1944,7 @@ fn discover_sources(
         }
     }
     finish_stage!(source_discovery, "source-discovery");
-    for entity in &facts.typescript.entities {
+    for entity in facts.typescript.entities.iter() {
         let Some(descriptor) = &entity.type_descriptor else {
             continue;
         };
@@ -2286,7 +2286,7 @@ fn build_with_contracts_measured_incremental(
         interprocedural_graph: interprocedural_graph_cache,
         interprocedural_results: interprocedural_result_cache,
         typescript_indexes: typescript_indexes_cache,
-        reachability: reachability_cache,
+        reachability: mut reachability_cache,
         late_stages: mut late_stage_cache,
     } = caches;
     let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
@@ -2454,92 +2454,133 @@ fn build_with_contracts_measured_incremental(
     build_timings.contract_resolution = substage_started.elapsed();
     let semantic_lookup = SemanticLookup::new(facts, entities, &symbol_names);
     let semantic_lookup = &semantic_lookup;
-    let owned_reachable_calls;
-    let reachable_calls = if let Some(cache) = reachability_cache {
-        let can_reuse = typescript_unchanged
-            && cache.as_ref().is_some_and(|cached| {
-                cached.inputs.len() == facts.files.len()
-                    && facts.files.iter().all(|file| {
-                        cached
-                            .inputs
-                            .get(file.path.as_str())
-                            .is_some_and(|(source_hash, ast)| {
-                                source_hash == &file.source_hash
-                                    || same_reachability_ast(ast, &file.ast)
-                            })
+    // Source discovery does not inspect missing exports, and the static prepass
+    // owns them after the two independent index passes complete.
+    let mut static_violations = std::mem::take(&mut resolved_contracts.missing_exports);
+    let mut owned_reachable_calls = None;
+    let source_discovery = std::thread::scope(|scope| {
+        let source_context = StageContext {
+            facts,
+            project_indexes: &project_indexes,
+            typescript_indexes,
+            entities,
+            source_declarations,
+            symbol_names: &symbol_names,
+            semantic_lookup,
+            resolved_contracts: &resolved_contracts,
+            contracts,
+        };
+        let source_discovery_handle = scope.spawn(move || {
+            let mut timings = BuildTimings::default();
+            let sources = discover_sources(
+                &source_context,
+                source_discovery_cache,
+                typescript_unchanged,
+                &mut timings,
+                emit_timings,
+            );
+            (sources, timings)
+        });
+        if let Some(cache) = reachability_cache.as_deref_mut() {
+            let can_reuse = typescript_unchanged
+                && cache.as_ref().is_some_and(|cached| {
+                    cached.inputs.len() == facts.files.len()
+                        && facts.files.iter().all(|file| {
+                            cached.inputs.get(file.path.as_str()).is_some_and(
+                                |(source_hash, ast)| {
+                                    source_hash == &file.source_hash
+                                        || same_reachability_ast(ast, &file.ast)
+                                },
+                            )
+                        })
+                });
+            if can_reuse {
+                let cached = cache.as_mut().expect("checked retained reachability");
+                for file in &facts.files {
+                    if let Some((source_hash, _)) = cached.inputs.get_mut(file.path.as_str()) {
+                        source_hash.clone_from(&file.source_hash);
+                    }
+                    if let Some(retained_file) = cached.files.get_mut(file.path.as_str()) {
+                        retained_file
+                            .identity
+                            .source_hash
+                            .clone_from(&file.source_hash);
+                    }
+                }
+                build_timings.reachability_reused = true;
+            } else {
+                let substage_started = Instant::now();
+                let cached = cache.get_or_insert_with(|| CachedReachability {
+                    inputs: HashMap::new(),
+                    files: HashMap::new(),
+                    calls: HashMap::new(),
+                    multiplicity_by_path: HashMap::new(),
+                    function_symbols: HashSet::new(),
+                });
+                let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
+                    ReachabilityInputs {
+                        facts,
+                        indexes: &project_indexes,
+                        entities,
+                        symbol_names: &symbol_names,
+                        lookup: semantic_lookup,
+                        typescript_unchanged,
+                        typescript_delta: typescript_indexes.source_discovery_delta.as_ref(),
+                    },
+                    ReachabilityState {
+                        files: &mut cached.files,
+                        multiplicity_by_path: &mut cached.multiplicity_by_path,
+                        calls: &mut cached.calls,
+                        function_symbols: &mut cached.function_symbols,
+                    },
+                );
+                build_timings.reachability = substage_started.elapsed();
+                build_timings.reachability_reused_files = reused_files;
+                build_timings.reachability_recomputed_files = recomputed_files;
+                cached.inputs = facts
+                    .files
+                    .iter()
+                    .map(|file| {
+                        (
+                            file.path.to_string(),
+                            (file.source_hash.clone(), file.ast.clone()),
+                        )
                     })
-            });
-        if can_reuse {
-            let cached = cache.as_mut().expect("checked retained reachability");
-            for file in &facts.files {
-                if let Some((source_hash, _)) = cached.inputs.get_mut(file.path.as_str()) {
-                    source_hash.clone_from(&file.source_hash);
-                }
-                if let Some(retained_file) = cached.files.get_mut(file.path.as_str()) {
-                    retained_file
-                        .identity
-                        .source_hash
-                        .clone_from(&file.source_hash);
-                }
+                    .collect();
             }
-            build_timings.reachability_reused = true;
         } else {
             let substage_started = Instant::now();
-            let cached = cache.get_or_insert_with(|| CachedReachability {
-                inputs: HashMap::new(),
-                files: HashMap::new(),
-                calls: HashMap::new(),
-                multiplicity_by_path: HashMap::new(),
-                function_symbols: HashSet::new(),
-            });
-            let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
-                ReachabilityInputs {
-                    facts,
-                    indexes: &project_indexes,
-                    entities,
-                    symbol_names: &symbol_names,
-                    lookup: semantic_lookup,
-                    typescript_unchanged,
-                    typescript_delta: typescript_indexes.source_discovery_delta.as_ref(),
-                },
-                ReachabilityState {
-                    files: &mut cached.files,
-                    multiplicity_by_path: &mut cached.multiplicity_by_path,
-                    calls: &mut cached.calls,
-                    function_symbols: &mut cached.function_symbols,
-                },
-            );
+            owned_reachable_calls = Some(reachable_call_multiplicity(
+                facts,
+                &project_indexes,
+                entities,
+                &symbol_names,
+                semantic_lookup,
+            ));
             build_timings.reachability = substage_started.elapsed();
-            build_timings.reachability_reused_files = reused_files;
-            build_timings.reachability_recomputed_files = recomputed_files;
-            cached.inputs = facts
-                .files
-                .iter()
-                .map(|file| {
-                    (
-                        file.path.to_string(),
-                        (file.source_hash.clone(), file.ast.clone()),
-                    )
-                })
-                .collect();
         }
+        finish_stage!(indexes_and_reachability, "indexes-and-reachability");
+        let (source_discovery, discovery_timings) = source_discovery_handle
+            .join()
+            .expect("parallel source discovery worker panicked");
+        build_timings.source_discovery = discovery_timings.source_discovery;
+        build_timings.source_discovery_reused_files =
+            discovery_timings.source_discovery_reused_files;
+        build_timings.source_discovery_recomputed_files =
+            discovery_timings.source_discovery_recomputed_files;
+        build_timings.typed_accessors_and_prop_roots =
+            discovery_timings.typed_accessors_and_prop_roots;
+        build_timings.prop_propagation_and_control_flow =
+            discovery_timings.prop_propagation_and_control_flow;
+        source_discovery
+    });
+    let reachable_calls = if let Some(cache) = reachability_cache {
         &cache.as_ref().expect("reachability initialized").calls
     } else {
-        let substage_started = Instant::now();
-        owned_reachable_calls = reachable_call_multiplicity(
-            facts,
-            &project_indexes,
-            entities,
-            &symbol_names,
-            semantic_lookup,
-        );
-        build_timings.reachability = substage_started.elapsed();
-        &owned_reachable_calls
+        owned_reachable_calls
+            .as_ref()
+            .expect("owned reachability initialized")
     };
-    finish_stage!(indexes_and_reachability, "indexes-and-reachability");
-    // Taken before the stage borrows `resolved_contracts`; the discovery stage
-    // never reads `missing_exports`, and the static-prepass stage owns it next.
-    let mut static_violations = std::mem::take(&mut resolved_contracts.missing_exports);
     let SourceDiscovery {
         accessors,
         accessor_origins,
@@ -2560,23 +2601,7 @@ fn build_with_contracts_measured_incremental(
         bundled_returns,
         retained_source_paths,
         changed_source_symbols,
-    } = discover_sources(
-        &StageContext {
-            facts,
-            project_indexes: &project_indexes,
-            typescript_indexes,
-            entities,
-            source_declarations,
-            symbol_names: &symbol_names,
-            semantic_lookup,
-            resolved_contracts: &resolved_contracts,
-            contracts,
-        },
-        source_discovery_cache,
-        typescript_unchanged,
-        &mut build_timings,
-        emit_timings,
-    );
+    } = source_discovery;
     // discover_sources owns its own stage timers; re-anchor this function's
     // timer so finish_stage!(static_prepass) measures only the prepass loops.
     // The read keeps the previous stage's macro reset from becoming a dead
@@ -2668,7 +2693,7 @@ fn build_with_contracts_measured_incremental(
             }
         }
     }
-    for typescript_file in &facts.typescript.files {
+    for typescript_file in facts.typescript.files.iter() {
         for function in &typescript_file.async_functions {
             for call in &function.calls_after_await {
                 let Some(symbol) = entities.get(call) else {
@@ -4307,19 +4332,21 @@ fn containing_leaf_owner(
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> Option<String> {
-    file.ast.arguments_containing(span).find_map(|(call, index)| {
-        if index != 0 {
-            return None;
-        }
-        let owner = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        )?;
-        matches!(owner.as_str(), "onSettled" | "createTrackedEffect").then_some(owner)
-    })
+    file.ast
+        .arguments_containing(span)
+        .find_map(|(call, index)| {
+            if index != 0 {
+                return None;
+            }
+            let owner = primitive_name(
+                file.path.as_str(),
+                call.callee,
+                call.static_callee.as_deref(),
+                entities,
+                symbol_names,
+            )?;
+            matches!(owner.as_str(), "onSettled" | "createTrackedEffect").then_some(owner)
+        })
 }
 
 fn read_is_under_loading(
@@ -4338,10 +4365,9 @@ fn read_is_under_loading(
     }
     if file.ast.jsx_containing(span).any(|element| {
         jsx_target_function(lookup, file, element).is_some_and(|(target_file, target)| {
-            target_file
-                .ast
-                .jsx_within(target.body)
-                .any(|candidate| jsx_element_is_loading(target_file, candidate, entities, symbol_names))
+            target_file.ast.jsx_within(target.body).any(|candidate| {
+                jsx_element_is_loading(target_file, candidate, entities, symbol_names)
+            })
         })
     }) {
         return true;
@@ -4685,14 +4711,16 @@ fn function_is_solid_callback(
 ) -> bool {
     let primitives = lookup.primitives(file);
     if file.ast.jsx_containing(function.span).any(|element| {
-        !file.ast.functions_within(element.span).any(|outer| {
-            outer.span != function.span && outer.span.contains(function.span)
-        }) && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
-            matches!(
-                primitive.as_str(),
-                "For" | "Repeat" | "Show" | "Match" | "Switch"
-            )
-        })
+        !file
+            .ast
+            .functions_within(element.span)
+            .any(|outer| outer.span != function.span && outer.span.contains(function.span))
+            && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
+                matches!(
+                    primitive.as_str(),
+                    "For" | "Repeat" | "Show" | "Match" | "Switch"
+                )
+            })
     }) {
         return true;
     }
@@ -4705,35 +4733,47 @@ fn function_is_solid_callback(
         .or_else(|| function_binding_name(file, function))
         .map(|name| name.name.as_str());
     file.ast.calls.iter().enumerate().any(|(call_index, call)| {
-        primitives.calls[call_index].as_deref().is_some_and(|primitive| {
-            matches!(
-                primitive,
-                "createMemo"
-                    | "createEffect"
-                    | "createRenderEffect"
-                    | "createTrackedEffect"
-                    | "createSignal"
-                    | "createStore"
-                    | "createProjection"
-                    | "createOptimistic"
-                    | "createOptimisticStore"
-                    | "dynamic"
-            )
-        }) && call.arguments.iter().any(|argument| {
-            argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
-        })
-    }) || file.ast.jsx_elements.iter().enumerate().any(|(element_index, element)| {
-        primitives.jsx[element_index].as_deref().is_some_and(|primitive| {
-            matches!(primitive, "For" | "Repeat" | "Show" | "Match" | "Switch")
-        }) && file.ast.identifiers_within(element.span).any(|identifier| {
-            identifier.role == solid_ast_facts::IdentifierRole::Reference
-                && !file.ast.jsx_containing(identifier.span).any(|nested| {
-                    nested.span != element.span && element.span.contains(nested.span)
+        primitives.calls[call_index]
+            .as_deref()
+            .is_some_and(|primitive| {
+                matches!(
+                    primitive,
+                    "createMemo"
+                        | "createEffect"
+                        | "createRenderEffect"
+                        | "createTrackedEffect"
+                        | "createSignal"
+                        | "createStore"
+                        | "createProjection"
+                        | "createOptimistic"
+                        | "createOptimisticStore"
+                        | "dynamic"
+                )
+            })
+            && call.arguments.iter().any(|argument| {
+                argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
+            })
+    }) || file
+        .ast
+        .jsx_elements
+        .iter()
+        .enumerate()
+        .any(|(element_index, element)| {
+            primitives.jsx[element_index]
+                .as_deref()
+                .is_some_and(|primitive| {
+                    matches!(primitive, "For" | "Repeat" | "Show" | "Match" | "Switch")
                 })
-                && (entities.get(&location(file.path.as_str(), identifier.span)) == Some(symbol)
-                    || binding_name == Some(identifier.name.as_str()))
+                && file.ast.identifiers_within(element.span).any(|identifier| {
+                    identifier.role == solid_ast_facts::IdentifierRole::Reference
+                        && !file.ast.jsx_containing(identifier.span).any(|nested| {
+                            nested.span != element.span && element.span.contains(nested.span)
+                        })
+                        && (entities.get(&location(file.path.as_str(), identifier.span))
+                            == Some(symbol)
+                            || binding_name == Some(identifier.name.as_str()))
+                })
         })
-    })
 }
 
 fn counts_as_strict_read_root(
@@ -5747,10 +5787,10 @@ mod tests {
                 schema: 2,
                 generation,
                 project_id: "fixture".into(),
-                sources: Vec::new(),
-                entities: Vec::new(),
-                symbols: Vec::new(),
-                files: Vec::new(),
+                sources: Vec::new().into(),
+                entities: Vec::new().into(),
+                symbols: Vec::new().into(),
+                files: Vec::new().into(),
             },
             typescript_changes: None,
         }
@@ -5801,8 +5841,8 @@ mod tests {
             schema: 2,
             generation: 1,
             project_id: "fixture".into(),
-            sources: Vec::new(),
-            entities: Vec::new(),
+            sources: Vec::new().into(),
+            entities: Vec::new().into(),
             symbols: vec![
                 solid_ts_facts::SymbolFact {
                     id: "early".into(),
@@ -5819,8 +5859,9 @@ mod tests {
                     ],
                     references: Vec::new(),
                 },
-            ],
-            files: Vec::new(),
+            ]
+            .into(),
+            files: Vec::new().into(),
         };
 
         let (_, declarations) = alias_roots_and_source_declarations(&table);
@@ -5855,13 +5896,14 @@ mod tests {
                 "root",
                 vec![declaration("root", "fixture.d.ts", 2)],
             ),
-        ];
-        old.symbols[1].references = vec![Location {
+        ]
+        .into();
+        Arc::make_mut(&mut old.symbols)[1].references = vec![Location {
             path: "fixture.ts".into(),
             start_byte: 10,
             end_byte: 11,
         }];
-        old.entities = vec![entity("old-alias", 10)];
+        old.entities = vec![entity("old-alias", 10)].into();
         let mut current = empty_project(2).typescript;
         current.symbols = vec![
             symbol("root", "", vec![declaration("root", "fixture.ts", 3)]),
@@ -5870,8 +5912,9 @@ mod tests {
                 "root",
                 vec![declaration("root", "fixture.d.ts", 4)],
             ),
-        ];
-        current.symbols[1].references = vec![
+        ]
+        .into();
+        Arc::make_mut(&mut current.symbols)[1].references = vec![
             Location {
                 path: "fixture.ts".into(),
                 start_byte: 13,
@@ -5888,7 +5931,7 @@ mod tests {
                 end_byte: 13,
             },
         ];
-        current.entities = vec![entity("new-alias", 12)];
+        current.entities = vec![entity("new-alias", 12)].into();
         let symbols_by_id = current
             .symbols
             .iter()
@@ -5935,8 +5978,8 @@ mod tests {
             schema: 2,
             generation: 1,
             project_id: "fixture".into(),
-            sources: Vec::new(),
-            entities: Vec::new(),
+            sources: Vec::new().into(),
+            entities: Vec::new().into(),
             symbols: vec![SymbolFact {
                 id: "root".into(),
                 alias_target: String::new(),
@@ -5946,8 +5989,9 @@ mod tests {
                     start_byte: reference_start,
                     end_byte: reference_start + 1,
                 }],
-            }],
-            files: Vec::new(),
+            }]
+            .into(),
+            files: Vec::new().into(),
         };
         let old = table(10);
         let current = table(20);
@@ -5987,15 +6031,16 @@ mod tests {
             schema: 2,
             generation: 1,
             project_id: "fixture".into(),
-            sources: Vec::new(),
-            entities: Vec::new(),
+            sources: Vec::new().into(),
+            entities: Vec::new().into(),
             symbols: vec![SymbolFact {
                 id: "root".into(),
                 alias_target: String::new(),
                 declarations: vec![declaration("root", "fixture.ts", start)],
                 references: Vec::new(),
-            }],
-            files: Vec::new(),
+            }]
+            .into(),
+            files: Vec::new().into(),
         };
         let old = table(10);
         let current = table(30);
@@ -6036,15 +6081,16 @@ mod tests {
             schema: 2,
             generation: 1,
             project_id: "fixture".into(),
-            sources: Vec::new(),
-            entities: Vec::new(),
+            sources: Vec::new().into(),
+            entities: Vec::new().into(),
             symbols: vec![SymbolFact {
                 id: "root".into(),
                 alias_target: String::new(),
                 declarations: vec![declaration("createSignal", path, 10)],
                 references: Vec::new(),
-            }],
-            files: Vec::new(),
+            }]
+            .into(),
+            files: Vec::new().into(),
         };
         let old = table("a.ts");
         let current = table("b.ts");
@@ -6065,8 +6111,7 @@ mod tests {
             patch_typescript_indexes(&mut patched, &current, &symbols_by_id, &changes).is_some()
         );
         assert_eq!(
-            patched.source_declarations["root"].location.path,
-            "b.ts",
+            patched.source_declarations["root"].location.path, "b.ts",
             "the current representative location must still be patched"
         );
         assert!(
@@ -6096,7 +6141,8 @@ mod tests {
                 "root",
                 vec![declaration("root", "fixture.d.ts", 1)],
             ),
-        ];
+        ]
+        .into();
         let mut current = empty_project(2).typescript;
         current.symbols = vec![
             symbol("root", "", Vec::new()),
@@ -6105,7 +6151,8 @@ mod tests {
                 "root",
                 vec![declaration("root", "fixture.ts", 1)],
             ),
-        ];
+        ]
+        .into();
         let symbols_by_id = current
             .symbols
             .iter()
@@ -6142,8 +6189,8 @@ mod tests {
             schema: 2,
             generation: 1,
             project_id: "fixture".into(),
-            sources: Vec::new(),
-            entities: Vec::new(),
+            sources: Vec::new().into(),
+            entities: Vec::new().into(),
             symbols: vec![
                 SymbolFact {
                     id: "root-a".into(),
@@ -6163,8 +6210,9 @@ mod tests {
                     declarations: Vec::new(),
                     references: Vec::new(),
                 },
-            ],
-            files: Vec::new(),
+            ]
+            .into(),
+            files: Vec::new().into(),
         };
         let old = table("root-a");
         let current = table("root-b");

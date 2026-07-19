@@ -181,10 +181,11 @@ mod tests {
             sources: vec![SourceDigest {
                 path: "src/a.ts".into(),
                 sha256: SourceHash::of(source),
-            }],
-            entities: vec![],
-            symbols: vec![],
-            files: vec![],
+            }]
+            .into(),
+            entities: vec![].into(),
+            symbols: vec![].into(),
+            files: vec![].into(),
         };
         let joined = ProjectFacts::join(generation, "project", vec![file], table).unwrap();
         assert_eq!(joined.files.len(), 1);
