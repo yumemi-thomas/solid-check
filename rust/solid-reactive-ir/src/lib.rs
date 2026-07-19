@@ -5503,7 +5503,12 @@ impl LocalAccessContext<'_> {
                     path.find('.')
                         .map(|index| format!("{name}{}", &path[index..]))
                 })
-                .unwrap_or_else(|| format!("{name}.{}", member.property.name));
+                .unwrap_or_else(|| {
+                    format!(
+                        "{name}.{}",
+                        file.source_text(member.property).unwrap_or_default()
+                    )
+                });
             result.reads.push(ReactiveRead {
                 kind: if self.source_kinds.get(symbol) == Some(&ReactiveSourceKind::Store) {
                     "store-path".into()
@@ -5531,7 +5536,10 @@ impl LocalAccessContext<'_> {
             {
                 let async_execution = async_execution_role(file, member.span, execution);
                 result.async_reads.push(AsyncRead {
-                    accessor: format!("{name}.{}", member.property.name),
+                    accessor: format!(
+                        "{name}.{}",
+                        file.source_text(member.property).unwrap_or_default()
+                    ),
                     location: location(file.path.as_str(), member.span),
                     declaration: declaration.clone(),
                     execution: async_execution,

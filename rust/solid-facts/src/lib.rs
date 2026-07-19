@@ -232,5 +232,6 @@ mod tests {
         assert!(std::mem::size_of::<solid_ast_facts::IdentifierFact>() <= 16);
         assert!(std::mem::size_of::<solid_ast_facts::ReturnFact>() <= 64);
         assert!(std::mem::size_of::<solid_ast_facts::BooleanPropertyFact>() <= 12);
+        assert!(std::mem::size_of::<solid_ast_facts::MemberFact>() <= 24);
     }
 }

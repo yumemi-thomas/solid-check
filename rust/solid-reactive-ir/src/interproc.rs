@@ -1016,7 +1016,11 @@ fn direct_reference_contributions(
                         owner,
                         read: SummaryRead {
                             symbol: source.symbol.clone(),
-                            display: format!("{}.{}", source.display, member.property.name),
+                            display: format!(
+                                "{}.{}",
+                                source.display,
+                                file.source_text(member.property).unwrap_or_default()
+                            ),
                             kind: None,
                             declaration: source.declaration.clone(),
                             origin: location(file.path.as_str(), member.span),

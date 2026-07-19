@@ -243,7 +243,7 @@ pub struct JsxElementFact {
 pub struct MemberFact {
     pub span: Span,
     pub object: Span,
-    pub property: NamedSpan,
+    pub property: Span,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -955,10 +955,7 @@ impl<'a> Visit<'a> for Collector<'_> {
         self.members.push(MemberFact {
             span: span(member.span),
             object: span(member.object.span()),
-            property: NamedSpan {
-                name: member.property.name.to_string(),
-                span: span(member.property.span),
-            },
+            property: span(member.property.span),
         });
         walk::walk_static_member_expression(self, member);
     }
@@ -968,17 +965,7 @@ impl<'a> Visit<'a> for Collector<'_> {
         self.members.push(MemberFact {
             span: span(member.span),
             object: span(member.object.span()),
-            property: NamedSpan {
-                name: self
-                    .source
-                    .get(
-                        usize::try_from(property.start).unwrap_or_default()
-                            ..usize::try_from(property.end).unwrap_or_default(),
-                    )
-                    .unwrap_or_default()
-                    .to_owned(),
-                span: span(property),
-            },
+            property: span(property),
         });
         walk::walk_computed_member_expression(self, member);
     }
@@ -1100,7 +1087,10 @@ export async function App(props: { title: string }) {
             facts
                 .members
                 .iter()
-                .any(|member| member.property.name == "title")
+                .any(|member| {
+                    source.get(member.property.start as usize..member.property.end as usize)
+                        == Some("title")
+                })
         );
     }
 
@@ -1342,7 +1332,12 @@ const mixed = () => {
         let facts = extract("reads.ts", source).unwrap();
 
         assert_eq!(facts.members.len(), 1);
-        assert_eq!(facts.members[0].property.name, "key");
+        assert_eq!(
+            source.get(
+                facts.members[0].property.start as usize..facts.members[0].property.end as usize
+            ),
+            Some("key")
+        );
         assert_eq!(
             &source[usize::try_from(facts.members[0].object.start).unwrap()
                 ..usize::try_from(facts.members[0].object.end).unwrap()],
