@@ -2,7 +2,7 @@
 //! analysis. Keeping this policy separate from transport orchestration makes
 //! omissions testable before they become missing diagnostics.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use solid_facts::FileFacts;
 use solid_ts_facts::v3::EntityDemand;
@@ -24,6 +24,8 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
     let path = file.path.to_string();
     let structural_accessors = structural_accessor_spans(file);
     let mut symbol_spans = HashMap::new();
+    let mut async_symbol_spans = HashSet::new();
+    let mut async_value_spans = Vec::new();
     let mut add_symbol = |span, references| {
         symbol_spans
             .entry(span)
@@ -78,8 +80,16 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
     }
     for call in &file.ast.calls {
         for argument in &call.arguments {
-            if argument.value == solid_ast_facts::ArgumentValueKind::Identifier {
-                add_symbol(argument.span, false);
+            match argument.value {
+                solid_ast_facts::ArgumentValueKind::Identifier => {
+                    add_symbol(argument.span, false);
+                    async_symbol_spans.insert(argument.span);
+                }
+                solid_ast_facts::ArgumentValueKind::Function
+                | solid_ast_facts::ArgumentValueKind::AsyncFunction => {
+                    async_value_spans.push(argument.span);
+                }
+                _ => {}
             }
         }
     }
@@ -96,6 +106,7 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
     for (span, references) in symbol_spans {
         let mut planned = demand(typefacts_location(&path, span)).symbol(references);
         planned.structural_accessor = structural_accessors.contains(&span);
+        planned.r#async = async_symbol_spans.contains(&span);
         demands.push(planned);
     }
 
@@ -106,11 +117,11 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
         demands.push(demand(typefacts_location(&path, *span)).async_context());
     }
 
-    // A representative call asks TS-Go for the containing function's async
-    // status even when the function contains no await (for example an async
-    // arrow that immediately returns a Promise).
-    if let Some(call) = file.ast.calls.first() {
-        demands.push(demand(typefacts_location(&path, call.span)).async_context());
+    // Async facts are consumed only for function-valued call arguments and
+    // functions containing await. Query those exact locations instead of
+    // using one call as a whole-file discovery trigger.
+    for span in async_value_spans {
+        demands.push(demand(typefacts_location(&path, span)).async_context());
     }
     for call in &file.ast.calls {
         let callee = typefacts_location(&path, call.callee);
