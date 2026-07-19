@@ -65,7 +65,9 @@ impl StaticApiContext<'_> {
                     argument
                         .boolean_properties
                         .iter()
-                        .any(|property| property.name == "sync" && property.value)
+                        .any(|property| {
+                            file.source_text(property.name) == Some("sync") && property.value
+                        })
                 })
                 && call
                     .arguments

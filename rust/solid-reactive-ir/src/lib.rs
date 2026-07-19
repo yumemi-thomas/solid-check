@@ -1987,13 +1987,13 @@ fn discover_sources(
             let keyed = element
                 .boolean_properties
                 .iter()
-                .find(|property| property.name == "keyed")
+                .find(|property| file.source_text(property.name) == Some("keyed"))
                 .map(|property| property.value);
             let custom_key = keyed.is_none()
                 && element
                     .properties
                     .iter()
-                    .any(|property| property == "keyed");
+                    .any(|property| file.source_text(*property) == Some("keyed"));
             let parameter_indices: &[usize] = match (primitive.as_deref(), keyed) {
                 (Some("Show" | "Match"), Some(true)) => &[],
                 (Some("Show" | "Match"), _) => &[0],

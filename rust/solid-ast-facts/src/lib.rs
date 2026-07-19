@@ -83,10 +83,10 @@ pub enum ArgumentValueKind {
     Other,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BooleanPropertyFact {
-    pub name: String,
+    pub name: Span,
     pub value: bool,
 }
 
@@ -234,7 +234,7 @@ pub struct ReturnFact {
 pub struct JsxElementFact {
     pub span: Span,
     pub name: NamedSpan,
-    pub properties: Vec<String>,
+    pub properties: Vec<Span>,
     pub boolean_properties: Vec<BooleanPropertyFact>,
 }
 
@@ -539,7 +539,7 @@ impl<'s> Collector<'s> {
                         return None;
                     };
                     Some(BooleanPropertyFact {
-                        name: key.name.to_string(),
+                        name: span(key.span),
                         value: value.value,
                     })
                 })
@@ -917,7 +917,7 @@ impl<'a> Visit<'a> for Collector<'_> {
                     let JSXAttributeName::Identifier(name) = &attribute.name else {
                         return None;
                     };
-                    Some(name.name.to_string())
+                    Some(span(name.span))
                 })
                 .collect(),
             boolean_properties: element
@@ -942,7 +942,7 @@ impl<'a> Visit<'a> for Collector<'_> {
                         _ => return None,
                     };
                     Some(BooleanPropertyFact {
-                        name: name.name.to_string(),
+                        name: span(name.span),
                         value,
                     })
                 })
@@ -1170,24 +1170,22 @@ const mixed = () => {
 
     #[test]
     fn classifies_argument_shapes_and_boolean_options() {
-        let facts = extract(
-            "options.ts",
-            "createMemo(async () => 1, { sync: true, ownedWrite: false });",
-        )
-        .unwrap();
+        let source = "createMemo(async () => 1, { sync: true, ownedWrite: false });";
+        let facts = extract("options.ts", source).unwrap();
         let call = &facts.calls[0];
         assert_eq!(call.arguments[0].value, ArgumentValueKind::AsyncFunction);
         assert_eq!(
-            call.arguments[1].boolean_properties,
+            call.arguments[1]
+                .boolean_properties
+                .iter()
+                .map(|property| (
+                    source.get(property.name.start as usize..property.name.end as usize),
+                    property.value,
+                ))
+                .collect::<Vec<_>>(),
             [
-                BooleanPropertyFact {
-                    name: "sync".into(),
-                    value: true,
-                },
-                BooleanPropertyFact {
-                    name: "ownedWrite".into(),
-                    value: false,
-                },
+                (Some("sync"), true),
+                (Some("ownedWrite"), false),
             ]
         );
     }
@@ -1216,11 +1214,9 @@ const mixed = () => {
 
     #[test]
     fn retains_conditional_returns_and_jsx_boolean_properties() {
-        let facts = extract(
-            "control.tsx",
-            "const View = (props) => props.ready ? <For keyed={false} /> : <Show keyed />;",
-        )
-        .unwrap();
+        let source =
+            "const View = (props) => props.ready ? <For keyed={false} /> : <Show keyed />;";
+        let facts = extract("control.tsx", source).unwrap();
         assert!(
             facts.functions[0]
                 .expression_return
@@ -1231,19 +1227,34 @@ const mixed = () => {
             facts
                 .jsx_elements
                 .iter()
-                .map(|element| element.boolean_properties.clone())
+                .map(|element| {
+                    element
+                        .boolean_properties
+                        .iter()
+                        .map(|property| {
+                            (
+                                source.get(
+                                    property.name.start as usize..property.name.end as usize,
+                                ),
+                                property.value,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
                 .collect::<Vec<_>>(),
             [
-                vec![BooleanPropertyFact {
-                    name: "keyed".into(),
-                    value: false,
-                }],
-                vec![BooleanPropertyFact {
-                    name: "keyed".into(),
-                    value: true,
-                }],
+                vec![(Some("keyed"), false)],
+                vec![(Some("keyed"), true)],
             ]
         );
+        assert!(facts.jsx_elements.iter().all(|element| {
+            element
+                .properties
+                .iter()
+                .all(|property| {
+                    source.get(property.start as usize..property.end as usize) == Some("keyed")
+                })
+        }));
     }
 
     #[test]
