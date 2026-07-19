@@ -202,8 +202,8 @@ pub(super) struct SemanticLookup<'a> {
 /// once per file per build so per-call classifier scans stop re-resolving
 /// (and re-allocating) the same names.
 pub(super) struct FilePrimitives {
-    pub(super) calls: Vec<Option<String>>,
-    pub(super) jsx: Vec<Option<String>>,
+    pub(super) calls: Vec<Option<super::PrimitiveName>>,
+    pub(super) jsx: Vec<Option<super::PrimitiveName>>,
 }
 
 impl<'a> SemanticLookup<'a> {

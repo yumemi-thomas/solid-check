@@ -94,7 +94,7 @@ impl<'a, 'c> DirectiveCreationCollector<'a, 'c> {
                 push_directive_creation(
                     self.creations,
                     self.seen,
-                    primitive,
+                    primitive.to_string(),
                     file.path.as_str(),
                     call.callee,
                     true,

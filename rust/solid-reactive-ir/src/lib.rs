@@ -3073,7 +3073,7 @@ fn build_with_contracts_measured_incremental(
                 push_directive_creation(
                     &mut directive_creations,
                     &mut seen_directive_creations,
-                    primitive,
+                    primitive.to_string(),
                     file.path.as_str(),
                     call.callee,
                     false,
@@ -3418,7 +3418,7 @@ impl FunctionBoundary for OwnerNode {
 }
 
 struct OwnerFileIndex {
-    call_primitives: Vec<Option<String>>,
+    call_primitives: Vec<Option<PrimitiveName>>,
     providing_regions: Vec<Span>,
 }
 
@@ -4353,7 +4353,8 @@ fn containing_leaf_owner(
                 entities,
                 symbol_names,
             )?;
-            matches!(owner.as_str(), "onSettled" | "createTrackedEffect").then_some(owner)
+            matches!(owner.as_str(), "onSettled" | "createTrackedEffect")
+                .then(|| owner.to_string())
         })
 }
 
@@ -5689,23 +5690,142 @@ fn append_local_access_result_owned(target: &mut LocalAccessResult, source: Loca
         .extend(source.write_action_obligations);
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PrimitiveName {
+    Action,
+    Children,
+    CreateEffect,
+    CreateMemo,
+    CreateOptimistic,
+    CreateOptimisticStore,
+    CreateOwner,
+    CreateProjection,
+    CreateReaction,
+    CreateRenderEffect,
+    CreateRoot,
+    CreateSignal,
+    CreateStore,
+    CreateTrackedEffect,
+    Dynamic,
+    Flush,
+    For,
+    Loading,
+    MapArray,
+    Match,
+    OnCleanup,
+    OnSettled,
+    Repeat,
+    Show,
+    Switch,
+    Untrack,
+    Other(String),
+}
+
+impl PrimitiveName {
+    fn new(name: &str) -> Self {
+        match name {
+            "action" => Self::Action,
+            "children" => Self::Children,
+            "createEffect" => Self::CreateEffect,
+            "createMemo" => Self::CreateMemo,
+            "createOptimistic" => Self::CreateOptimistic,
+            "createOptimisticStore" => Self::CreateOptimisticStore,
+            "createOwner" => Self::CreateOwner,
+            "createProjection" => Self::CreateProjection,
+            "createReaction" => Self::CreateReaction,
+            "createRenderEffect" => Self::CreateRenderEffect,
+            "createRoot" => Self::CreateRoot,
+            "createSignal" => Self::CreateSignal,
+            "createStore" => Self::CreateStore,
+            "createTrackedEffect" => Self::CreateTrackedEffect,
+            "dynamic" => Self::Dynamic,
+            "flush" => Self::Flush,
+            "For" => Self::For,
+            "Loading" => Self::Loading,
+            "mapArray" => Self::MapArray,
+            "Match" => Self::Match,
+            "onCleanup" => Self::OnCleanup,
+            "onSettled" => Self::OnSettled,
+            "Repeat" => Self::Repeat,
+            "Show" => Self::Show,
+            "Switch" => Self::Switch,
+            "untrack" => Self::Untrack,
+            _ => Self::Other(name.to_owned()),
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Action => "action",
+            Self::Children => "children",
+            Self::CreateEffect => "createEffect",
+            Self::CreateMemo => "createMemo",
+            Self::CreateOptimistic => "createOptimistic",
+            Self::CreateOptimisticStore => "createOptimisticStore",
+            Self::CreateOwner => "createOwner",
+            Self::CreateProjection => "createProjection",
+            Self::CreateReaction => "createReaction",
+            Self::CreateRenderEffect => "createRenderEffect",
+            Self::CreateRoot => "createRoot",
+            Self::CreateSignal => "createSignal",
+            Self::CreateStore => "createStore",
+            Self::CreateTrackedEffect => "createTrackedEffect",
+            Self::Dynamic => "dynamic",
+            Self::Flush => "flush",
+            Self::For => "For",
+            Self::Loading => "Loading",
+            Self::MapArray => "mapArray",
+            Self::Match => "Match",
+            Self::OnCleanup => "onCleanup",
+            Self::OnSettled => "onSettled",
+            Self::Repeat => "Repeat",
+            Self::Show => "Show",
+            Self::Switch => "Switch",
+            Self::Untrack => "untrack",
+            Self::Other(name) => name,
+        }
+    }
+}
+
+impl std::ops::Deref for PrimitiveName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl PartialEq<&str> for PrimitiveName {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl std::fmt::Display for PrimitiveName {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 fn primitive_name(
     path: &str,
     span: Span,
     static_callee: Option<&str>,
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
-) -> Option<String> {
+) -> Option<PrimitiveName> {
     let location = location(path, span);
     if let Some(symbol) = entities.get(&location) {
-        symbol_names.get(symbol).cloned().or_else(|| {
+        symbol_names.get(symbol).map(|name| PrimitiveName::new(name)).or_else(|| {
             let property = static_callee?.rsplit('.').next()?;
-            symbol_names.get(&format!("{symbol}::{property}")).cloned()
+            symbol_names
+                .get(&format!("{symbol}::{property}"))
+                .map(|name| PrimitiveName::new(name))
         })
     } else {
         static_callee
             .and_then(|callee| callee.rsplit('.').next())
-            .map(str::to_owned)
+            .map(PrimitiveName::new)
     }
 }
 
@@ -5714,7 +5834,7 @@ fn jsx_primitive_name(
     element: &solid_ast_facts::JsxElementFact,
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
-) -> Option<String> {
+) -> Option<PrimitiveName> {
     primitive_name(
         file.path.as_str(),
         element.name.span,
@@ -5735,11 +5855,11 @@ fn jsx_primitive_name(
                 binding
                     .imported
                     .as_deref()
-                    .map(str::to_owned)
+                    .map(PrimitiveName::new)
                     .unwrap_or_else(|| {
-                        file.source_text(binding.local.span)
-                            .unwrap_or_default()
-                            .to_owned()
+                        PrimitiveName::new(
+                            file.source_text(binding.local.span).unwrap_or_default(),
+                        )
                     })
             })
     })
@@ -5759,6 +5879,18 @@ mod tests {
 
     use super::interproc::InterproceduralResultView;
     use super::*;
+
+    #[test]
+    fn known_primitive_names_use_integer_variants() {
+        assert!(matches!(
+            PrimitiveName::new("createEffect"),
+            PrimitiveName::CreateEffect
+        ));
+        assert!(matches!(
+            PrimitiveName::new("projectSpecificHelper"),
+            PrimitiveName::Other(_)
+        ));
+    }
 
     fn summary_node(path: &str, span: Span, body: Span) -> SummaryNode {
         SummaryNode {

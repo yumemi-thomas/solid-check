@@ -1402,7 +1402,7 @@ fn interprocedural_reads(
                                     symbol_names,
                                 )
                                 .and_then(|primitive| {
-                                    bundled_returns.get(&primitive).cloned().map(|returned| {
+                                    bundled_returns.get(primitive.as_str()).cloned().map(|returned| {
                                         (
                                             returned,
                                             Location {

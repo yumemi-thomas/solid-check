@@ -82,7 +82,7 @@ pub(super) fn leaf_owner_operations_for_file(
                     .then(|| terminal_cleanup_fix(file, region, call))
                     .flatten();
                 operations.push(LeafOwnerOperation {
-                    primitive,
+                    primitive: primitive.to_string(),
                     owner: owner.into(),
                     location: location(file.path.as_str(), call.callee),
                     fix,
@@ -129,7 +129,9 @@ where
                 continue;
             }
             unresolved.push(UnresolvedCleanupReturn {
-                primitive: primitive.expect("matched cleanup-return primitive"),
+                primitive: primitive
+                    .expect("matched cleanup-return primitive")
+                    .to_string(),
                 location: location(file.path.as_str(), argument.span),
             });
             continue;
@@ -137,7 +139,7 @@ where
         let primitive = primitive.expect("matched cleanup-return primitive");
         if callback.r#async {
             invalid.push(InvalidCleanupReturn {
-                primitive,
+                primitive: primitive.to_string(),
                 location: location(callback_file.path.as_str(), callback.span),
             });
             continue;
@@ -155,7 +157,7 @@ where
                 CleanupReturnStatus::Valid => {}
                 CleanupReturnStatus::Invalid => {
                     invalid.push(InvalidCleanupReturn {
-                        primitive: primitive.clone(),
+                        primitive: primitive.to_string(),
                         location: expand_parenthesized_location(
                             callback_file,
                             returned.argument.unwrap_or(returned.span),
@@ -164,7 +166,7 @@ where
                 }
                 CleanupReturnStatus::Unresolved => {
                     unresolved.push(UnresolvedCleanupReturn {
-                        primitive: primitive.clone(),
+                        primitive: primitive.to_string(),
                         location: location(
                             callback_file.path.as_str(),
                             returned.argument.unwrap_or(returned.span),
