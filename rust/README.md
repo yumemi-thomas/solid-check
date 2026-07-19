@@ -118,7 +118,11 @@ source order is restored before the TS-Go closure is joined.
 rejects stale document versions, publishes UTF-16 diagnostics and quick
 fixes, and cancels superseded analysis across the TypeFacts boundary.
 
-`make package-rust` creates one install tree containing `solid-check`,
+`make package` creates one install tree containing `solid-check`,
 `solid-checkd`, and the matching `solid-typefacts` helper plus a checksum
 manifest. CI builds and smoke-tests that layout on Darwin and Linux
-arm64/amd64 and Windows amd64.
+arm64/amd64 and Windows amd64. Tagged releases publish each layout as a
+platform-constrained optional npm package alongside the portable launcher.
+The `solid-check-wasm` workspace crate exposes the same in-process analysis
+pipeline through napi-rs on `wasm32-wasip1-threads`; its host supplies sources
+and TypeFacts directly instead of spawning the native TypeFacts service.

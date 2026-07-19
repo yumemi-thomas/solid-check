@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -42,4 +42,42 @@ exit 7
     "--format",
     "json"
   ]);
+});
+
+test("loads the current platform's optional native package", () => {
+  const packageRoot = new URL("..", import.meta.url).pathname;
+  const suffix = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    "linux-arm64": "linux-arm64-gnu",
+    "linux-x64": "linux-x64-gnu",
+    "win32-x64": "win32-x64-msvc"
+  }[`${process.platform}-${process.arch}`];
+  assert.ok(suffix, "test requires a supported native target");
+  const dependency = `@solid-checker/binding-${suffix}`;
+  const dependencyRoot = join(packageRoot, "node_modules", dependency);
+  const nativeRoot = join(dependencyRoot, "native", `${process.platform}-${process.arch}`);
+  const native = join(nativeRoot, `solid-check${process.platform === "win32" ? ".exe" : ""}`);
+  const packageJson = join(dependencyRoot, "package.json");
+
+  mkdirSync(nativeRoot, { recursive: true });
+  writeFileSync(packageJson, JSON.stringify({ name: dependency, version: "0.0.0" }));
+  writeFileSync(native, process.platform === "win32"
+    ? "@echo off\r\nexit /b 23\r\n"
+    : "#!/bin/sh\nexit 23\n");
+  chmodSync(native, 0o700);
+
+  try {
+    const result = spawnSync(process.execPath, [
+      new URL("../bin/solid-check.mjs", import.meta.url).pathname
+    ], {
+      env: {
+        ...process.env,
+        SOLID_CHECK_NATIVE_BIN: ""
+      }
+    });
+    assert.equal(result.status, 23);
+  } finally {
+    rmSync(dependencyRoot, { recursive: true, force: true });
+  }
 });

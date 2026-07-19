@@ -1,0 +1,58 @@
+{
+  "name": "solid-checker-wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly API for the Solid reactivity checker",
+  "type": "module",
+  "main": "node.cjs",
+  "types": "index.d.ts",
+  "browser": "browser-entry.js",
+  "files": [
+    "node.cjs",
+    "browser-entry.js",
+    "index.d.ts",
+    "solid-check-wasm.wasi.cjs",
+    "solid-check-wasm.wasi-browser.js",
+    "solid-check-wasm.wasm32-wasi.wasm",
+    "wasi-worker.mjs",
+    "wasi-worker-browser.mjs",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs --release",
+    "build:debug": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "napi": {
+    "binaryName": "solid-check-wasm",
+    "packageName": "solid-checker-wasm",
+    "targets": [
+      "wasm32-wasip1-threads"
+    ],
+    "wasm": {
+      "browser": {
+        "fs": false
+      }
+    }
+  },
+  "devDependencies": {
+    "@emnapi/core": "^1.7.1",
+    "@emnapi/runtime": "^1.7.1",
+    "@napi-rs/cli": "3.7.3"
+  },
+  "dependencies": {
+    "@napi-rs/wasm-runtime": "^1.1.6"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yumemi-thomas/solid-check.git",
+    "directory": "packages/wasm"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

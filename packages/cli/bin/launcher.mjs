@@ -1,10 +1,29 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, parse, resolve } from "node:path";
 import process from "node:process";
 
 const packageRoot = resolve(import.meta.dirname, "..");
 const suffix = process.platform === "win32" ? ".exe" : "";
+const require = createRequire(import.meta.url);
+
+function nativePackageRoot() {
+  const target = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    "linux-arm64": "linux-arm64-gnu",
+    "linux-x64": "linux-x64-gnu",
+    "win32-x64": "win32-x64-msvc"
+  }[`${process.platform}-${process.arch}`];
+  if (!target) return undefined;
+  const packageName = `@solid-checker/binding-${target}`;
+  try {
+    return dirname(require.resolve(`${packageName}/package.json`));
+  } catch {
+    return undefined;
+  }
+}
 
 function findRepository(start) {
   let directory = resolve(start);
@@ -22,7 +41,10 @@ function findRepository(start) {
 }
 
 function packagedBinary(name) {
-  return join(packageRoot, "native", `${process.platform}-${process.arch}`, `${name}${suffix}`);
+  const relative = join("native", `${process.platform}-${process.arch}`, `${name}${suffix}`);
+  const dependencyRoot = nativePackageRoot();
+  if (dependencyRoot) return join(dependencyRoot, relative);
+  return join(packageRoot, relative);
 }
 
 export function launch(command) {

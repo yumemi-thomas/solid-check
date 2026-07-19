@@ -68,8 +68,48 @@ jobs:
           path: dist/${{ matrix.platform }}-${{ matrix.arch }}
           if-no-files-found: error
 
+  wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97
+        with:
+          targets: wasm32-wasip1-threads
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/wasm/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: npm ci
+        working-directory: packages/wasm
+      - name: Build WASI package
+        working-directory: packages/wasm
+        run: |
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+          npm run build
+          npm test
+          npm pack --dry-run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-package
+          path: |
+            packages/wasm/package.json
+            packages/wasm/README.md
+            packages/wasm/index.d.ts
+            packages/wasm/node.cjs
+            packages/wasm/browser-entry.js
+            packages/wasm/solid-check-wasm.wasi.cjs
+            packages/wasm/solid-check-wasm.wasi-browser.js
+            packages/wasm/solid-check-wasm.wasm32-wasi.wasm
+            packages/wasm/wasi-worker.mjs
+            packages/wasm/wasi-worker-browser.mjs
+          if-no-files-found: error
+
   publish:
-    needs: build
+    needs: [build, wasm]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -81,19 +121,36 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Install Trusted Publishing-compatible npm
+        run: npm install --global "npm@^11.15.0"
       - uses: actions/download-artifact@v4
         with:
           pattern: npm-*
           path: dist/artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-package
+          path: dist/wasm
       - name: Assemble and validate package
         run: |
           version="${GITHUB_REF_NAME#v}"
           for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
             mv "dist/artifacts/npm-${target}" "dist/artifacts/${target}"
           done
-          node scripts/assemble-npm-package.mjs dist/artifacts dist/solid-checker "$version"
-          npm pack ./dist/solid-checker --dry-run
-      - name: Publish
+          node scripts/assemble-npm-package.mjs dist/artifacts dist/packages "$version"
+          for package in dist/packages/*; do npm pack "$package" --dry-run; done
+      - name: Publish native packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./dist/solid-checker
+        run: |
+          for package in dist/packages/binding-*; do
+            npm publish "$package"
+          done
+      - name: Publish WASM package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./dist/wasm
+      - name: Publish portable package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./dist/packages/solid-checker

@@ -10,6 +10,7 @@ members = [
   "solid-reactive-ir",
   "solid-reactive-solver",
   "solid-lsp",
+  "solid-check-wasm",
 ]
 
 [workspace.package]
@@ -29,5 +30,7 @@ oxc_span = "0.118"
 oxc_syntax = "0.118"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+napi = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
 sha2 = "0.10"
 thiserror = "2"

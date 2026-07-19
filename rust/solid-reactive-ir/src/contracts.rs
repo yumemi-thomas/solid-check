@@ -280,7 +280,11 @@ fn contract_export_fragment(
                         node_contracts.get(&node_keys[index]).cloned()
                     })
                     .unwrap_or_else(value_contract_export);
-                fragment.syntax.push((file.source_text(name.span).unwrap_or_default().to_owned(), summary, false));
+                fragment.syntax.push((
+                    file.source_text(name.span).unwrap_or_default().to_owned(),
+                    summary,
+                    false,
+                ));
             }
         }
     }

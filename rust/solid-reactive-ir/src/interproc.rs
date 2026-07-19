@@ -22,15 +22,15 @@ use super::{
     ContractGraph, ContractReturn, ContractSemantics, EntitySymbols, ExecutionRole,
     FunctionBoundary, InterproceduralGraphContribution, InterproceduralGraphTarget,
     InterproceduralResultDependency, InterproceduralResultDependencyState, ProjectIndexes,
-    ReactiveRead, ReactiveSourceKind, SemanticLookup, TypedAccessorContribution, allowed_callback_spans,
-    containing_ast_function, containing_summary_function_indexed, contract_callback_execution,
-    contract_export_summaries, contract_export_summaries_incremental, enclosing_function_label,
-    enclosing_render_function, execution_role, function_binding_name, function_indices_by_path,
-    functions_for_path, go_returned_arrow_pattern_accepts, go_solid_accessor_descriptor,
-    inside_effect_apply, location, location_order, parallel_slice_results, primitive_name,
-    propagate_returned_summary_deltas, propagate_summary_deltas, push_contract_callback,
-    push_unique_summary_read, same_compiler_semantics, semantic_execution_role,
-    source_function_exported,
+    ReactiveRead, ReactiveSourceKind, SemanticLookup, TypedAccessorContribution,
+    allowed_callback_spans, containing_ast_function, containing_summary_function_indexed,
+    contract_callback_execution, contract_export_summaries, contract_export_summaries_incremental,
+    enclosing_function_label, enclosing_render_function, execution_role, function_binding_name,
+    function_indices_by_path, functions_for_path, go_returned_arrow_pattern_accepts,
+    go_solid_accessor_descriptor, inside_effect_apply, location, location_order,
+    parallel_slice_results, primitive_name, propagate_returned_summary_deltas,
+    propagate_summary_deltas, push_contract_callback, push_unique_summary_read,
+    same_compiler_semantics, semantic_execution_role, source_function_exported,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -300,7 +300,9 @@ fn discover_summary_nodes(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: binding_name.as_ref().map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
+                name: binding_name
+                    .as_ref()
+                    .map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
                 parameters,
                 exported: source_function.map_or_else(
@@ -453,9 +455,7 @@ fn discover_interprocedural_graph(
             continue;
         };
         for name in &binding.names {
-            if let Some(binding_symbol) =
-                entities.get(&location(file.path.as_str(), name.span))
-            {
+            if let Some(binding_symbol) = entities.get(&location(file.path.as_str(), name.span)) {
                 contribution
                     .returned_bindings
                     .push((binding_symbol.clone(), target_symbol.clone()));
@@ -981,8 +981,14 @@ fn direct_reference_contributions(
                 read.display.clone_from(&returned.label);
                 read.kind = Some(returned.kind.clone());
                 read.declaration.clone_from(&contract_location);
-                if semantic_execution_role(file, call.callee, &[], entities, symbol_names, context.lookup)
-                    == ExecutionRole::UntrackedRendering
+                if semantic_execution_role(
+                    file,
+                    call.callee,
+                    &[],
+                    entities,
+                    symbol_names,
+                    context.lookup,
+                ) == ExecutionRole::UntrackedRendering
                     && !enclosing_render_function(file, call.span)
                 {
                     read.origin = contract_location;
@@ -1397,18 +1403,20 @@ fn interprocedural_reads(
                                     symbol_names,
                                 )
                                 .and_then(|primitive| {
-                                    bundled_returns.get(primitive.as_str()).cloned().map(|returned| {
-                                        (
-                                            returned,
-                                            Location {
-                                                path: format!(
-                                                    "bundled://solid-js.json#{primitive}"
-                                                ),
-                                                start_byte: 0,
-                                                end_byte: 0,
-                                            },
-                                        )
-                                    })
+                                    bundled_returns.get(primitive.as_str()).cloned().map(
+                                        |returned| {
+                                            (
+                                                returned,
+                                                Location {
+                                                    path: format!(
+                                                        "bundled://solid-js.json#{primitive}"
+                                                    ),
+                                                    start_byte: 0,
+                                                    end_byte: 0,
+                                                },
+                                            )
+                                        },
+                                    )
                                 })
                             });
                             if let Some((returned_contract, declaration)) = contracted {

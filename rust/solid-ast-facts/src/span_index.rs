@@ -150,7 +150,9 @@ impl AstSpanIndex {
             exports_by_span: SpanTable::build(spans(
                 &mut facts.exports.iter().map(|export| export.span),
             )),
-            conditional_tests: SpanTable::build(spans(&mut facts.conditional_tests.iter().copied())),
+            conditional_tests: SpanTable::build(spans(
+                &mut facts.conditional_tests.iter().copied(),
+            )),
             arguments_by_span: SpanTable::build(argument_entries),
             argument_slots,
             bindings_by_initializer: SpanTable::build(
@@ -169,11 +171,7 @@ impl AstSpanIndex {
     }
 }
 
-fn within<T>(
-    elements: &[T],
-    region: Span,
-    span_of: fn(&T) -> Span,
-) -> impl Iterator<Item = &T> {
+fn within<T>(elements: &[T], region: Span, span_of: fn(&T) -> Span) -> impl Iterator<Item = &T> {
     let start = elements.partition_point(move |element| span_of(element).start < region.start);
     elements[start..]
         .iter()
@@ -183,7 +181,9 @@ fn within<T>(
 
 impl AstFacts {
     pub fn span_index(&self) -> &AstSpanIndex {
-        self.span_index.0.get_or_init(|| Box::new(AstSpanIndex::build(self)))
+        self.span_index
+            .0
+            .get_or_init(|| Box::new(AstSpanIndex::build(self)))
     }
 
     /// Typed handle for the call with exactly this span.
@@ -262,7 +262,10 @@ impl AstFacts {
     }
 
     /// Bindings whose initializer span contains `span`, in original order.
-    pub fn bindings_initializer_containing(&self, span: Span) -> impl Iterator<Item = &BindingFact> {
+    pub fn bindings_initializer_containing(
+        &self,
+        span: Span,
+    ) -> impl Iterator<Item = &BindingFact> {
         self.span_index()
             .bindings_by_initializer
             .containing(span)

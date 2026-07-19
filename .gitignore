@@ -8,4 +8,11 @@
 **/target/
 **/node_modules/
 /.pnpm-store/
+packages/wasm/browser.js
+packages/wasm/generated.d.ts
+packages/wasm/index.js
+packages/wasm/solid-check-wasm.wasi-browser.js
+packages/wasm/solid-check-wasm.wasi.cjs
+packages/wasm/solid-check-wasm.wasm32-wasi*.wasm
+packages/wasm/wasi-worker*.mjs
 *.test

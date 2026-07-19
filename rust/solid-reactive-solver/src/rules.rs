@@ -125,9 +125,7 @@ impl Rule {
             Self::PackageContractExportMissing => {
                 ("SC9001", "package-contract-export-missing", "error", true)
             }
-            Self::PackageContractMissing => {
-                ("SC9005", "package-contract-missing", "error", true)
-            }
+            Self::PackageContractMissing => ("SC9005", "package-contract-missing", "error", true),
             Self::CleanupReturnUnresolved => ("SC9002", "cleanup-return-unresolved", "error", true),
             Self::RefreshTargetUnresolved => ("SC9003", "refresh-target-unresolved", "error", true),
             Self::AffectsTargetUnresolved => ("SC9003", "affects-target-unresolved", "error", true),

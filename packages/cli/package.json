@@ -3,12 +3,21 @@
   "version": "0.1.0",
   "description": "Project-level reactivity checker and language server for Solid",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./wasm.d.ts",
+      "import": "./wasm.mjs",
+      "default": "./wasm.mjs"
+    }
+  },
   "bin": {
     "solid-check": "bin/solid-check.mjs",
     "solid-checkd": "bin/solid-checkd.mjs"
   },
   "files": [
     "bin",
+    "wasm.d.ts",
+    "wasm.mjs",
     "native",
     "native-manifest.json",
     "scripts"

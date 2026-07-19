@@ -127,6 +127,30 @@ jobs:
           name: solid-check-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/solid-check
 
+  wasm-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97
+        with:
+          targets: wasm32-wasip1-threads
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: packages/wasm/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: npm ci
+        working-directory: packages/wasm
+      - run: npm run build
+        working-directory: packages/wasm
+      - run: npm test
+        working-directory: packages/wasm
+      - run: npm pack --dry-run
+        working-directory: packages/wasm
+
   compiler-conformance:
     runs-on: ubuntu-latest
     steps:

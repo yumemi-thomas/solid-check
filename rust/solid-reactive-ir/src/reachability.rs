@@ -122,7 +122,10 @@ fn discover_reachability_file(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: function.name.as_ref().map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
+                name: function
+                    .name
+                    .as_ref()
+                    .map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
             }
         })
@@ -256,9 +259,7 @@ fn discover_reachability_file(
                     });
                 } else if let Some(function) = functions
                     .iter()
-                    .find(|function| {
-                        function.name.as_deref() == file.source_text(property.span)
-                    })
+                    .find(|function| function.name.as_deref() == file.source_text(property.span))
                 {
                     edges.push(ReachabilityEdge {
                         owner,
@@ -557,7 +558,10 @@ pub(super) fn reachable_call_multiplicity(
                 path: file.path.to_string(),
                 span: function.span,
                 body: function.body,
-                name: function.name.as_ref().map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
+                name: function
+                    .name
+                    .as_ref()
+                    .map(|name| file.source_text(name.span).unwrap_or_default().to_owned()),
                 symbol,
             });
         }

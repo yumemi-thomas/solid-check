@@ -12,9 +12,8 @@ use oxc_ast::ast::{
     ExportDefaultDeclaration, ExportNamedDeclaration, Expression, Function, FunctionType,
     IdentifierReference, IfStatement, ImportDeclaration, ImportDeclarationSpecifier,
     JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement, JSXExpression,
-    ModuleExportName, NewExpression, ObjectPropertyKind, PropertyKey,
-    ReturnStatement, SpreadElement, StaticMemberExpression, TSModuleDeclarationName,
-    VariableDeclarator,
+    ModuleExportName, NewExpression, ObjectPropertyKind, PropertyKey, ReturnStatement,
+    SpreadElement, StaticMemberExpression, TSModuleDeclarationName, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions, Parser};
@@ -753,7 +752,9 @@ impl<'a> Visit<'a> for Collector<'_> {
                     ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
                         Some(match &specifier.imported {
                             ModuleExportName::IdentifierName(name) => name.name.as_str().into(),
-                            ModuleExportName::IdentifierReference(name) => name.name.as_str().into(),
+                            ModuleExportName::IdentifierReference(name) => {
+                                name.name.as_str().into()
+                            }
                             ModuleExportName::StringLiteral(name) => name.value.as_str().into(),
                         })
                     }
@@ -887,7 +888,9 @@ impl<'a> Visit<'a> for Collector<'_> {
         let name_span = element.opening_element.name.span();
         self.jsx_elements.push(JsxElementFact {
             span: span(element.span),
-            name: NamedSpan { span: span(name_span) },
+            name: NamedSpan {
+                span: span(name_span),
+            },
             properties: element
                 .opening_element
                 .attributes
@@ -1049,20 +1052,14 @@ export async function App(props: { title: string }) {
                 && binding
                     .names
                     .iter()
-                    .filter_map(|name| {
-                        source.get(name.span.start as usize..name.span.end as usize)
-                    })
+                    .filter_map(|name| source.get(name.span.start as usize..name.span.end as usize))
                     .collect::<Vec<_>>()
                     == ["count", "setCount"]
         }));
         assert!(facts.functions.iter().any(|function| {
-            function
-                .name
-                .as_ref()
-                .is_some_and(|name| {
-                    source.get(name.span.start as usize..name.span.end as usize) == Some("App")
-                })
-                && function.r#async
+            function.name.as_ref().is_some_and(|name| {
+                source.get(name.span.start as usize..name.span.end as usize) == Some("App")
+            }) && function.r#async
         }));
         assert_eq!(facts.awaits.len(), 1);
         assert_eq!(facts.returns.len(), 1);
@@ -1074,15 +1071,10 @@ export async function App(props: { title: string }) {
             ),
             Some("button")
         );
-        assert!(
-            facts
-                .members
-                .iter()
-                .any(|member| {
-                    source.get(member.property.start as usize..member.property.end as usize)
-                        == Some("title")
-                })
-        );
+        assert!(facts.members.iter().any(|member| {
+            source.get(member.property.start as usize..member.property.end as usize)
+                == Some("title")
+        }));
     }
 
     #[test]
@@ -1128,9 +1120,8 @@ const mixed = () => {
             .bindings
             .iter()
             .find(|binding| {
-                source.get(
-                    binding.names[0].span.start as usize..binding.names[0].span.end as usize,
-                ) == Some("cleanup")
+                source.get(binding.names[0].span.start as usize..binding.names[0].span.end as usize)
+                    == Some("cleanup")
             })
             .unwrap();
         assert!(cleanup.initializer_function);
@@ -1183,10 +1174,7 @@ const mixed = () => {
                     property.value,
                 ))
                 .collect::<Vec<_>>(),
-            [
-                (Some("sync"), true),
-                (Some("ownedWrite"), false),
-            ]
+            [(Some("sync"), true), (Some("ownedWrite"), false),]
         );
     }
 
@@ -1231,27 +1219,20 @@ const mixed = () => {
                         .iter()
                         .map(|property| {
                             (
-                                source.get(
-                                    property.name.start as usize..property.name.end as usize,
-                                ),
+                                source
+                                    .get(property.name.start as usize..property.name.end as usize),
                                 property.value,
                             )
                         })
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>(),
-            [
-                vec![(Some("keyed"), false)],
-                vec![(Some("keyed"), true)],
-            ]
+            [vec![(Some("keyed"), false)], vec![(Some("keyed"), true)],]
         );
         assert!(facts.jsx_elements.iter().all(|element| {
-            element
-                .properties
-                .iter()
-                .all(|property| {
-                    source.get(property.start as usize..property.end as usize) == Some("keyed")
-                })
+            element.properties.iter().all(|property| {
+                source.get(property.start as usize..property.end as usize) == Some("keyed")
+            })
         }));
     }
 

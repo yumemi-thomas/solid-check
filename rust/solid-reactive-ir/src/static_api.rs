@@ -62,12 +62,9 @@ impl StaticApiContext<'_> {
             };
             if let Some(options_index) = options_index
                 && call.arguments.get(options_index).is_some_and(|argument| {
-                    argument
-                        .boolean_properties
-                        .iter()
-                        .any(|property| {
-                            file.source_text(property.name) == Some("sync") && property.value
-                        })
+                    argument.boolean_properties.iter().any(|property| {
+                        file.source_text(property.name) == Some("sync") && property.value
+                    })
                 })
                 && call
                     .arguments

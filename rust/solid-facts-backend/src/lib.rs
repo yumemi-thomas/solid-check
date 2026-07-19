@@ -1333,10 +1333,7 @@ fn structural_accessor_spans(file: &FileFacts) -> HashSet<Span> {
                     let Some(local) = file.source_text(binding.local.span) else {
                         continue;
                     };
-                    named_imports.insert(
-                        local,
-                        binding.imported.as_deref().unwrap_or(local),
-                    );
+                    named_imports.insert(local, binding.imported.as_deref().unwrap_or(local));
                 }
                 solid_ast_facts::ImportKind::Namespace => {
                     if let Some(local) = file.source_text(binding.local.span) {

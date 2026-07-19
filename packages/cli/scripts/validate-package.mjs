@@ -10,11 +10,22 @@ if (packageJson.name !== "solid-checker") {
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version)) {
   throw new Error(`invalid publish version: ${packageJson.version}`);
 }
-if (!existsSync(join(root, "native-manifest.json"))) {
-  throw new Error("native-manifest.json is missing; run `make package` before packing");
-}
 for (const command of ["solid-check", "solid-checkd"]) {
   if (!existsSync(join(root, packageJson.bin[command]))) {
     throw new Error(`launcher for ${command} is missing`);
+  }
+}
+if (packageJson.optionalDependencies) {
+  const expected = `^${packageJson.version}`;
+  for (const [name, version] of Object.entries(packageJson.optionalDependencies)) {
+    if (!name.startsWith("@solid-checker/binding-") || version !== expected) {
+      throw new Error(`invalid native optional dependency: ${name}@${version}`);
+    }
+  }
+}
+if (packageJson.dependencies) {
+  const wasmVersion = packageJson.dependencies["solid-checker-wasm"];
+  if (wasmVersion !== `^${packageJson.version}`) {
+    throw new Error(`invalid solid-checker-wasm dependency: ${wasmVersion}`);
   }
 }

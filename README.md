@@ -43,20 +43,31 @@ Install the published CLI:
 npm install --save-dev solid-checker
 ```
 
+For StackBlitz, WebContainers, and browser workers, import the process-free
+WASI API from the same package:
+
+```js
+import { checkSync } from "solid-checker";
+```
+
 Build a distributable native package:
 
 ```sh
 make package
 ```
 
-The package exposes the commands as `solid-check` and `solid-checkd` and ships
-the matching `solid-typefacts` helper.
+The package exposes the commands as `solid-check` and `solid-checkd`. Its
+platform-specific optional dependency ships those executables and the matching
+`solid-typefacts` helper, so an install downloads binaries only for its OS and
+CPU.
 
 Maintainers publish a release by pushing a semantic-version tag such as
 `v0.1.0`. For the first publish, add an `NPM_TOKEN` secret to the `npm` GitHub
-environment. After the package exists, configure npm trusted publishing for
-this repository and `.github/workflows/publish-npm.yml`; subsequent releases
-do not need the token.
+environment. After all seven packages exist, configure npm trusted publishing
+for each of them for this repository and `.github/workflows/publish-npm.yml`;
+set the trusted environment to `npm` and allow `npm publish`. Subsequent
+releases use OIDC and do not need the token; remove the `NPM_TOKEN` environment
+secret after verifying the first trusted release.
 
 See [the documentation index](docs/README.md), [Rust architecture](rust/README.md),
 and [contribution guide](CONTRIBUTING.md).
