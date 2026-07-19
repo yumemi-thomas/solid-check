@@ -4,6 +4,7 @@
 //! original source once and exports finite, deterministic tables. Consumers
 //! join these spans with TypeScript-Go semantic facts; Oxc nodes never escape.
 
+use compact_str::CompactString;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrowFunctionExpression, AwaitExpression, BindingPattern, CallExpression,
@@ -170,7 +171,7 @@ pub struct ImportBindingFact {
     pub kind: ImportKind,
     pub local: NamedSpan,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub imported: Option<String>,
+    pub imported: Option<CompactString>,
     pub type_only: bool,
 }
 
@@ -178,7 +179,7 @@ pub struct ImportBindingFact {
 #[serde(rename_all = "camelCase")]
 pub struct ImportFact {
     pub span: Span,
-    pub module: String,
+    pub module: CompactString,
     pub type_only: bool,
     pub bindings: Vec<ImportBindingFact>,
 }
@@ -197,7 +198,7 @@ pub struct ExportFact {
     pub span: Span,
     pub kind: ExportKind,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
+    pub module: Option<CompactString>,
     pub type_only: bool,
     pub specifiers: Vec<ExportSpecifierFact>,
     pub declarations: Vec<ExportSpecifierFact>,
@@ -207,7 +208,7 @@ pub struct ExportFact {
 #[serde(rename_all = "camelCase")]
 pub struct ExportSpecifierFact {
     pub local: NamedSpan,
-    pub exported: String,
+    pub exported: CompactString,
     pub type_only: bool,
 }
 
@@ -751,9 +752,9 @@ impl<'a> Visit<'a> for Collector<'_> {
                 imported: match specifier {
                     ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
                         Some(match &specifier.imported {
-                            ModuleExportName::IdentifierName(name) => name.name.to_string(),
-                            ModuleExportName::IdentifierReference(name) => name.name.to_string(),
-                            ModuleExportName::StringLiteral(name) => name.value.to_string(),
+                            ModuleExportName::IdentifierName(name) => name.name.as_str().into(),
+                            ModuleExportName::IdentifierReference(name) => name.name.as_str().into(),
+                            ModuleExportName::StringLiteral(name) => name.value.as_str().into(),
                         })
                     }
                     ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => Some("default".into()),
@@ -779,7 +780,7 @@ impl<'a> Visit<'a> for Collector<'_> {
         }
         self.imports.push(ImportFact {
             span: span(declaration.span),
-            module: declaration.source.value.to_string(),
+            module: declaration.source.value.as_str().into(),
             type_only: declaration.import_kind.is_type(),
             bindings,
         });
@@ -793,7 +794,7 @@ impl<'a> Visit<'a> for Collector<'_> {
             module: declaration
                 .source
                 .as_ref()
-                .map(|source| source.value.to_string()),
+                .map(|source| source.value.as_str().into()),
             type_only: declaration.export_kind.is_type(),
             specifiers: declaration
                 .specifiers
@@ -830,7 +831,7 @@ impl<'a> Visit<'a> for Collector<'_> {
         self.exports.push(ExportFact {
             span: span(declaration.span),
             kind: ExportKind::All,
-            module: Some(declaration.source.value.to_string()),
+            module: Some(declaration.source.value.as_str().into()),
             type_only: declaration.export_kind.is_type(),
             specifiers: vec![],
             declarations: vec![],
@@ -964,11 +965,11 @@ const fn span(value: OxcSpan) -> Span {
     Span::new(value.start, value.end)
 }
 
-fn module_export_name(name: &ModuleExportName<'_>) -> String {
+fn module_export_name(name: &ModuleExportName<'_>) -> CompactString {
     match name {
-        ModuleExportName::IdentifierName(name) => name.name.to_string(),
-        ModuleExportName::IdentifierReference(name) => name.name.to_string(),
-        ModuleExportName::StringLiteral(name) => name.value.to_string(),
+        ModuleExportName::IdentifierName(name) => name.name.as_str().into(),
+        ModuleExportName::IdentifierReference(name) => name.name.as_str().into(),
+        ModuleExportName::StringLiteral(name) => name.value.as_str().into(),
     }
 }
 
@@ -977,7 +978,7 @@ fn export_declaration_names(declaration: &Declaration<'_>) -> Vec<ExportSpecifie
         local: NamedSpan {
             span: span(name.span),
         },
-        exported: name.name.to_string(),
+        exported: name.name.as_str().into(),
         type_only,
     };
     match declaration {

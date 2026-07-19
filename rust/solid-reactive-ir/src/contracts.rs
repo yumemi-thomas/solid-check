@@ -258,7 +258,7 @@ fn contract_export_fragment(
                 .unwrap_or_else(value_contract_export);
             fragment
                 .syntax
-                .push((specifier.exported.clone(), summary, true));
+                .push((specifier.exported.to_string(), summary, true));
         }
         for binding in file.ast.bindings.iter().filter(|binding| {
             binding.shape != solid_ast_facts::BindingShape::Array
@@ -469,10 +469,10 @@ pub(super) fn contract_export_summaries(
                     .and_then(|symbol| by_symbol.get(symbol))
                     .cloned();
                 if let Some(summary) = summary {
-                    exports.insert(specifier.exported.clone(), summary);
+                    exports.insert(specifier.exported.to_string(), summary);
                 } else {
                     exports
-                        .entry(specifier.exported.clone())
+                        .entry(specifier.exported.to_string())
                         .or_insert_with(value_contract_export);
                 }
             }

@@ -20,6 +20,7 @@ rust-version = "1.97"
 
 [workspace.dependencies]
 ciborium = "0.2"
+compact_str = { version = "0.9.1", features = ["serde"] }
 oxc_allocator = "0.118"
 oxc_ast = "0.118"
 oxc_ast_visit = "0.118"

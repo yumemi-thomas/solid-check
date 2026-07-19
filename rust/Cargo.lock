@@ -92,6 +92,7 @@ dependencies = [
  "itoa",
  "rustversion",
  "ryu",
+ "serde",
  "static_assertions",
 ]
 
@@ -860,6 +861,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 name = "solid-ast-facts"
 version = "0.1.0"
 dependencies = [
+ "compact_str",
  "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",

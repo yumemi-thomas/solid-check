@@ -5734,7 +5734,8 @@ fn jsx_primitive_name(
             .map(|binding| {
                 binding
                     .imported
-                    .clone()
+                    .as_deref()
+                    .map(str::to_owned)
                     .unwrap_or_else(|| {
                         file.source_text(binding.local.span)
                             .unwrap_or_default()
