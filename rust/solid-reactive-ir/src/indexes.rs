@@ -10,7 +10,7 @@ use std::{
 
 use solid_facts::{FileFacts, ProjectFacts};
 use solid_facts_core::Span;
-use solid_ts_facts::{EntityFact, FactTable, FileFact, Location, SymbolFact};
+use solid_ts_facts::{EntityFact, FactTable, FileFact, Location, SymbolFact, TypeDescriptor};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct EntitySymbols {
@@ -172,6 +172,14 @@ enum SymbolFunction {
     Aborted,
 }
 
+/// Whether any JSX call site renders a function, and whether one of those
+/// call sites is wrapped in a Loading boundary in its caller file.
+#[derive(Clone, Copy, Default)]
+pub(super) struct CallSiteLoading {
+    pub(super) any: bool,
+    pub(super) loading_wrapped: bool,
+}
+
 /// Lazy project-wide lookups that replace repeated whole-project scans.
 ///
 /// Every map is built at most once per build, on first use, in the exact
@@ -181,22 +189,92 @@ enum SymbolFunction {
 pub(super) struct SemanticLookup<'a> {
     facts: &'a ProjectFacts,
     entities: &'a EntitySymbols,
+    symbol_names: &'a HashMap<String, String>,
     functions_by_symbol: OnceLock<HashMap<&'a str, SymbolFunction>>,
     entities_by_location: OnceLock<HashMap<(&'a str, u64, u64), usize>>,
+    jsx_call_sites: OnceLock<HashMap<(&'a str, Span), CallSiteLoading>>,
+    files_by_path: OnceLock<HashMap<&'a str, usize>>,
+    file_primitives: OnceLock<Vec<OnceLock<FilePrimitives>>>,
+}
+
+/// Resolved Solid primitive names for one file's calls and JSX elements,
+/// index-aligned with `file.ast.calls` / `file.ast.jsx_elements`. Computed
+/// once per file per build so per-call classifier scans stop re-resolving
+/// (and re-allocating) the same names.
+pub(super) struct FilePrimitives {
+    pub(super) calls: Vec<Option<String>>,
+    pub(super) jsx: Vec<Option<String>>,
 }
 
 impl<'a> SemanticLookup<'a> {
-    pub(super) fn new(facts: &'a ProjectFacts, entities: &'a EntitySymbols) -> Self {
+    pub(super) fn new(
+        facts: &'a ProjectFacts,
+        entities: &'a EntitySymbols,
+        symbol_names: &'a HashMap<String, String>,
+    ) -> Self {
+        debug_assert!(
+            facts
+                .typescript
+                .entities
+                .windows(2)
+                .all(|pair| pair[0].location.path <= pair[1].location.path),
+            "entity table must be sorted by path for per-path containment slices"
+        );
         Self {
             facts,
             entities,
+            symbol_names,
             functions_by_symbol: OnceLock::new(),
             entities_by_location: OnceLock::new(),
+            jsx_call_sites: OnceLock::new(),
+            files_by_path: OnceLock::new(),
+            file_primitives: OnceLock::new(),
         }
     }
 
-    pub(super) fn facts(&self) -> &'a ProjectFacts {
-        self.facts
+    /// The memoized primitive names for one project file.
+    pub(super) fn primitives(&self, file: &FileFacts) -> &FilePrimitives {
+        let files_by_path = self.files_by_path.get_or_init(|| {
+            self.facts
+                .files
+                .iter()
+                .enumerate()
+                .map(|(index, file)| (file.path.as_str(), index))
+                .collect()
+        });
+        let slots = self
+            .file_primitives
+            .get_or_init(|| self.facts.files.iter().map(|_| OnceLock::new()).collect());
+        let index = *files_by_path
+            .get(file.path.as_str())
+            .expect("primitive lookup for a file outside project facts");
+        slots[index].get_or_init(|| {
+            let file = &self.facts.files[index];
+            FilePrimitives {
+                calls: file
+                    .ast
+                    .calls
+                    .iter()
+                    .map(|call| {
+                        super::primitive_name(
+                            file.path.as_str(),
+                            call.callee,
+                            call.static_callee.as_deref(),
+                            self.entities,
+                            self.symbol_names,
+                        )
+                    })
+                    .collect(),
+                jsx: file
+                    .ast
+                    .jsx_elements
+                    .iter()
+                    .map(|element| {
+                        super::jsx_primitive_name(file, element, self.entities, self.symbol_names)
+                    })
+                    .collect(),
+            }
+        })
     }
 
     pub(super) fn entities(&self) -> &'a EntitySymbols {
@@ -237,6 +315,57 @@ impl<'a> SemanticLookup<'a> {
             .binary_search_by(|file| file.path.as_str().cmp(path))
             .ok()
             .map(|index| &files[index])
+    }
+
+    /// The symbol a callee span resolves to: the exact entity at the span,
+    /// falling back to the smallest symbol-bearing entity contained in it.
+    pub(super) fn callee_symbol(&self, path: &str, callee: Span) -> Option<&'a String> {
+        self.entities.at(path, callee).or_else(|| {
+            self.smallest_contained(path, callee, |entity| !entity.symbol.is_empty())
+                .map(|entity| &entity.symbol)
+        })
+    }
+
+    /// The type descriptor of the smallest typed entity contained in a span.
+    pub(super) fn smallest_contained_descriptor(
+        &self,
+        path: &str,
+        span: Span,
+    ) -> Option<&'a TypeDescriptor> {
+        self.smallest_contained(path, span, |entity| entity.type_descriptor.is_some())
+            .and_then(|entity| entity.type_descriptor.as_ref())
+    }
+
+    /// Whether any JSX call site renders the function at `(path, function)`,
+    /// and whether one of those call sites sits under a Loading boundary.
+    pub(super) fn jsx_call_site_loading(&self, path: &str, function: Span) -> CallSiteLoading {
+        self.jsx_call_sites()
+            .get(&(path, function))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn entities_for_path(&self, path: &str) -> &'a [EntityFact] {
+        let entities = &self.facts.typescript.entities;
+        let start = entities.partition_point(|entity| entity.location.path.as_str() < path);
+        let end = entities.partition_point(|entity| entity.location.path.as_str() <= path);
+        &entities[start..end]
+    }
+
+    fn smallest_contained(
+        &self,
+        path: &str,
+        span: Span,
+        predicate: impl Fn(&EntityFact) -> bool,
+    ) -> Option<&'a EntityFact> {
+        self.entities_for_path(path)
+            .iter()
+            .filter(|entity| {
+                u64::from(span.start) <= entity.location.start_byte
+                    && entity.location.end_byte <= u64::from(span.end)
+                    && predicate(entity)
+            })
+            .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
     }
 
     fn functions_by_symbol(&self) -> &HashMap<&'a str, SymbolFunction> {
@@ -285,6 +414,39 @@ impl<'a> SemanticLookup<'a> {
                         if let Some(outcome) = outcome {
                             map.insert(symbol.as_str(), outcome);
                         }
+                    }
+                }
+            }
+            map
+        })
+    }
+
+    fn jsx_call_sites(&self) -> &HashMap<(&'a str, Span), CallSiteLoading> {
+        self.jsx_call_sites.get_or_init(|| {
+            let mut map = HashMap::<(&'a str, Span), CallSiteLoading>::new();
+            for caller_file in &self.facts.files {
+                for element in &caller_file.ast.jsx_elements {
+                    let Some((target_file, target)) =
+                        self.function_called_at(caller_file.path.as_str(), element.name.span)
+                    else {
+                        continue;
+                    };
+                    let entry = map
+                        .entry((target_file.path.as_str(), target.span))
+                        .or_default();
+                    entry.any = true;
+                    if !entry.loading_wrapped {
+                        entry.loading_wrapped =
+                            caller_file.ast.jsx_elements.iter().any(|boundary| {
+                                boundary.span.contains(element.span)
+                                    && boundary.span != element.span
+                                    && super::jsx_element_is_loading(
+                                        caller_file,
+                                        boundary,
+                                        self.entities,
+                                        self.symbol_names,
+                                    )
+                            });
                     }
                 }
             }

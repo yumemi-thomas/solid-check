@@ -90,6 +90,9 @@ fn plan_file(file: &FileFacts, demands: &mut Vec<EntityDemand>) -> Result<(), Ba
     for member in &file.ast.members {
         add_symbol(member.object, false);
     }
+    for spread in &file.ast.spreads {
+        add_symbol(spread.argument, false);
+    }
     for (span, references) in symbol_spans {
         let mut planned = demand(typefacts_location(&path, span)).symbol(references);
         planned.structural_accessor = structural_accessors.contains(&span);

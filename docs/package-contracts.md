@@ -33,6 +33,38 @@ override discovered and bundled contracts. The loader binds named imports to
 matching package and export names through Type Facts; it does not inspect the
 dependency's implementation source.
 
+Application developers can also maintain a contract when a package does not
+publish one. Put it at:
+
+```text
+.solid-check/contracts/<package>/solid-reactivity.json
+```
+
+Scoped names retain their directory structure, for example
+`.solid-check/contracts/@scope/package/solid-reactivity.json`. Project-owned
+contracts are discovered automatically and override contracts from
+`node_modules`; an explicit `--contract` still has the highest precedence.
+The same `--emit-contract` workflow can generate this file when the package
+source and a TypeScript project for it are available, or it can be authored
+against the contract schema and checked with `--validate-contract`.
+
+Before checking, inspect imported Solid-dependent packages and their contract
+coverage:
+
+```sh
+solid-check --project app/tsconfig.json --check-contracts
+```
+
+The command reports bundled, published, local, and explicit contracts. It exits
+with status 1 when a package whose manifest depends on or peers with Solid has
+no contract.
+
+Normal analysis performs the same completeness check. A missing contract emits
+the uncertifiable `SC9005 package-contract-missing` finding at the package
+import, changes the snapshot status to `uncertifiable`, and causes `--certify`
+to exit with status 1. This behavior is shared by one-shot and retained-daemon
+checks. Use `--check-contracts` when only the focused coverage report is needed.
+
 Validate contracts and their artifacts without opening a TypeScript project:
 
 ```sh

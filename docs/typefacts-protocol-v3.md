@@ -36,11 +36,25 @@ requests remain supported on the same framed stream.
 Stateful analyze responses issue the next `stateToken` and use one of three
 table modes:
 
-- `full` carries a complete v2-shaped table on first analysis, explicit
+- `full` carries a complete table on first analysis, explicit
   resynchronization, or a non-durable-symbol generation;
 - `delta` carries path-grouped source/entity/file replacements and removals,
   plus durable-symbol upserts/removals;
 - `reuse` confirms that the retained table is unchanged and carries no table.
+
+Full frames use the compact encoding on both directions of the cold
+exchange: a stateful reset analyze sends its demand snapshot as
+`compactDemands` and the stateful `full` response answers with
+`compactTable`. Both forms carry one string dictionary per frame (index 0 is
+the empty string, which also encodes an absent optional string) and encode
+rows as fixed-arity arrays with optional elements as zero-or-one-element
+arrays — never null, which deterministic CBOR forbids here. They expand
+losslessly into the plain shapes; every dictionary reference is
+bounds-checked and a gap fails the frame closed (`invalid-demands` on the
+request side). Warm `delta`/`reuse` frames, demand deltas, and the
+non-stateful v2-shaped paths keep the plain encoding. Because the handshake
+rejects mismatched build identities, the compact forms need no runtime
+negotiation.
 
 The demand set and table advance as one state. A missing/stale token returns
 `state-mismatch`; Rust disposes of both retained values and retries once with

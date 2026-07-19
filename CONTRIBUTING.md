@@ -36,6 +36,7 @@ TypeScript-Go or Oxc nodes across fact-domain interfaces.
 
 ## Upstream code
 
-DOM Expressions is maintained as a Git subtree under
-`third_party/dom-expressions`. Follow [the monorepo policy](docs/monorepo.md)
-when updating it. Oxc, tsgolint, and TypeScript-Go remain pinned dependencies.
+The required DOM Expressions compiler sources are maintained as a selective
+import under `third_party/dom-expressions`. Follow
+[the monorepo policy](docs/monorepo.md) when updating them. Oxc, tsgolint, and
+TypeScript-Go remain pinned dependencies.

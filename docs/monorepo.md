@@ -20,17 +20,16 @@ remains available for differential testing.
 
 ## Fork policy
 
-DOM Expressions is imported as a Git subtree so its upstream ancestry remains
-available without requiring Git submodules. Synchronization should be done in a
-clean worktree:
+`third_party/dom-expressions` is a deliberately narrow source import, not a
+complete upstream checkout. Only `packages/jsx-compiler` and the minimal
+workspace files required to build its N-API wrapper are retained.
 
-```sh
-git subtree pull --prefix third_party/dom-expressions \
-  https://github.com/ryansolid/dom-expressions.git next
-```
-
-Resolve conflicts inside the subtree, then run `make conformance` and
-`make verify`. Record the new upstream revision in `THIRD_PARTY_NOTICES.md`.
+To update it, compare against the recorded upstream revision, import compiler
+changes selectively, and review any upstream changes outside the compiler for
+dependencies that must also move. Do not restore unrelated runtime packages,
+release infrastructure, generated artifacts, or repository tooling. Then run
+`make conformance` and `make verify`, and record the new revision in
+`THIRD_PARTY_NOTICES.md`.
 
 Oxc, tsgolint, and TypeScript-Go stay pinned dependencies until local source
 changes are required. If one becomes a fork, import it under `third_party/`

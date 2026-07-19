@@ -24,6 +24,7 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 
 const output = resolve(options.get("output") || join(root, "dist", "solid-check"));
+const version = options.get("version");
 const platform = options.get("platform") || process.platform;
 const arch = options.get("arch") || process.arch;
 const extension = platform === "win32" ? ".exe" : "";
@@ -40,6 +41,12 @@ cpSync(join(root, "packages", "cli"), output, {
     return !["node_modules", "native", "test", "package-lock.json"].includes(name);
   }
 });
+if (version) {
+  const packageJsonPath = join(output, "package.json");
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  packageJson.version = version;
+  writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+}
 mkdirSync(nativeDirectory, { recursive: true });
 
 const binaries = [

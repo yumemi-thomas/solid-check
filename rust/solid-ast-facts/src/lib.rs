@@ -7,11 +7,13 @@
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, ArrowFunctionExpression, AwaitExpression, BindingPattern, CallExpression,
-    ConditionalExpression, Declaration, ExportAllDeclaration, ExportDefaultDeclaration,
-    ExportNamedDeclaration, Expression, Function, FunctionType, IdentifierReference, IfStatement,
-    ImportDeclaration, ImportDeclarationSpecifier, JSXElement, JSXElementName, ModuleExportName,
-    NewExpression, ObjectPropertyKind, PropertyKey, ReturnStatement, StaticMemberExpression,
-    TSModuleDeclarationName, VariableDeclarator,
+    ComputedMemberExpression, ConditionalExpression, Declaration, ExportAllDeclaration,
+    ExportDefaultDeclaration, ExportNamedDeclaration, Expression, Function, FunctionType,
+    IdentifierReference, IfStatement, ImportDeclaration, ImportDeclarationSpecifier,
+    JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElement, JSXElementName,
+    JSXExpression, ModuleExportName, NewExpression, ObjectPropertyKind, PropertyKey,
+    ReturnStatement, SpreadElement, StaticMemberExpression, TSModuleDeclarationName,
+    VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::{ParseOptions, Parser};
@@ -21,7 +23,11 @@ use serde::{Deserialize, Serialize};
 use solid_facts_core::{SourceIdentity, Span};
 use thiserror::Error;
 
-pub const AST_FACTS_SCHEMA: u32 = 12;
+pub const AST_FACTS_SCHEMA: u32 = 16;
+
+mod span_index;
+
+pub use span_index::{AstSpanIndex, LazySpanIndex};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +44,10 @@ pub struct AstFacts {
     pub returns: Vec<ReturnFact>,
     pub jsx_elements: Vec<JsxElementFact>,
     pub members: Vec<MemberFact>,
+    pub spreads: Vec<SpreadFact>,
     pub conditional_tests: Vec<Span>,
+    #[serde(skip, default)]
+    pub span_index: LazySpanIndex,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -61,6 +70,7 @@ pub struct ArgumentFact {
     pub spread: bool,
     pub value: ArgumentValueKind,
     pub boolean_properties: Vec<BooleanPropertyFact>,
+    pub identifier_properties: Vec<NamedSpan>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -213,7 +223,9 @@ pub struct ReturnFact {
     pub span: Span,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub argument: Option<Span>,
+    pub control_tests: Vec<Span>,
     pub value: ReturnValueKind,
+    pub conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -225,6 +237,8 @@ pub struct ReturnFact {
 pub struct JsxElementFact {
     pub span: Span,
     pub name: NamedSpan,
+    pub properties: Vec<String>,
+    pub boolean_properties: Vec<BooleanPropertyFact>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -233,6 +247,13 @@ pub struct MemberFact {
     pub span: Span,
     pub object: Span,
     pub property: NamedSpan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpreadFact {
+    pub span: Span,
+    pub argument: Span,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -319,7 +340,9 @@ struct Collector<'s> {
     returns: Vec<ReturnFact>,
     jsx_elements: Vec<JsxElementFact>,
     members: Vec<MemberFact>,
+    spreads: Vec<SpreadFact>,
     conditional_tests: Vec<Span>,
+    conditional_control_stack: Vec<Span>,
 }
 
 impl<'s> Collector<'s> {
@@ -336,7 +359,9 @@ impl<'s> Collector<'s> {
             returns: Vec::new(),
             jsx_elements: Vec::new(),
             members: Vec::new(),
+            spreads: Vec::new(),
             conditional_tests: Vec::new(),
+            conditional_control_stack: Vec::new(),
         }
     }
 
@@ -352,10 +377,12 @@ impl<'s> Collector<'s> {
         self.returns.sort_by_key(|fact| fact.span);
         self.jsx_elements.sort_by_key(|fact| fact.span);
         self.members.sort_by_key(|fact| fact.span);
+        self.spreads.sort_by_key(|fact| fact.span);
         self.conditional_tests.sort_unstable();
         AstFacts {
             schema: AST_FACTS_SCHEMA,
             source,
+            span_index: LazySpanIndex::default(),
             calls: self.calls,
             bindings: self.bindings,
             functions: self.functions,
@@ -366,6 +393,7 @@ impl<'s> Collector<'s> {
             returns: self.returns,
             jsx_elements: self.jsx_elements,
             members: self.members,
+            spreads: self.spreads,
             conditional_tests: self.conditional_tests,
         }
     }
@@ -424,18 +452,21 @@ impl<'s> Collector<'s> {
         }
     }
 
-    fn return_fact(expression: Option<&Expression<'_>>, fallback: OxcSpan) -> ReturnFact {
+    fn return_fact(&self, expression: Option<&Expression<'_>>, fallback: OxcSpan) -> ReturnFact {
         let Some(expression) = expression else {
             return ReturnFact {
                 span: span(fallback),
                 argument: None,
+                control_tests: self.conditional_control_stack.clone(),
                 value: ReturnValueKind::Undefined,
+                conditional: false,
                 identifier: None,
                 callee: None,
             };
         };
         let argument_span = span(expression.span());
         let expression = expression.get_inner_expression();
+        let conditional = matches!(expression, Expression::ConditionalExpression(_));
         let (value, identifier, callee) = match expression {
             Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
                 (ReturnValueKind::Function, None, None)
@@ -464,7 +495,9 @@ impl<'s> Collector<'s> {
         ReturnFact {
             span: span(expression.span()),
             argument: Some(argument_span),
+            control_tests: self.conditional_control_stack.clone(),
             value,
+            conditional,
             identifier,
             callee,
         }
@@ -523,11 +556,37 @@ impl<'s> Collector<'s> {
                 .collect(),
             _ => vec![],
         };
+        let identifier_properties = match argument {
+            Argument::ObjectExpression(object) => object
+                .properties
+                .iter()
+                .filter_map(|property| {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        return None;
+                    };
+                    let PropertyKey::StaticIdentifier(key) = &property.key else {
+                        return None;
+                    };
+                    if !matches!(key.name.as_str(), "effect" | "error") {
+                        return None;
+                    }
+                    let Expression::Identifier(value) = &property.value else {
+                        return None;
+                    };
+                    Some(NamedSpan {
+                        name: value.name.to_string(),
+                        span: span(value.span),
+                    })
+                })
+                .collect(),
+            _ => vec![],
+        };
         ArgumentFact {
             span: span(argument.span()),
             spread: argument.is_spread(),
             value,
             boolean_properties,
+            identifier_properties,
         }
     }
 }
@@ -657,6 +716,9 @@ impl<'a> Visit<'a> for Collector<'_> {
     }
 
     fn visit_arrow_function_expression(&mut self, function: &ArrowFunctionExpression<'a>) {
+        let expression_return = function
+            .get_expression()
+            .map(|expression| self.return_fact(Some(expression), expression.span()));
         self.functions.push(FunctionFact {
             span: span(function.span),
             body: span(function.body.span),
@@ -673,9 +735,7 @@ impl<'a> Visit<'a> for Collector<'_> {
             r#async: function.r#async,
             generator: false,
             expression_body: function.expression,
-            expression_return: function
-                .get_expression()
-                .map(|expression| Self::return_fact(Some(expression), expression.span())),
+            expression_return,
         });
         walk::walk_arrow_function_expression(self, function);
     }
@@ -816,16 +876,21 @@ impl<'a> Visit<'a> for Collector<'_> {
     }
 
     fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
-        self.returns.push(Self::return_fact(
-            statement.argument.as_ref(),
-            statement.span,
-        ));
+        let returned = self.return_fact(statement.argument.as_ref(), statement.span);
+        self.returns.push(returned);
         walk::walk_return_statement(self, statement);
     }
 
     fn visit_if_statement(&mut self, statement: &IfStatement<'a>) {
-        self.conditional_tests.push(span(statement.test.span()));
-        walk::walk_if_statement(self, statement);
+        let test = span(statement.test.span());
+        self.conditional_tests.push(test);
+        self.visit_expression(&statement.test);
+        self.conditional_control_stack.push(test);
+        self.visit_statement(&statement.consequent);
+        if let Some(alternate) = &statement.alternate {
+            self.visit_statement(alternate);
+        }
+        self.conditional_control_stack.pop();
     }
 
     fn visit_conditional_expression(&mut self, expression: &ConditionalExpression<'a>) {
@@ -853,6 +918,47 @@ impl<'a> Visit<'a> for Collector<'_> {
                 name,
                 span: span(name_span),
             },
+            properties: element
+                .opening_element
+                .attributes
+                .iter()
+                .filter_map(|item| {
+                    let JSXAttributeItem::Attribute(attribute) = item else {
+                        return None;
+                    };
+                    let JSXAttributeName::Identifier(name) = &attribute.name else {
+                        return None;
+                    };
+                    Some(name.name.to_string())
+                })
+                .collect(),
+            boolean_properties: element
+                .opening_element
+                .attributes
+                .iter()
+                .filter_map(|item| {
+                    let JSXAttributeItem::Attribute(attribute) = item else {
+                        return None;
+                    };
+                    let JSXAttributeName::Identifier(name) = &attribute.name else {
+                        return None;
+                    };
+                    let value = match attribute.value.as_ref() {
+                        None => true,
+                        Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                            let JSXExpression::BooleanLiteral(value) = &container.expression else {
+                                return None;
+                            };
+                            value.value
+                        }
+                        _ => return None,
+                    };
+                    Some(BooleanPropertyFact {
+                        name: name.name.to_string(),
+                        value,
+                    })
+                })
+                .collect(),
         });
         walk::walk_jsx_element(self, element);
     }
@@ -867,6 +973,34 @@ impl<'a> Visit<'a> for Collector<'_> {
             },
         });
         walk::walk_static_member_expression(self, member);
+    }
+
+    fn visit_computed_member_expression(&mut self, member: &ComputedMemberExpression<'a>) {
+        let property = member.expression.span();
+        self.members.push(MemberFact {
+            span: span(member.span),
+            object: span(member.object.span()),
+            property: NamedSpan {
+                name: self
+                    .source
+                    .get(
+                        usize::try_from(property.start).unwrap_or_default()
+                            ..usize::try_from(property.end).unwrap_or_default(),
+                    )
+                    .unwrap_or_default()
+                    .to_owned(),
+                span: span(property),
+            },
+        });
+        walk::walk_computed_member_expression(self, member);
+    }
+
+    fn visit_spread_element(&mut self, spread: &SpreadElement<'a>) {
+        self.spreads.push(SpreadFact {
+            span: span(spread.span),
+            argument: span(spread.argument.span()),
+        });
+        walk::walk_spread_element(self, spread);
     }
 }
 
@@ -1060,6 +1194,88 @@ const mixed = () => {
     }
 
     #[test]
+    fn retains_named_callbacks_in_object_arguments() {
+        let facts = extract(
+            "effect.ts",
+            "createEffect(compute, { effect: apply, error: handle });",
+        )
+        .unwrap();
+        assert_eq!(
+            facts.calls[0].arguments[1].identifier_properties,
+            [
+                NamedSpan {
+                    name: "apply".into(),
+                    span: Span::new(32, 37),
+                },
+                NamedSpan {
+                    name: "handle".into(),
+                    span: Span::new(46, 52),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn retains_conditional_returns_and_jsx_boolean_properties() {
+        let facts = extract(
+            "control.tsx",
+            "const View = (props) => props.ready ? <For keyed={false} /> : <Show keyed />;",
+        )
+        .unwrap();
+        assert!(
+            facts.functions[0]
+                .expression_return
+                .as_ref()
+                .is_some_and(|returned| returned.conditional)
+        );
+        assert_eq!(
+            facts
+                .jsx_elements
+                .iter()
+                .map(|element| element.boolean_properties.clone())
+                .collect::<Vec<_>>(),
+            [
+                vec![BooleanPropertyFact {
+                    name: "keyed".into(),
+                    value: false,
+                }],
+                vec![BooleanPropertyFact {
+                    name: "keyed".into(),
+                    value: true,
+                }],
+            ]
+        );
+    }
+
+    #[test]
+    fn relates_returns_to_the_if_tests_that_control_them() {
+        let source = "function View(props) { if (props.debug) return null; const label = props.ready ? 'yes' : 'no'; return <div>{label}</div>; }";
+        let facts = extract("control.tsx", source).unwrap();
+        let debug_start = u32::try_from(source.find("props.debug").unwrap()).unwrap();
+        let ready_start = u32::try_from(source.find("props.ready").unwrap()).unwrap();
+        let guarded = facts
+            .returns
+            .iter()
+            .find(|returned| !returned.control_tests.is_empty())
+            .expect("guarded return");
+        assert_eq!(guarded.control_tests[0].start, debug_start);
+        assert!(
+            guarded
+                .control_tests
+                .iter()
+                .all(|test| test.start != ready_start),
+            "an unrelated conditional must not control the early return"
+        );
+        assert!(
+            facts
+                .returns
+                .iter()
+                .any(|returned| returned.control_tests.is_empty()),
+            "the final return is not controlled by the earlier if"
+        );
+    }
+
+    #[test]
     fn retains_type_only_import_specifiers() {
         let facts = extract(
             "types.ts",
@@ -1108,5 +1324,25 @@ const mixed = () => {
             extract("broken.tsx", "const = ;"),
             Err(AstFactsError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn retains_computed_members_and_spreads_as_reactive_read_shapes() {
+        let source = "const key = 'name'; const value = props[key]; const copy = { ...props };";
+        let facts = extract("reads.ts", source).unwrap();
+
+        assert_eq!(facts.members.len(), 1);
+        assert_eq!(facts.members[0].property.name, "key");
+        assert_eq!(
+            &source[usize::try_from(facts.members[0].object.start).unwrap()
+                ..usize::try_from(facts.members[0].object.end).unwrap()],
+            "props"
+        );
+        assert_eq!(facts.spreads.len(), 1);
+        assert_eq!(
+            &source[usize::try_from(facts.spreads[0].argument.start).unwrap()
+                ..usize::try_from(facts.spreads[0].argument.end).unwrap()],
+            "props"
+        );
     }
 }

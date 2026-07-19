@@ -10,9 +10,9 @@ whose original notices remain applicable.
 - Location: `third_party/dom-expressions`
 - License: MIT; the upstream `LICENSE` is retained in that directory.
 
-The imported history is connected to this repository through a Git subtree.
-Local changes add the compiler execution-map interface and
-`solid-compiler-facts` sidecar.
+Only the JSX compiler sources needed by `solid-check` are retained. Local
+changes add the compiler execution-map interface and `solid-compiler-facts`
+sidecar.
 
 ## Oxc
 

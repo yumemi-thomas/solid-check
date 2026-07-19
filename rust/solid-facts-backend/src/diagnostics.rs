@@ -5,15 +5,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solid_facts::ProjectFacts;
 use solid_reactive_ir::{PackageContract, Program};
-use solid_reactive_solver::Finding;
+use solid_reactive_solver::{Finding, Rule};
 
 use crate::{BackendError, SourceFile};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub status: String,
@@ -22,7 +22,7 @@ pub struct Snapshot {
     pub metrics: Metrics,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotFinding {
     pub id: String,
@@ -30,20 +30,20 @@ pub struct SnapshotFinding {
     pub kind: String,
     pub severity: String,
     pub message: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub analysis_context: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub subject_kind: String,
     pub primary_location: SourceLocation,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related_locations: Vec<SourceLocation>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<SnapshotEvidence>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fixes: Vec<SnapshotFix>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotEvidence {
     pub message: String,
@@ -51,7 +51,7 @@ pub struct SnapshotEvidence {
     pub location: Option<SourceLocation>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotFix {
     pub message: String,
@@ -59,14 +59,14 @@ pub struct SnapshotFix {
     pub edits: Vec<SnapshotTextEdit>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotTextEdit {
     pub location: SourceLocation,
     pub new_text: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceLocation {
     pub path: String,
@@ -76,19 +76,19 @@ pub struct SourceLocation {
     pub column: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageSummary {
     pub name: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub version: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub contract_hash: String,
     pub evidence: String,
     pub exports_analyzed: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metrics {
     pub files_analyzed: usize,
@@ -146,8 +146,49 @@ pub fn analyze_project_measured_with(
     let program = solid_reactive_ir::build_with_contracts(facts, &contracts)?;
     let reactive_ir = ir_started.elapsed();
     let solve_started = Instant::now();
-    let metrics = analysis_metrics(facts, &program, &contracts);
-    let findings = solid_reactive_solver::solve(&program);
+    let statuses =
+        package_contract_statuses_with(project, facts, explicit_contract_paths, &contracts)?;
+    let missing_contracts = statuses
+        .iter()
+        .filter(|status| status.status == "missing")
+        .collect::<Vec<_>>();
+    let mut metrics = analysis_metrics(facts, &program, &contracts);
+    metrics.proof_obligations += missing_contracts.len();
+    metrics.unresolved_obligations += missing_contracts.len();
+    let mut findings = solid_reactive_solver::solve(&program);
+    findings.extend(missing_contracts.into_iter().map(|status| {
+        let location = facts
+            .files
+            .iter()
+            .find_map(|file| {
+                file.ast
+                    .imports
+                    .iter()
+                    .find(|import| package_root(&import.module) == status.name)
+                    .map(|import| solid_ts_facts::Location {
+                        path: file.path.as_str().to_owned(),
+                        start_byte: u64::from(import.span.start),
+                        end_byte: u64::from(import.span.end),
+                    })
+            })
+            .unwrap_or_else(|| solid_ts_facts::Location {
+                path: project.to_string_lossy().into_owned(),
+                start_byte: 0,
+                end_byte: 0,
+            });
+        Finding {
+            analysis_context: "package contract completeness".into(),
+            subject_kind: "package".into(),
+            ..Finding::new(
+                Rule::PackageContractMissing,
+                format!(
+                    "imported Solid package {:?} has no reactivity contract; create {} or pass --contract <PATH>",
+                    status.name, status.contract_path
+                ),
+                location,
+            )
+        }
+    }));
     let snapshot = snapshot(sources, &contracts, metrics, findings);
     let solve_and_snapshot = solve_started.elapsed();
     Ok((
@@ -435,6 +476,14 @@ pub fn bundled_solid_js_contract() -> Result<PackageContract, BackendError> {
     Ok(bundled)
 }
 
+fn bundled_solidjs_web_contract() -> Result<PackageContract, BackendError> {
+    let mut bundled = decode_package_contract(include_bytes!(
+        "../../../pkg/contracts/bundled/solidjs-web.json"
+    ))?;
+    bundled.source_path = "bundled://solidjs-web.json".into();
+    Ok(bundled)
+}
+
 pub fn load_package_contracts(
     project: &Path,
     facts: &ProjectFacts,
@@ -463,12 +512,24 @@ pub fn load_package_contracts_with(
         };
         contracts.insert(bundled.package.name.clone(), bundled);
     }
+    if modules.contains("@solidjs/web") {
+        let bundled = bundled_solidjs_web_contract()?;
+        contracts.insert(bundled.package.name.clone(), bundled);
+    }
     let project_directory = project
         .parent()
         .ok_or_else(|| BackendError::Contract("tsconfig has no parent".into()))?;
     for module in &modules {
         if let Some(path) = discover_contract(project_directory, module)? {
             let contract = read_package_contract(&path)?;
+            validate_discovered_contract_name(module, &contract)?;
+            contracts.insert(contract.package.name.clone(), contract);
+        }
+    }
+    for module in &modules {
+        if let Some(path) = discover_local_contract(project_directory, module)? {
+            let contract = read_package_contract(&path)?;
+            validate_discovered_contract_name(module, &contract)?;
             contracts.insert(contract.package.name.clone(), contract);
         }
     }
@@ -511,28 +572,248 @@ pub fn imported_package_roots(facts: &ProjectFacts) -> Vec<String> {
     modules
 }
 
-/// The contract files the discovery walk currently resolves for the given
-/// imported modules. The retained check daemon uses this to validate a cached
-/// snapshot without re-running analysis.
+/// The package manifests and contract files that influence contract discovery
+/// for the given imported modules. The retained check daemon uses this to
+/// validate a cached snapshot without re-running analysis.
 pub fn discovered_contract_paths(
     project_directory: &Path,
     modules: &[String],
 ) -> Result<Vec<PathBuf>, BackendError> {
     let mut paths = Vec::new();
     for module in modules {
+        if let Some(directory) = discover_package_directory(project_directory, module)? {
+            let manifest = directory.join("package.json");
+            if manifest.is_file() {
+                paths.push(manifest);
+            }
+        }
         if let Some(path) = discover_contract(project_directory, module)? {
+            paths.push(path);
+        }
+        if let Some(path) = discover_local_contract(project_directory, module)? {
             paths.push(path);
         }
     }
     Ok(paths)
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageContractStatus {
+    pub name: String,
+    pub status: String,
+    pub contract_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackageManifest {
+    #[serde(default)]
+    dependencies: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    peer_dependencies: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    optional_dependencies: HashMap<String, serde_json::Value>,
+}
+
+/// Reports imported packages whose own manifest indicates that they integrate
+/// with Solid. General-purpose packages do not need reactive effect summaries,
+/// so they are deliberately omitted from this preflight.
+pub fn package_contract_statuses(
+    project: &Path,
+    facts: &ProjectFacts,
+    explicit_paths: &[String],
+) -> Result<Vec<PackageContractStatus>, BackendError> {
+    let project_directory = project
+        .parent()
+        .ok_or_else(|| BackendError::Contract("tsconfig has no parent".into()))?;
+    let explicit = explicit_paths
+        .iter()
+        .map(|path| read_package_contract(Path::new(path)))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|contract| (contract.package.name, contract.source_path))
+        .collect::<HashMap<_, _>>();
+    let mut statuses = Vec::new();
+    for module in imported_package_roots(facts) {
+        let bundled_path = match module.as_str() {
+            "solid-js" => Some("bundled://solid-js.json"),
+            "@solidjs/web" => Some("bundled://solidjs-web.json"),
+            _ => None,
+        };
+        let package_directory = discover_package_directory(project_directory, &module)?;
+        let uses_solid = package_directory
+            .as_deref()
+            .map(package_uses_solid)
+            .transpose()?
+            .unwrap_or(false);
+        if bundled_path.is_none() && !uses_solid {
+            continue;
+        }
+        let local = discover_local_contract(project_directory, &module)?;
+        let published = discover_contract(project_directory, &module)?;
+        let (status, contract_path) = if let Some(path) = explicit.get(&module) {
+            ("explicit", path.clone())
+        } else if let Some(path) = local {
+            let contract = read_package_contract(&path)?;
+            validate_discovered_contract_name(&module, &contract)?;
+            ("local", contract.source_path)
+        } else if let Some(path) = published {
+            let contract = read_package_contract(&path)?;
+            validate_discovered_contract_name(&module, &contract)?;
+            ("published", contract.source_path)
+        } else if let Some(path) = bundled_path {
+            ("bundled", path.into())
+        } else {
+            (
+                "missing",
+                local_contract_path(project_directory, &module)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        };
+        statuses.push(PackageContractStatus {
+            name: module,
+            status: status.into(),
+            contract_path,
+        });
+    }
+    Ok(statuses)
+}
+
+/// As [`package_contract_statuses`], but classifies from an already-loaded
+/// contract set instead of re-running contract discovery. Analysis loads the
+/// contracts first, so this keeps the completeness check off a second
+/// filesystem walk; only the per-package manifest probe remains. Each loaded
+/// contract is the discovery winner for its package, so its source path
+/// identifies the tier the original decision tree would have chosen.
+pub fn package_contract_statuses_with(
+    project: &Path,
+    facts: &ProjectFacts,
+    explicit_paths: &[String],
+    contracts: &[PackageContract],
+) -> Result<Vec<PackageContractStatus>, BackendError> {
+    let project_directory = project
+        .parent()
+        .ok_or_else(|| BackendError::Contract("tsconfig has no parent".into()))?;
+    let explicit_sources = explicit_paths
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let by_name = contracts
+        .iter()
+        .map(|contract| (contract.package.name.as_str(), contract))
+        .collect::<HashMap<_, _>>();
+    let mut statuses = Vec::new();
+    for module in imported_package_roots(facts) {
+        let bundled = matches!(module.as_str(), "solid-js" | "@solidjs/web");
+        let package_directory = discover_package_directory(project_directory, &module)?;
+        let uses_solid = package_directory
+            .as_deref()
+            .map(package_uses_solid)
+            .transpose()?
+            .unwrap_or(false);
+        if !bundled && !uses_solid {
+            continue;
+        }
+        let (status, contract_path) = match by_name.get(module.as_str()) {
+            Some(contract) if explicit_sources.contains(contract.source_path.as_str()) => {
+                ("explicit", contract.source_path.clone())
+            }
+            Some(contract) if contract.source_path.starts_with("bundled://") => {
+                ("bundled", contract.source_path.clone())
+            }
+            Some(contract)
+                if Path::new(&contract.source_path)
+                    == local_contract_path(project_directory, &module) =>
+            {
+                ("local", contract.source_path.clone())
+            }
+            Some(contract) => ("published", contract.source_path.clone()),
+            None => (
+                "missing",
+                local_contract_path(project_directory, &module)
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+        };
+        statuses.push(PackageContractStatus {
+            name: module,
+            status: status.into(),
+            contract_path,
+        });
+    }
+    Ok(statuses)
+}
+
+fn validate_discovered_contract_name(
+    module: &str,
+    contract: &PackageContract,
+) -> Result<(), BackendError> {
+    if contract.package.name != module {
+        return Err(BackendError::Contract(format!(
+            "contract discovered for package {module:?} declares package name {:?}",
+            contract.package.name
+        )));
+    }
+    Ok(())
+}
+
+fn package_uses_solid(directory: &Path) -> Result<bool, BackendError> {
+    let manifest = match fs::read(directory.join("package.json")) {
+        Ok(data) => serde_json::from_slice::<PackageManifest>(&data)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    Ok([
+        manifest.dependencies,
+        manifest.peer_dependencies,
+        manifest.optional_dependencies,
+    ]
+    .iter()
+    .any(|dependencies| {
+        dependencies
+            .keys()
+            .any(|name| name == "solid-js" || name.starts_with("@solidjs/"))
+    }))
+}
+
 fn discover_contract(directory: &Path, module: &str) -> Result<Option<PathBuf>, BackendError> {
+    Ok(discover_package_directory(directory, module)?
+        .map(|directory| directory.join("solid-reactivity.json"))
+        .filter(|candidate| candidate.is_file()))
+}
+
+fn discover_package_directory(
+    directory: &Path,
+    module: &str,
+) -> Result<Option<PathBuf>, BackendError> {
     for ancestor in directory.ancestors() {
-        let candidate = ancestor
-            .join("node_modules")
-            .join(module)
-            .join("solid-reactivity.json");
+        let candidate = ancestor.join("node_modules").join(module);
+        match fs::metadata(&candidate) {
+            Ok(metadata) if metadata.is_dir() => return Ok(Some(candidate)),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(None)
+}
+
+fn local_contract_path(project_directory: &Path, module: &str) -> PathBuf {
+    project_directory
+        .join(".solid-check")
+        .join("contracts")
+        .join(module)
+        .join("solid-reactivity.json")
+}
+
+fn discover_local_contract(
+    project_directory: &Path,
+    module: &str,
+) -> Result<Option<PathBuf>, BackendError> {
+    for ancestor in project_directory.ancestors() {
+        let candidate = local_contract_path(ancestor, module);
         match fs::metadata(&candidate) {
             Ok(metadata) if metadata.is_file() => return Ok(Some(candidate)),
             Ok(_) => {}

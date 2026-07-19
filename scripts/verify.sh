@@ -31,8 +31,8 @@ cargo +1.97 test \
 npm ci --ignore-scripts --prefix packages/cli
 npm test --prefix packages/cli
 
-cargo fmt --manifest-path "$zed_manifest" -- --check
-cargo test --manifest-path "$zed_manifest"
+cargo +1.97 fmt --manifest-path "$zed_manifest" -- --check
+cargo +1.97 test --manifest-path "$zed_manifest"
 
 sh -n scripts/*.sh
 jq empty schema/*.json pkg/contracts/bundled/*.json

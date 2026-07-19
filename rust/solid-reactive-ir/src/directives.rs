@@ -40,7 +40,7 @@ impl<'a, 'c> DirectiveCreationCollector<'a, 'c> {
             .expression_return
             .iter()
             .chain(file.ast.returns.iter().filter(|returned| {
-                containing_ast_function(&file.ast.functions, returned.span)
+                containing_ast_function(&file.ast, returned.span)
                     .is_some_and(|owner| owner.span == function.span)
             }))
         {
@@ -79,7 +79,7 @@ impl<'a, 'c> DirectiveCreationCollector<'a, 'c> {
             return;
         }
         for call in file.ast.calls.iter().filter(|call| {
-            containing_ast_function(&file.ast.functions, call.span)
+            containing_ast_function(&file.ast, call.span)
                 .is_some_and(|owner| owner.span == function.span)
         }) {
             if let Some(primitive) = primitive_name(

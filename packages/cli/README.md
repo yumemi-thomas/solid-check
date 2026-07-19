@@ -1,24 +1,18 @@
-# solid-check CLI package
+# solid-checker
 
-This private workspace package is the user-facing launcher for the Rust CLI
-and language server. It is not published yet.
+Project-level reactivity checker and language server for Solid. The package
+ships native `solid-check`, `solid-checkd`, and `solid-typefacts` executables
+for supported platforms.
 
-An application installs one package and uses its binary directly:
+Install it as a development dependency:
 
-```json
-{
-  "devDependencies": {
-    "solid-check": "file:../../packages/cli"
-  },
-  "scripts": {
-    "check": "solid-check --certify"
-  }
-}
+```sh
+npm install --save-dev solid-checker
 ```
 
-The launcher forwards arguments, stdio, signals, and exit status. A packaged
-release places `solid-check`, `solid-checkd`, and the matching Go
-`solid-typefacts` helper under `native/<platform>-<architecture>/`; the Rust
-entry points supervise the helper and verify its schema/build handshake. While
-running from this monorepo, the launcher builds missing binaries with
-`make build-rust`.
+Then run `solid-check --certify` or start the `solid-checkd` language server.
+
+Supported targets are Linux (x64 and arm64), macOS (x64 and arm64), and
+Windows (x64). The launcher forwards arguments, stdio, signals, and exit
+status. While running from this monorepo, it builds missing development
+binaries with `make build-rust`.

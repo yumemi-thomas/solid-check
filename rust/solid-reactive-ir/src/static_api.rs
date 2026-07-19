@@ -25,7 +25,7 @@ impl StaticApiContext<'_> {
             writes: Vec::new(),
             write_action_obligations: Vec::new(),
         };
-        let allowed = allowed_callback_spans(file, self.entities, self.symbol_names);
+        let allowed = allowed_callback_spans(file, self.lookup);
         for call in &file.ast.calls {
             let Some(primitive) = primitive_name(
                 file.path.as_str(),
@@ -156,12 +156,7 @@ impl StaticApiContext<'_> {
                 }
                 continue;
             }
-            if file
-                .ast
-                .functions
-                .iter()
-                .any(|function| function.body.contains(call.span))
-            {
+            if file.ast.any_function_body_containing(call.span) {
                 result.write_action_obligations.push((
                     "write",
                     file.path.to_string(),
@@ -195,6 +190,7 @@ impl StaticApiContext<'_> {
                         &allowed,
                         self.entities,
                         self.symbol_names,
+                        self.lookup,
                     ),
                     allowed_by_option: self
                         .source_owned_write

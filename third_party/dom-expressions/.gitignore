@@ -1,10 +1,4 @@
 node_modules/
-dist/
-lib/
-.vscode/
-coverage/
-types/
-test/runtime.js
-packages/babel-plugin-jsx/index.js
-!packages/babel-plugin-jsx/types/
 .pnpm-store/
+packages/jsx-compiler/target/
+packages/jsx-compiler/*.node

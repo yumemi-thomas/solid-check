@@ -41,12 +41,13 @@ test-compiler:
 	cargo +$(RUST_TOOLCHAIN) test --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar
 
 test-zed:
-	cargo test --manifest-path packages/zed-solid-check/Cargo.toml
+	cargo +$(RUST_TOOLCHAIN) test --manifest-path packages/zed-solid-check/Cargo.toml
 
 verify:
 	scripts/verify.sh
 
 conformance: build-compiler
+	pnpm --dir third_party/dom-expressions install --frozen-lockfile --ignore-scripts
 	RUSTUP_TOOLCHAIN=$(RUST_TOOLCHAIN) pnpm --dir third_party/dom-expressions --filter @dom-expressions/jsx-compiler run build:debug
 	node scripts/compiler-conformance.mjs third_party/dom-expressions/packages/jsx-compiler $(COMPILER_BIN)
 

@@ -424,6 +424,50 @@ fn rust_cli_emits_snapshot_text_and_certification_exit_codes() {
     assert_eq!(snapshot["findings"].as_array().unwrap().len(), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn daemon_and_one_shot_share_snapshot_emission() {
+    let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join("internal/reactiveir/testdata/tracer/tsconfig.json");
+    let command = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"));
+        command
+            .env("SOLID_TYPEFACTS_BIN", &typefacts)
+            .env("SOLID_CHECK_DAEMON", "1")
+            .env("SOLID_CHECK_DAEMON_IDLE_SECS", "1");
+        command
+    };
+
+    let text = command()
+        .args(["--project", &project.to_string_lossy()])
+        .output()
+        .unwrap();
+    assert_eq!(text.status.code(), Some(0));
+    assert!(
+        String::from_utf8(text.stdout)
+            .unwrap()
+            .contains("SC1001 [violation]")
+    );
+
+    let json = command()
+        .args([
+            "--format",
+            "json",
+            "--certify",
+            "--project",
+            &project.to_string_lossy(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(json.status.code(), Some(1));
+    let snapshot: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(snapshot["status"], "violation");
+}
+
 #[test]
 fn in_process_compiler_matches_the_sidecar_snapshot() {
     let typefacts = match env::var("SOLID_TYPEFACTS_BIN") {

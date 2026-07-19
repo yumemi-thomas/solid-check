@@ -6,6 +6,7 @@ pub enum Rule {
     StrictReadUntracked,
     ReactiveReadAfterAwait,
     ComponentPropsDestructure,
+    ComponentReturnsConditionally,
     ReactiveWriteInOwnedScope,
     ActionCalledInOwnedScope,
     CleanupInForbiddenScope,
@@ -26,6 +27,7 @@ pub enum Rule {
     InvalidAffectsTarget,
     AffectsKeysOnAccessor,
     PackageContractExportMissing,
+    PackageContractMissing,
     CleanupReturnUnresolved,
     RefreshTargetUnresolved,
     AffectsTargetUnresolved,
@@ -41,10 +43,11 @@ pub struct RuleMetadata {
 }
 
 impl Rule {
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 29] = [
         Self::StrictReadUntracked,
         Self::ReactiveReadAfterAwait,
         Self::ComponentPropsDestructure,
+        Self::ComponentReturnsConditionally,
         Self::ReactiveWriteInOwnedScope,
         Self::ActionCalledInOwnedScope,
         Self::CleanupInForbiddenScope,
@@ -65,6 +68,7 @@ impl Rule {
         Self::InvalidAffectsTarget,
         Self::AffectsKeysOnAccessor,
         Self::PackageContractExportMissing,
+        Self::PackageContractMissing,
         Self::CleanupReturnUnresolved,
         Self::RefreshTargetUnresolved,
         Self::AffectsTargetUnresolved,
@@ -78,6 +82,9 @@ impl Rule {
             Self::ReactiveReadAfterAwait => ("SC1002", "reactive-read-after-await", "error", false),
             Self::ComponentPropsDestructure => {
                 ("SC1003", "component-props-destructure", "error", false)
+            }
+            Self::ComponentReturnsConditionally => {
+                ("SC1004", "component-returns-conditionally", "error", false)
             }
             Self::ReactiveWriteInOwnedScope => {
                 ("SC2001", "reactive-write-in-owned-scope", "error", false)
@@ -102,7 +109,7 @@ impl Rule {
                 ("SC5002", "pending-async-forbidden-scope", "warning", false)
             }
             Self::AsyncOutsideLoadingBoundary => {
-                ("SC5003", "async-outside-loading-boundary", "error", false)
+                ("SC5003", "async-outside-loading-boundary", "warning", false)
             }
             Self::PrimitiveInDirectiveApplication => (
                 "SC6001",
@@ -117,6 +124,9 @@ impl Rule {
             Self::AffectsKeysOnAccessor => ("SC7004", "affects-keys-on-accessor", "error", false),
             Self::PackageContractExportMissing => {
                 ("SC9001", "package-contract-export-missing", "error", true)
+            }
+            Self::PackageContractMissing => {
+                ("SC9005", "package-contract-missing", "error", true)
             }
             Self::CleanupReturnUnresolved => ("SC9002", "cleanup-return-unresolved", "error", true),
             Self::RefreshTargetUnresolved => ("SC9003", "refresh-target-unresolved", "error", true),
@@ -158,5 +168,18 @@ mod tests {
             })
             .collect::<HashSet<_>>();
         assert_eq!(identities.len(), Rule::ALL.len());
+    }
+
+    #[test]
+    fn runtime_mirrored_severities_match_solid_two() {
+        assert_eq!(
+            Rule::AsyncOutsideLoadingBoundary.metadata().severity,
+            "warning"
+        );
+        assert_eq!(Rule::PendingAsyncUntrackedRead.metadata().severity, "error");
+        assert_eq!(
+            Rule::PendingAsyncForbiddenScope.metadata().severity,
+            "warning"
+        );
     }
 }

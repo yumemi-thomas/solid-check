@@ -1,0 +1,99 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: windows-2025
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: dtolnay/rust-toolchain@1.97
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build native package
+        env:
+          SOLID_CHECK_BUILD_ID: ${{ github.ref_name }}
+        run: |
+          extension=""
+          if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
+          mkdir -p bin
+          go build -ldflags "-X main.buildID=$SOLID_CHECK_BUILD_ID" \
+            -o "bin/solid-typefacts${extension}" ./cmd/solid-typefacts
+          cargo build --release --manifest-path rust/Cargo.toml --workspace
+          node scripts/package-rust.mjs \
+            --output "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+            --platform "${{ matrix.platform }}" \
+            --arch "${{ matrix.arch }}" \
+            --version "${GITHUB_REF_NAME#v}" \
+            --typefacts "bin/solid-typefacts${extension}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          path: dist/artifacts
+      - name: Assemble and validate package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            mv "dist/artifacts/npm-${target}" "dist/artifacts/${target}"
+          done
+          node scripts/assemble-npm-package.mjs dist/artifacts dist/solid-checker "$version"
+          npm pack ./dist/solid-checker --dry-run
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./dist/solid-checker

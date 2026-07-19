@@ -13,16 +13,26 @@ fn write_scope_diagnostics_have_semantic_locations() {
             findings_for_rule(&findings, "reactive-write-in-owned-scope").len(),
             findings_for_rule(&findings, "action-called-in-owned-scope").len(),
         ),
-        (12, 2)
+        (13, 3)
     );
-    assert!(findings.iter().all(|finding| {
-        finding["primaryLocation"]["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with(".tsx"))
-            && finding["message"].as_str().is_some_and(|message| {
-                message.contains("owned scope") || message.contains("action")
+    assert!(
+        findings
+            .iter()
+            .filter(|finding| {
+                matches!(
+                    finding["rule"].as_str(),
+                    Some("reactive-write-in-owned-scope" | "action-called-in-owned-scope")
+                )
             })
-    }));
+            .all(|finding| {
+                finding["primaryLocation"]["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(".tsx"))
+                    && finding["message"].as_str().is_some_and(|message| {
+                        message.contains("owned scope") || message.contains("action")
+                    })
+            })
+    );
 }
 
 #[test]
@@ -43,7 +53,7 @@ fn diagnostic_domains_match_the_solid_two_matrix() {
                 ("missing-effect-function", 2),
                 ("sync-node-received-async", 6),
                 ("invalid-refresh-target", 2),
-                ("invalid-affects-target", 2),
+                ("invalid-affects-target", 1),
                 ("reactive-write-in-owned-scope", 1),
             ],
         ),
@@ -68,7 +78,7 @@ fn diagnostic_domains_match_the_solid_two_matrix() {
             &[
                 ("pending-async-untracked-read", 1),
                 ("pending-async-forbidden-scope", 1),
-                ("async-outside-loading-boundary", 7),
+                ("async-outside-loading-boundary", 11),
             ],
         ),
     ] {
@@ -115,7 +125,7 @@ fn interprocedural_diagnostics_point_to_the_calling_component() {
 
 #[test]
 fn control_flow_and_effect_phases_classify_strict_reads() {
-    for (fixture, expected) in [("control-flow", 0), ("execution-phases", 1)] {
+    for (fixture, expected) in [("control-flow", 2), ("execution-phases", 1)] {
         let Some(findings) = diagnostic_fixture(fixture) else {
             return;
         };

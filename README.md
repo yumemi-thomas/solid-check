@@ -37,6 +37,12 @@ SOLID_TYPEFACTS_BIN=bin/solid-typefacts \
   --project internal/reactiveir/testdata/tracer/tsconfig.json
 ```
 
+Install the published CLI:
+
+```sh
+npm install --save-dev solid-checker
+```
+
 Build a distributable native package:
 
 ```sh
@@ -45,6 +51,12 @@ make package
 
 The package exposes the commands as `solid-check` and `solid-checkd` and ships
 the matching `solid-typefacts` helper.
+
+Maintainers publish a release by pushing a semantic-version tag such as
+`v0.1.0`. For the first publish, add an `NPM_TOKEN` secret to the `npm` GitHub
+environment. After the package exists, configure npm trusted publishing for
+this repository and `.github/workflows/publish-npm.yml`; subsequent releases
+do not need the token.
 
 See [the documentation index](docs/README.md), [Rust architecture](rust/README.md),
 and [contribution guide](CONTRIBUTING.md).

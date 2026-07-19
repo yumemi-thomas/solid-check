@@ -8,12 +8,12 @@ mod transport;
 
 pub use cache::{CacheStats, FactsCache};
 pub use diagnostics::{
-    DiagnosticAnalysis, DiagnosticTimings, Metrics, PackageSummary, Snapshot, SnapshotEvidence,
-    SnapshotFinding, SnapshotFix, SnapshotTextEdit, SourceLocation, analysis_metrics,
-    analyze_project, analyze_project_measured, analyze_project_measured_with,
+    DiagnosticAnalysis, DiagnosticTimings, Metrics, PackageContractStatus, PackageSummary,
+    Snapshot, SnapshotEvidence, SnapshotFinding, SnapshotFix, SnapshotTextEdit, SourceLocation,
+    analysis_metrics, analyze_project, analyze_project_measured, analyze_project_measured_with,
     bundled_solid_js_contract, discovered_contract_paths, imported_package_roots,
-    load_package_contracts, load_package_contracts_with, read_package_contract, snapshot,
-    source_location,
+    load_package_contracts, load_package_contracts_with, package_contract_statuses,
+    package_contract_statuses_with, read_package_contract, snapshot, source_location,
 };
 
 #[must_use]
@@ -462,6 +462,7 @@ impl NativeIncrementalSession {
                         structural_spans: vec![],
                         compiler_spans: vec![],
                         demands: vec![],
+                        compact_demands: None,
                         state_token: String::new(),
                         reset_state: false,
                         removed_demand_paths: vec![],
@@ -632,6 +633,7 @@ impl NativeIncrementalSession {
                 structural_spans: vec![],
                 compiler_spans: vec![],
                 demands: vec![],
+                compact_demands: None,
                 state_token: String::new(),
                 reset_state: false,
                 removed_demand_paths: vec![],
@@ -712,6 +714,7 @@ fn open_typescript_project(
         structural_spans: vec![],
         compiler_spans: vec![],
         demands: vec![],
+        compact_demands: None,
         state_token: String::new(),
         reset_state: false,
         removed_demand_paths: vec![],
@@ -751,6 +754,7 @@ fn update_session(
         structural_spans: vec![],
         compiler_spans: vec![],
         demands: vec![],
+        compact_demands: None,
         state_token: String::new(),
         reset_state: false,
         removed_demand_paths: vec![],
@@ -1973,6 +1977,7 @@ impl TypeFactsSidecar {
             structural_spans: vec![],
             compiler_spans: vec![],
             demands: vec![],
+            compact_demands: None,
             state_token: String::new(),
             reset_state: false,
             removed_demand_paths: vec![],
@@ -1996,6 +2001,7 @@ fn sources_request(project_id: &str, generation: u64) -> solid_ts_facts::v3::Req
         structural_spans: vec![],
         compiler_spans: vec![],
         demands: vec![],
+        compact_demands: None,
         state_token: String::new(),
         reset_state: false,
         removed_demand_paths: vec![],
@@ -2107,6 +2113,15 @@ impl TypeFactsSidecar {
         removed_demand_paths: Vec<String>,
         reset_state: bool,
     ) -> Result<ClosureResponse, BackendError> {
+        // Full reset snapshots go over compact; warm demand deltas stay plain.
+        let (demands, compact_demands) = if reset_state && !wire_demands.is_empty() {
+            (
+                vec![],
+                Some(solid_ts_facts::v3::compact_demands(&wire_demands)),
+            )
+        } else {
+            (wire_demands, None)
+        };
         let mut response = self.lifecycle(solid_ts_facts::v3::Request {
             schema: solid_ts_facts::v3::TYPE_FACTS_SCHEMA_V3,
             request_id: 0,
@@ -2116,7 +2131,8 @@ impl TypeFactsSidecar {
             changes: vec![],
             structural_spans: vec![],
             compiler_spans: vec![],
-            demands: wire_demands,
+            demands,
+            compact_demands,
             state_token: if reset_state {
                 String::new()
             } else {
@@ -2173,9 +2189,17 @@ impl TypeFactsSidecar {
             _ => TypeScriptChanges::default(),
         });
         let table = match response.table_mode.as_str() {
-            "full" => response.table.take().ok_or_else(|| {
-                BackendError::Process("TypeFacts full response returned no table".into())
-            })?,
+            "full" => match (response.table.take(), response.compact_table.take()) {
+                (Some(table), _) => table,
+                (None, Some(compact)) => compact.expand().map_err(|error| {
+                    BackendError::Process(format!("TypeFacts compact table invalid: {error}"))
+                })?,
+                (None, None) => {
+                    return Err(BackendError::Process(
+                        "TypeFacts full response returned no table".into(),
+                    ));
+                }
+            },
             "reuse" => {
                 let mut table = self.retained_table.clone().ok_or_else(|| {
                     BackendError::Process("TypeFacts requested reuse without retained table".into())
@@ -2360,6 +2384,7 @@ impl TypeFactsProvider for TypeFactsSidecar {
             structural_spans: vec![],
             compiler_spans: request.compiler_spans.clone(),
             demands: vec![],
+            compact_demands: None,
             state_token: String::new(),
             reset_state: false,
             removed_demand_paths: vec![],
@@ -2439,6 +2464,7 @@ impl TypeFactsProvider for TypeFactsSidecar {
             structural_spans: vec![],
             compiler_spans: vec![],
             demands: vec![],
+            compact_demands: None,
             state_token: self.state_token.clone(),
             reset_state: false,
             removed_demand_paths: vec![],
@@ -2511,6 +2537,7 @@ impl TypeFactsCancellation {
                 structural_spans: vec![],
                 compiler_spans: vec![],
                 demands: vec![],
+                compact_demands: None,
                 state_token: String::new(),
                 reset_state: false,
                 removed_demand_paths: vec![],
@@ -2646,7 +2673,7 @@ mod tests {
     fn semantic_demand_plan_is_complete_for_downstream_consumers() {
         let file = test_file_facts(
             "src/component.tsx",
-            "const value = createMemo(async () => 1); export function Card(props: { title: string }) { return <div>{props.title}{value()}</div>; }",
+            "const value = createMemo(async () => 1); export function Card(props: { title: string }) { const key = 'title'; const copy = { ...props }; return <div>{props[key]}{copy.title}{value()}</div>; }",
         );
         let demands = semantic_demands(std::slice::from_ref(&file)).unwrap();
 
@@ -2657,6 +2684,15 @@ mod tests {
                     .iter()
                     .any(|demand| demand.symbol && demand.location == location),
                 "member object {location:?} must retain symbol provenance"
+            );
+        }
+        for spread in &file.ast.spreads {
+            let location = typefacts_location(file.path.as_str(), spread.argument);
+            assert!(
+                demands
+                    .iter()
+                    .any(|demand| demand.symbol && demand.location == location),
+                "spread argument {location:?} must retain symbol provenance"
             );
         }
         for call in &file.ast.calls {

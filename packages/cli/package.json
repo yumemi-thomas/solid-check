@@ -1,7 +1,7 @@
 {
-  "name": "solid-check",
-  "version": "0.0.0",
-  "private": true,
+  "name": "solid-checker",
+  "version": "0.1.0",
+  "description": "Project-level reactivity checker and language server for Solid",
   "type": "module",
   "bin": {
     "solid-check": "bin/solid-check.mjs",
@@ -10,13 +10,35 @@
   "files": [
     "bin",
     "native",
-    "native-manifest.json"
+    "native-manifest.json",
+    "scripts"
   ],
   "scripts": {
+    "prepack": "node scripts/validate-package.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yumemi-thomas/solid-check.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/yumemi-thomas/solid-check/issues"
+  },
+  "homepage": "https://github.com/yumemi-thomas/solid-check#readme",
+  "keywords": [
+    "solid",
+    "solidjs",
+    "linter",
+    "reactivity",
+    "language-server"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
 }

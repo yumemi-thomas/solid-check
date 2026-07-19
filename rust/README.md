@@ -88,8 +88,9 @@ Implemented rule slices are:
   JSX dominance through aliased boundaries, components, and boundary wrappers;
 - `reactive-read-after-await`, using TS-Go's dominance-proven
   `callsAfterAwait` facts rather than source-order guesses;
-- component props reads, aliases, Solid `merge`, conditional returns, and
-  `component-props-destructure`, with Oxc binding/member shapes and checker
+- component props reads, aliases, Solid `merge`, and
+  `component-props-destructure`, plus `component-returns-conditionally` for
+  reactive return-shape guards, with Oxc binding/member shapes and checker
   identities.
 
 Oxc discovers bindings, options, calls, callback nesting, and function graphs;

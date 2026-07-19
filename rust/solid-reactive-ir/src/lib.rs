@@ -1,21 +1,49 @@
+mod cleanup;
+mod contracts;
 mod directives;
+mod execution_role;
 mod indexes;
+mod interproc;
+mod reachability;
 mod static_api;
+mod symbols;
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
 
+use cleanup::{cleanup_returns_for_file, function_returns_cleanup, leaf_owner_operations_for_file};
+use contracts::{
+    ContractAnalysis, ContractGraph, ContractSemantics, ResolvedContracts,
+    contract_export_summaries, contract_export_summaries_incremental, resolve_contract_imports,
+};
 use directives::{DirectiveCreationCollector, is_created_primitive, push_directive_creation};
+use execution_role::{
+    allowed_callback_spans, argument_references_callback_symbol, async_execution_role,
+    control_flow_execution_role, execution_role, function_symbol, named_callback_execution_role,
+    read_analysis_context, semantic_execution_role,
+};
 use indexes::{CachedAstFileIndex, EntitySymbols, ProjectIndexes, SemanticLookup};
+use interproc::{
+    InterproceduralContext, InterproceduralResult, InterproceduralTimings, SummaryNode,
+    SummaryRead, SummaryReads,
+};
+use reachability::{
+    ReachabilityInputs, ReachabilityState, ReachabilityTopology, reachable_call_multiplicity,
+    reachable_call_multiplicity_incremental,
+};
 use serde::{Deserialize, Serialize};
 use solid_facts::{FileFacts, ProjectFacts};
 use solid_facts_core::{SourceHash, Span};
-use solid_ts_facts::{Declaration, EntityFact, FactTable, FileFact, Location, SymbolFact};
+use solid_ts_facts::{Declaration, EntityFact, FileFact, Location};
 use static_api::StaticApiContext;
+use symbols::{
+    add_solid_namespace_names, alias_roots_and_source_declarations, async_symbol_root,
+    entity_symbols, patch_typescript_indexes, references_by_source,
+    source_discovery_symbol_semantics, symbol_alias_targets, symbol_names, symbols_by_root,
+};
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -607,20 +635,6 @@ struct CachedReachabilityFile {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum ReachabilityTopologyTarget {
-    Symbol(String),
-    Local(usize),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ReachabilityTopology {
-    function_symbols: Vec<Option<String>>,
-    roots: Vec<ReachabilityTopologyTarget>,
-    edges: Vec<(Option<usize>, ReachabilityTopologyTarget)>,
-    callback_edges: Vec<(Option<usize>, Vec<ReachabilityTopologyTarget>)>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 struct LateStageSourceSemantics {
     callees: Vec<Option<String>>,
     binding_call_shapes: Vec<Option<bool>>,
@@ -988,109 +1002,6 @@ impl FunctionBoundary for FunctionNode {
 pub enum BuildError {
     #[error("fact location offset does not fit Oxc span")]
     SpanWidth,
-}
-
-#[derive(Clone)]
-struct ResolvedContractBinding {
-    local_name: String,
-    imported_name: String,
-    package_name: String,
-    symbol: String,
-    contract_location: Location,
-    summary: ContractExport,
-}
-
-struct ResolvedContracts {
-    bindings: Vec<ResolvedContractBinding>,
-    by_symbol: HashMap<String, ResolvedContractBinding>,
-    missing_exports: Vec<StaticViolation>,
-}
-
-fn resolve_contract_imports(
-    facts: &ProjectFacts,
-    contracts: &[PackageContract],
-    entities: &EntitySymbols,
-) -> ResolvedContracts {
-    let mut bindings = Vec::new();
-    let mut by_symbol = HashMap::new();
-    let mut missing_exports = Vec::new();
-    for file in &facts.files {
-        for import in &file.ast.imports {
-            if import.type_only {
-                continue;
-            }
-            let Some(contract) = contracts
-                .iter()
-                .filter(|contract| {
-                    import.module == contract.package.name
-                        || import
-                            .module
-                            .strip_prefix(&contract.package.name)
-                            .is_some_and(|suffix| suffix.starts_with('/'))
-                })
-                .max_by_key(|contract| contract.package.name.len())
-            else {
-                continue;
-            };
-            for binding in &import.bindings {
-                if binding.type_only {
-                    continue;
-                }
-                let Some(imported) = binding.imported.as_deref().or_else(|| {
-                    (binding.kind == solid_ast_facts::ImportKind::Default).then_some("default")
-                }) else {
-                    continue;
-                };
-                let binding_location = location(file.path.as_str(), binding.local.span);
-                let Some(symbol) = entities.get(&binding_location).cloned() else {
-                    continue;
-                };
-                let Some(summary) = contract.exports.get(imported).cloned() else {
-                    if contract.package.name == "solid-js" {
-                        continue;
-                    }
-                    missing_exports.push(StaticViolation {
-                        id: "SC9001".into(),
-                        rule: "package-contract-export-missing".into(),
-                        message: format!(
-                            "package contract for {} does not describe imported export {imported}",
-                            import.module
-                        ),
-                        location: binding_location,
-                        analysis_context: String::new(),
-                        fixes: vec![],
-                    });
-                    continue;
-                };
-                let resolved = ResolvedContractBinding {
-                    local_name: binding.local.name.clone(),
-                    imported_name: imported.into(),
-                    package_name: contract.package.name.clone(),
-                    symbol: symbol.clone(),
-                    contract_location: Location {
-                        path: format!("{}#{imported}", contract.source_path),
-                        start_byte: 0,
-                        end_byte: 0,
-                    },
-                    summary,
-                };
-                // Solid's built-ins have richer native semantics than their
-                // cross-package contract summary (ownership, async
-                // provenance, writes, and cleanup phases). Keep the bundled
-                // contract as evidence and for export completeness, but do
-                // not layer its coarse callbacks/returns over native facts.
-                if contract.package.name != "solid-js" {
-                    bindings.push(resolved.clone());
-                    by_symbol.insert(symbol, resolved);
-                }
-            }
-        }
-    }
-    ResolvedContracts {
-        bindings,
-        by_symbol,
-        missing_exports,
-    }
 }
 
 fn source_discovery_identity(
@@ -1573,32 +1484,74 @@ pub fn build_with_contracts_measured(
     build_with_contracts_measured_incremental(facts, contracts, BuildCaches::default())
 }
 
-fn build_with_contracts_measured_incremental(
-    facts: &ProjectFacts,
-    contracts: &[PackageContract],
-    caches: BuildCaches<'_>,
-) -> Result<(Program, BuildTimings), BuildError> {
-    let BuildCaches {
-        ast_indexes: ast_indexes_cache,
-        source_discovery: source_discovery_cache,
-        typed_accessors: typed_accessor_cache,
-        interprocedural_graph: interprocedural_graph_cache,
-        interprocedural_results: interprocedural_result_cache,
-        typescript_indexes: typescript_indexes_cache,
-        reachability: reachability_cache,
-        late_stages: mut late_stage_cache,
-    } = caches;
-    let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
-    let total_started = Instant::now();
+/// Owned reactive-source facts produced by the source-discovery stage and
+/// consumed by the later interprocedural, static, and owner stages.
+struct SourceDiscovery {
+    accessors: HashMap<String, (String, Location)>,
+    accessor_origins: HashMap<String, (String, String, Location)>,
+    setters: HashMap<String, (String, Location, bool)>,
+    actions: HashMap<String, (String, Location)>,
+    source_kinds: HashMap<String, ReactiveSourceKind>,
+    source_primitives: HashMap<String, String>,
+    source_phases: HashMap<String, u8>,
+    returned_source_symbols: HashSet<String>,
+    summary_source_symbols: HashSet<String>,
+    source_owned_write: HashMap<String, bool>,
+    async_sources: HashSet<String>,
+    contract_reads: HashMap<String, Vec<(String, String, Location, String)>>,
+    contract_callbacks: HashMap<String, Vec<ContractCallback>>,
+    contract_returns: HashMap<String, (ContractReturn, Location)>,
+    contracted_accessor_symbols: HashSet<String>,
+    prop_sources: HashMap<String, (String, Location)>,
+    bundled_returns: HashMap<String, ContractReturn>,
+    retained_source_paths: HashSet<String>,
+    changed_source_symbols: HashSet<String>,
+}
+
+/// The stable, read-mostly environment threaded through every pipeline stage:
+/// project facts, prebuilt indexes, resolved contracts, and the semantic lookup.
+#[derive(Clone, Copy)]
+struct StageContext<'a> {
+    facts: &'a ProjectFacts,
+    project_indexes: &'a ProjectIndexes<'a>,
+    typescript_indexes: &'a CachedTypeScriptIndexes,
+    entities: &'a EntitySymbols,
+    source_declarations: &'a HashMap<String, Declaration>,
+    symbol_names: &'a HashMap<String, String>,
+    semantic_lookup: &'a SemanticLookup<'a>,
+    resolved_contracts: &'a ResolvedContracts,
+    contracts: &'a [PackageContract],
+}
+
+// The final `finish_stage!` resets the stage timer for symmetry; that last write
+// is intentionally unused because the stage ends here.
+#[allow(unused_assignments)]
+fn discover_sources(
+    ctx: &StageContext<'_>,
+    source_discovery_cache: Option<&mut HashMap<String, CachedSourceDiscovery>>,
+    typescript_unchanged: bool,
+    build_timings: &mut BuildTimings,
+    emit_timings: bool,
+) -> SourceDiscovery {
+    let StageContext {
+        facts,
+        project_indexes,
+        typescript_indexes,
+        entities,
+        source_declarations,
+        symbol_names,
+        semantic_lookup,
+        resolved_contracts,
+        contracts,
+    } = *ctx;
     let mut stage_started = Instant::now();
-    let mut build_timings = BuildTimings::default();
     macro_rules! finish_stage {
         ($field:ident, $name:literal) => {{
             let elapsed = stage_started.elapsed();
             build_timings.$field = elapsed;
             if emit_timings {
                 eprintln!(
-                    "{{\"reactiveIrStage\":{},\"elapsedNs\":{}}}",
+                    "{{\"reactiveIrStage\":\"{}\",\"elapsedNs\":{}}}",
                     $name,
                     elapsed.as_nanos()
                 );
@@ -1606,230 +1559,6 @@ fn build_with_contracts_measured_incremental(
             stage_started = Instant::now();
         }};
     }
-    let substage_started = Instant::now();
-    let owned_ast_indexes;
-    let ast_indexes = if let Some(cache) = ast_indexes_cache {
-        let current_paths = facts
-            .files
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<HashSet<_>>();
-        cache.retain(|path, _| current_paths.contains(path.as_str()));
-        for file in &facts.files {
-            if cache
-                .get(file.path.as_str())
-                .is_some_and(|index| Arc::ptr_eq(&index.ast, &file.ast))
-            {
-                continue;
-            }
-            cache.insert(file.path.to_string(), CachedAstFileIndex::new(file));
-        }
-        &*cache
-    } else {
-        owned_ast_indexes = facts
-            .files
-            .iter()
-            .map(|file| (file.path.to_string(), CachedAstFileIndex::new(file)))
-            .collect::<HashMap<_, _>>();
-        &owned_ast_indexes
-    };
-    let project_indexes = ProjectIndexes::new(facts, ast_indexes);
-    build_timings.project_indexes = substage_started.elapsed();
-    let typescript_unchanged = facts
-        .typescript_changes
-        .as_ref()
-        .is_some_and(|changes| changes.unchanged);
-    let late_stages_reusable = typescript_unchanged
-        && late_stage_cache
-            .as_deref()
-            .and_then(Option::as_ref)
-            .is_some_and(|cache| late_stage_inputs_match(cache, facts));
-    if let Some(cache) = late_stage_cache.as_deref_mut() {
-        if late_stages_reusable {
-            if let Some(retained) = cache.as_mut() {
-                for file in &facts.files {
-                    if let Some(input) = retained.inputs.get_mut(file.path.as_str()) {
-                        input.source_hash.clone_from(&file.source_hash);
-                    }
-                }
-            }
-        } else if let Some(retained) = cache.as_mut() {
-            refresh_late_stage_inputs(&mut retained.inputs, facts);
-            retained.local_accesses.aggregate = None;
-            retained.interprocedural = None;
-            retained.missing_owners = None;
-        } else {
-            *cache = Some(CachedLateStages {
-                inputs: current_late_stage_inputs(facts),
-                local_accesses: CachedLocalAccesses::default(),
-                interprocedural: None,
-                missing_owners: None,
-                owner_files: HashMap::new(),
-            });
-        }
-    }
-    let owned_typescript_indexes;
-    let typescript_indexes = if let Some(cache) = typescript_indexes_cache {
-        let patch_timings = (!typescript_unchanged)
-            .then(|| {
-                cache.as_mut().and_then(|cached| {
-                    facts.typescript_changes.as_ref().and_then(|changes| {
-                        patch_typescript_indexes(
-                            cached,
-                            &facts.typescript,
-                            &project_indexes.symbols_by_id,
-                            changes,
-                        )
-                    })
-                })
-            })
-            .flatten();
-        let indexes_patched = patch_timings.is_some();
-        if let Some((alias_roots, entity_symbols)) = patch_timings {
-            build_timings.alias_roots = alias_roots;
-            build_timings.entity_symbols = entity_symbols;
-            build_timings.alias_and_entity_indexes = alias_roots + entity_symbols;
-        }
-        if (!typescript_unchanged && !indexes_patched) || cache.is_none() {
-            let substage_started = Instant::now();
-            let (aliases, source_declarations) =
-                alias_roots_and_source_declarations(&facts.typescript);
-            build_timings.alias_roots = substage_started.elapsed();
-            let entity_symbols_started = Instant::now();
-            let entities = entity_symbols(&facts.typescript, &aliases);
-            build_timings.entity_symbols = entity_symbols_started.elapsed();
-            build_timings.alias_and_entity_indexes = substage_started.elapsed();
-            let symbol_names = symbol_names(&facts.typescript, &aliases);
-            let references_by_source = references_by_source(&facts.typescript, &aliases);
-            *cache = Some(CachedTypeScriptIndexes {
-                symbol_alias_targets: symbol_alias_targets(&facts.typescript),
-                symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
-                aliases,
-                source_declarations,
-                entities,
-                symbol_names,
-                references_by_source,
-                source_discovery_symbol_semantics: source_discovery_symbol_semantics(
-                    &facts.typescript,
-                ),
-                source_discovery_delta: None,
-            });
-        } else {
-            build_timings.typescript_indexes_reused = true;
-        }
-        cache.as_ref().expect("TypeScript indexes initialized")
-    } else {
-        let substage_started = Instant::now();
-        let (aliases, source_declarations) = alias_roots_and_source_declarations(&facts.typescript);
-        build_timings.alias_roots = substage_started.elapsed();
-        let entity_symbols_started = Instant::now();
-        let entities = entity_symbols(&facts.typescript, &aliases);
-        build_timings.entity_symbols = entity_symbols_started.elapsed();
-        build_timings.alias_and_entity_indexes = substage_started.elapsed();
-        let symbol_names = symbol_names(&facts.typescript, &aliases);
-        let references_by_source = references_by_source(&facts.typescript, &aliases);
-        owned_typescript_indexes = CachedTypeScriptIndexes {
-            symbol_alias_targets: symbol_alias_targets(&facts.typescript),
-            symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
-            aliases,
-            source_declarations,
-            entities,
-            symbol_names,
-            references_by_source,
-            source_discovery_symbol_semantics: source_discovery_symbol_semantics(&facts.typescript),
-            source_discovery_delta: None,
-        };
-        &owned_typescript_indexes
-    };
-    let aliases = &typescript_indexes.aliases;
-    let source_declarations = &typescript_indexes.source_declarations;
-    let entities = &typescript_indexes.entities;
-    let substage_started = Instant::now();
-    let mut symbol_names = typescript_indexes.symbol_names.clone();
-    add_solid_namespace_names(facts, entities, &mut symbol_names);
-    build_timings.symbol_name_indexes = substage_started.elapsed();
-    let substage_started = Instant::now();
-    let resolved_contracts = resolve_contract_imports(facts, contracts, entities);
-    build_timings.contract_resolution = substage_started.elapsed();
-    let semantic_lookup = SemanticLookup::new(facts, entities);
-    let semantic_lookup = &semantic_lookup;
-    let owned_reachable_calls;
-    let reachable_calls = if let Some(cache) = reachability_cache {
-        let can_reuse = typescript_unchanged
-            && cache.as_ref().is_some_and(|cached| {
-                cached.inputs.len() == facts.files.len()
-                    && facts.files.iter().all(|file| {
-                        cached
-                            .inputs
-                            .get(file.path.as_str())
-                            .is_some_and(|(source_hash, ast)| {
-                                source_hash == &file.source_hash
-                                    || same_reachability_ast(ast, &file.ast)
-                            })
-                    })
-            });
-        if can_reuse {
-            let cached = cache.as_mut().expect("checked retained reachability");
-            for file in &facts.files {
-                if let Some((source_hash, _)) = cached.inputs.get_mut(file.path.as_str()) {
-                    source_hash.clone_from(&file.source_hash);
-                }
-                if let Some(retained_file) = cached.files.get_mut(file.path.as_str()) {
-                    retained_file
-                        .identity
-                        .source_hash
-                        .clone_from(&file.source_hash);
-                }
-            }
-            build_timings.reachability_reused = true;
-        } else {
-            let substage_started = Instant::now();
-            let cached = cache.get_or_insert_with(|| CachedReachability {
-                inputs: HashMap::new(),
-                files: HashMap::new(),
-                calls: HashMap::new(),
-                multiplicity_by_path: HashMap::new(),
-                function_symbols: HashSet::new(),
-            });
-            let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
-                ReachabilityInputs {
-                    facts,
-                    indexes: &project_indexes,
-                    entities,
-                    symbol_names: &symbol_names,
-                    typescript_unchanged,
-                    typescript_delta: typescript_indexes.source_discovery_delta.as_ref(),
-                },
-                ReachabilityState {
-                    files: &mut cached.files,
-                    multiplicity_by_path: &mut cached.multiplicity_by_path,
-                    calls: &mut cached.calls,
-                    function_symbols: &mut cached.function_symbols,
-                },
-            );
-            build_timings.reachability = substage_started.elapsed();
-            build_timings.reachability_reused_files = reused_files;
-            build_timings.reachability_recomputed_files = recomputed_files;
-            cached.inputs = facts
-                .files
-                .iter()
-                .map(|file| {
-                    (
-                        file.path.to_string(),
-                        (file.source_hash.clone(), file.ast.clone()),
-                    )
-                })
-                .collect();
-        }
-        &cache.as_ref().expect("reachability initialized").calls
-    } else {
-        let substage_started = Instant::now();
-        owned_reachable_calls =
-            reachable_call_multiplicity(facts, &project_indexes, entities, &symbol_names);
-        build_timings.reachability = substage_started.elapsed();
-        &owned_reachable_calls
-    };
-    finish_stage!(indexes_and_reachability, "indexes-and-reachability");
     let mut accessors = HashMap::<String, (String, Location)>::new();
     let bundled_returns = contracts
         .iter()
@@ -1959,7 +1688,7 @@ fn build_with_contracts_measured_incremental(
                         call.callee,
                         call.static_callee.as_deref(),
                         entities,
-                        &symbol_names,
+                        symbol_names,
                     );
                     if primitive.as_deref() == Some("action") {
                         if let Some(name) = binding.names.first() {
@@ -2120,7 +1849,7 @@ fn build_with_contracts_measured_incremental(
                     && source_discovery_identity_matches(
                         &cached.identity,
                         file,
-                        &project_indexes,
+                        project_indexes,
                         typescript_unchanged,
                         typescript_indexes.source_discovery_delta.as_ref(),
                     )
@@ -2136,7 +1865,7 @@ fn build_with_contracts_measured_incremental(
                         &cached.contribution,
                     );
                 }
-                let identity = source_discovery_identity(file, &project_indexes);
+                let identity = source_discovery_identity(file, project_indexes);
                 let contribution = discover_file_sources(
                     semantic_lookup,
                     file,
@@ -2145,8 +1874,8 @@ fn build_with_contracts_measured_incremental(
                         .get(file.path.as_str())
                         .expect("project index contains every source file"),
                     entities,
-                    &symbol_names,
-                    &resolved_contracts,
+                    symbol_names,
+                    resolved_contracts,
                     &bundled_returns,
                 );
                 extend_source_discovery_symbols(&mut changed_source_symbols, &contribution);
@@ -2225,7 +1954,7 @@ fn build_with_contracts_measured_incremental(
     }
     for file in &facts.files {
         for element in &file.ast.jsx_elements {
-            let primitive = jsx_primitive_name(file, element, entities, &symbol_names);
+            let primitive = jsx_primitive_name(file, element, entities, symbol_names);
             let keyed = element
                 .boolean_properties
                 .iter()
@@ -2280,7 +2009,7 @@ fn build_with_contracts_measured_incremental(
                 call.callee,
                 call.static_callee.as_deref(),
                 entities,
-                &symbol_names,
+                symbol_names,
             )
             .is_some_and(|primitive| {
                 matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
@@ -2299,7 +2028,7 @@ fn build_with_contracts_measured_incremental(
             let returned = compute.expression_return.as_ref().or_else(|| {
                 file.ast.returns.iter().find(|returned| {
                     compute.body.contains(returned.span)
-                        && containing_ast_function(&file.ast.functions, returned.span)
+                        && containing_ast_function(&file.ast, returned.span)
                             .is_some_and(|owner| owner.span == compute.span)
                 })
             });
@@ -2458,7 +2187,7 @@ fn build_with_contracts_measured_incremental(
                             call.callee,
                             call.static_callee.as_deref(),
                             entities,
-                            &symbol_names,
+                            symbol_names,
                         );
                         if primitive.as_deref() != Some("merge") {
                             return None;
@@ -2493,11 +2222,342 @@ fn build_with_contracts_measured_incremental(
         prop_propagation_and_control_flow,
         "prop-propagation-and-control-flow"
     );
+    SourceDiscovery {
+        accessors,
+        accessor_origins,
+        setters,
+        actions,
+        source_kinds,
+        source_primitives,
+        source_phases,
+        returned_source_symbols,
+        summary_source_symbols,
+        source_owned_write,
+        async_sources,
+        contract_reads,
+        contract_callbacks,
+        contract_returns,
+        contracted_accessor_symbols,
+        prop_sources,
+        bundled_returns,
+        retained_source_paths,
+        changed_source_symbols,
+    }
+}
+
+fn build_with_contracts_measured_incremental(
+    facts: &ProjectFacts,
+    contracts: &[PackageContract],
+    caches: BuildCaches<'_>,
+) -> Result<(Program, BuildTimings), BuildError> {
+    let BuildCaches {
+        ast_indexes: ast_indexes_cache,
+        source_discovery: source_discovery_cache,
+        typed_accessors: typed_accessor_cache,
+        interprocedural_graph: interprocedural_graph_cache,
+        interprocedural_results: interprocedural_result_cache,
+        typescript_indexes: typescript_indexes_cache,
+        reachability: reachability_cache,
+        late_stages: mut late_stage_cache,
+    } = caches;
+    let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
+    let total_started = Instant::now();
+    let mut stage_started = Instant::now();
+    let mut build_timings = BuildTimings::default();
+    macro_rules! finish_stage {
+        ($field:ident, $name:literal) => {{
+            let elapsed = stage_started.elapsed();
+            build_timings.$field = elapsed;
+            if emit_timings {
+                eprintln!(
+                    "{{\"reactiveIrStage\":\"{}\",\"elapsedNs\":{}}}",
+                    $name,
+                    elapsed.as_nanos()
+                );
+            }
+            stage_started = Instant::now();
+        }};
+    }
+    let substage_started = Instant::now();
+    let owned_ast_indexes;
+    let ast_indexes = if let Some(cache) = ast_indexes_cache {
+        let current_paths = facts
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<HashSet<_>>();
+        cache.retain(|path, _| current_paths.contains(path.as_str()));
+        for file in &facts.files {
+            if cache
+                .get(file.path.as_str())
+                .is_some_and(|index| Arc::ptr_eq(&index.ast, &file.ast))
+            {
+                continue;
+            }
+            cache.insert(file.path.to_string(), CachedAstFileIndex::new(file));
+        }
+        &*cache
+    } else {
+        owned_ast_indexes = facts
+            .files
+            .iter()
+            .map(|file| (file.path.to_string(), CachedAstFileIndex::new(file)))
+            .collect::<HashMap<_, _>>();
+        &owned_ast_indexes
+    };
+    let project_indexes = ProjectIndexes::new(facts, ast_indexes);
+    build_timings.project_indexes = substage_started.elapsed();
+    let typescript_unchanged = facts
+        .typescript_changes
+        .as_ref()
+        .is_some_and(|changes| changes.unchanged);
+    let late_stages_reusable = typescript_unchanged
+        && late_stage_cache
+            .as_deref()
+            .and_then(Option::as_ref)
+            .is_some_and(|cache| late_stage_inputs_match(cache, facts));
+    if let Some(cache) = late_stage_cache.as_deref_mut() {
+        if late_stages_reusable {
+            if let Some(retained) = cache.as_mut() {
+                for file in &facts.files {
+                    if let Some(input) = retained.inputs.get_mut(file.path.as_str()) {
+                        input.source_hash.clone_from(&file.source_hash);
+                    }
+                }
+            }
+        } else if let Some(retained) = cache.as_mut() {
+            refresh_late_stage_inputs(&mut retained.inputs, facts);
+            retained.local_accesses.aggregate = None;
+            retained.interprocedural = None;
+            retained.missing_owners = None;
+        } else {
+            *cache = Some(CachedLateStages {
+                inputs: current_late_stage_inputs(facts),
+                local_accesses: CachedLocalAccesses::default(),
+                interprocedural: None,
+                missing_owners: None,
+                owner_files: HashMap::new(),
+            });
+        }
+    }
+    let owned_typescript_indexes;
+    let typescript_indexes = if let Some(cache) = typescript_indexes_cache {
+        let patch_timings = (!typescript_unchanged)
+            .then(|| {
+                cache.as_mut().and_then(|cached| {
+                    facts.typescript_changes.as_ref().and_then(|changes| {
+                        patch_typescript_indexes(
+                            cached,
+                            &facts.typescript,
+                            &project_indexes.symbols_by_id,
+                            changes,
+                        )
+                    })
+                })
+            })
+            .flatten();
+        let indexes_patched = patch_timings.is_some();
+        if let Some((alias_roots, entity_symbols)) = patch_timings {
+            build_timings.alias_roots = alias_roots;
+            build_timings.entity_symbols = entity_symbols;
+            build_timings.alias_and_entity_indexes = alias_roots + entity_symbols;
+        }
+        if (!typescript_unchanged && !indexes_patched) || cache.is_none() {
+            let substage_started = Instant::now();
+            let (aliases, source_declarations) =
+                alias_roots_and_source_declarations(&facts.typescript);
+            build_timings.alias_roots = substage_started.elapsed();
+            let entity_symbols_started = Instant::now();
+            let entities = entity_symbols(&facts.typescript, &aliases);
+            build_timings.entity_symbols = entity_symbols_started.elapsed();
+            build_timings.alias_and_entity_indexes = substage_started.elapsed();
+            let symbol_names = symbol_names(&facts.typescript, &aliases);
+            let references_by_source = references_by_source(&facts.typescript, &aliases);
+            *cache = Some(CachedTypeScriptIndexes {
+                symbol_alias_targets: symbol_alias_targets(&facts.typescript),
+                symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
+                aliases,
+                source_declarations,
+                entities,
+                symbol_names,
+                references_by_source,
+                source_discovery_symbol_semantics: source_discovery_symbol_semantics(
+                    &facts.typescript,
+                ),
+                source_discovery_delta: None,
+            });
+        } else {
+            build_timings.typescript_indexes_reused = true;
+        }
+        cache.as_ref().expect("TypeScript indexes initialized")
+    } else {
+        let substage_started = Instant::now();
+        let (aliases, source_declarations) = alias_roots_and_source_declarations(&facts.typescript);
+        build_timings.alias_roots = substage_started.elapsed();
+        let entity_symbols_started = Instant::now();
+        let entities = entity_symbols(&facts.typescript, &aliases);
+        build_timings.entity_symbols = entity_symbols_started.elapsed();
+        build_timings.alias_and_entity_indexes = substage_started.elapsed();
+        let symbol_names = symbol_names(&facts.typescript, &aliases);
+        let references_by_source = references_by_source(&facts.typescript, &aliases);
+        owned_typescript_indexes = CachedTypeScriptIndexes {
+            symbol_alias_targets: symbol_alias_targets(&facts.typescript),
+            symbols_by_root: symbols_by_root(&facts.typescript, &aliases),
+            aliases,
+            source_declarations,
+            entities,
+            symbol_names,
+            references_by_source,
+            source_discovery_symbol_semantics: source_discovery_symbol_semantics(&facts.typescript),
+            source_discovery_delta: None,
+        };
+        &owned_typescript_indexes
+    };
+    let aliases = &typescript_indexes.aliases;
+    let source_declarations = &typescript_indexes.source_declarations;
+    let entities = &typescript_indexes.entities;
+    let substage_started = Instant::now();
+    let mut symbol_names = typescript_indexes.symbol_names.clone();
+    add_solid_namespace_names(facts, entities, &mut symbol_names);
+    build_timings.symbol_name_indexes = substage_started.elapsed();
+    let substage_started = Instant::now();
+    let mut resolved_contracts = resolve_contract_imports(facts, contracts, entities);
+    build_timings.contract_resolution = substage_started.elapsed();
+    let semantic_lookup = SemanticLookup::new(facts, entities, &symbol_names);
+    let semantic_lookup = &semantic_lookup;
+    let owned_reachable_calls;
+    let reachable_calls = if let Some(cache) = reachability_cache {
+        let can_reuse = typescript_unchanged
+            && cache.as_ref().is_some_and(|cached| {
+                cached.inputs.len() == facts.files.len()
+                    && facts.files.iter().all(|file| {
+                        cached
+                            .inputs
+                            .get(file.path.as_str())
+                            .is_some_and(|(source_hash, ast)| {
+                                source_hash == &file.source_hash
+                                    || same_reachability_ast(ast, &file.ast)
+                            })
+                    })
+            });
+        if can_reuse {
+            let cached = cache.as_mut().expect("checked retained reachability");
+            for file in &facts.files {
+                if let Some((source_hash, _)) = cached.inputs.get_mut(file.path.as_str()) {
+                    source_hash.clone_from(&file.source_hash);
+                }
+                if let Some(retained_file) = cached.files.get_mut(file.path.as_str()) {
+                    retained_file
+                        .identity
+                        .source_hash
+                        .clone_from(&file.source_hash);
+                }
+            }
+            build_timings.reachability_reused = true;
+        } else {
+            let substage_started = Instant::now();
+            let cached = cache.get_or_insert_with(|| CachedReachability {
+                inputs: HashMap::new(),
+                files: HashMap::new(),
+                calls: HashMap::new(),
+                multiplicity_by_path: HashMap::new(),
+                function_symbols: HashSet::new(),
+            });
+            let (reused_files, recomputed_files) = reachable_call_multiplicity_incremental(
+                ReachabilityInputs {
+                    facts,
+                    indexes: &project_indexes,
+                    entities,
+                    symbol_names: &symbol_names,
+                    lookup: semantic_lookup,
+                    typescript_unchanged,
+                    typescript_delta: typescript_indexes.source_discovery_delta.as_ref(),
+                },
+                ReachabilityState {
+                    files: &mut cached.files,
+                    multiplicity_by_path: &mut cached.multiplicity_by_path,
+                    calls: &mut cached.calls,
+                    function_symbols: &mut cached.function_symbols,
+                },
+            );
+            build_timings.reachability = substage_started.elapsed();
+            build_timings.reachability_reused_files = reused_files;
+            build_timings.reachability_recomputed_files = recomputed_files;
+            cached.inputs = facts
+                .files
+                .iter()
+                .map(|file| {
+                    (
+                        file.path.to_string(),
+                        (file.source_hash.clone(), file.ast.clone()),
+                    )
+                })
+                .collect();
+        }
+        &cache.as_ref().expect("reachability initialized").calls
+    } else {
+        let substage_started = Instant::now();
+        owned_reachable_calls = reachable_call_multiplicity(
+            facts,
+            &project_indexes,
+            entities,
+            &symbol_names,
+            semantic_lookup,
+        );
+        build_timings.reachability = substage_started.elapsed();
+        &owned_reachable_calls
+    };
+    finish_stage!(indexes_and_reachability, "indexes-and-reachability");
+    // Taken before the stage borrows `resolved_contracts`; the discovery stage
+    // never reads `missing_exports`, and the static-prepass stage owns it next.
+    let mut static_violations = std::mem::take(&mut resolved_contracts.missing_exports);
+    let SourceDiscovery {
+        accessors,
+        accessor_origins,
+        setters,
+        actions,
+        source_kinds,
+        source_primitives,
+        source_phases,
+        returned_source_symbols,
+        summary_source_symbols,
+        source_owned_write,
+        async_sources,
+        contract_reads,
+        contract_callbacks,
+        contract_returns,
+        contracted_accessor_symbols,
+        prop_sources,
+        bundled_returns,
+        retained_source_paths,
+        changed_source_symbols,
+    } = discover_sources(
+        &StageContext {
+            facts,
+            project_indexes: &project_indexes,
+            typescript_indexes,
+            entities,
+            source_declarations,
+            symbol_names: &symbol_names,
+            semantic_lookup,
+            resolved_contracts: &resolved_contracts,
+            contracts,
+        },
+        source_discovery_cache,
+        typescript_unchanged,
+        &mut build_timings,
+        emit_timings,
+    );
+    // discover_sources owns its own stage timers; re-anchor this function's
+    // timer so finish_stage!(static_prepass) measures only the prepass loops.
+    // The read keeps the previous stage's macro reset from becoming a dead
+    // store.
+    let _ = stage_started;
+    stage_started = Instant::now();
 
     let mut leaf_operations = Vec::new();
     let mut invalid_cleanup_returns = Vec::new();
     let mut unresolved_cleanup_returns = Vec::new();
-    let mut static_violations = resolved_contracts.missing_exports;
     for file in &facts.files {
         for span in file.compiler.uncovered_jsx_expressions() {
             static_violations.push(StaticViolation {
@@ -2724,6 +2784,7 @@ fn build_with_contracts_measured_incremental(
             .as_ref()
             .map(|delta| &delta.semantic_symbol_ids),
         retained_source_paths: &retained_source_paths,
+        lookup: semantic_lookup,
     };
     let run_local_access = || {
         local_access_context.build(
@@ -2862,7 +2923,7 @@ fn build_with_contracts_measured_incremental(
                 .iter()
                 .filter(|returned| {
                     function.body.contains(returned.span)
-                        && containing_ast_function(&file.ast.functions, returned.span)
+                        && containing_ast_function(&file.ast, returned.span)
                             .is_some_and(|owner| owner.span == function.span)
                 })
                 .collect::<Vec<_>>();
@@ -2871,7 +2932,7 @@ fn build_with_contracts_measured_incremental(
             }
             for test in file.ast.conditional_tests.iter().filter(|test| {
                 function.body.contains(**test)
-                    && containing_ast_function(&file.ast.functions, **test)
+                    && containing_ast_function(&file.ast, **test)
                         .is_some_and(|owner| owner.span == function.span)
             }) {
                 let reactive = reads.iter().any(|read| {
@@ -3145,266 +3206,6 @@ where
     })
 }
 
-fn leaf_owner_operations_for_file(
-    file: &FileFacts,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> Vec<LeafOwnerOperation> {
-    let mut operations = Vec::new();
-    let function_spans = file
-        .ast
-        .functions
-        .iter()
-        .map(|function| function.span)
-        .collect::<Vec<_>>();
-    for owner_call in &file.ast.calls {
-        let owner = primitive_name(
-            file.path.as_str(),
-            owner_call.callee,
-            owner_call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        );
-        let Some(owner @ ("onSettled" | "createTrackedEffect")) = owner.as_deref() else {
-            continue;
-        };
-        let Some(region) = owner_call.arguments.first().map(|argument| argument.span) else {
-            continue;
-        };
-        for call in &file.ast.calls {
-            if call.span == owner_call.span || !region.contains(call.span) {
-                continue;
-            }
-            let primitive = primitive_name(
-                file.path.as_str(),
-                call.callee,
-                call.static_callee.as_deref(),
-                entities,
-                symbol_names,
-            );
-            let Some(primitive) = primitive else {
-                continue;
-            };
-            let forbidden = matches!(
-                primitive.as_str(),
-                "onCleanup"
-                    | "flush"
-                    | "createMemo"
-                    | "createEffect"
-                    | "createRenderEffect"
-                    | "createTrackedEffect"
-                    | "createProjection"
-                    | "createRoot"
-                    | "createOwner"
-                    | "mapArray"
-                    | "children"
-            ) || matches!(
-                primitive.as_str(),
-                "createSignal" | "createStore" | "createOptimistic" | "createOptimisticStore"
-            ) && call.arguments.first().is_some_and(|argument| {
-                function_spans
-                    .iter()
-                    .any(|function| argument.span.contains(*function))
-            });
-            if forbidden {
-                let fix = (primitive == "onCleanup")
-                    .then(|| terminal_cleanup_fix(file, region, call))
-                    .flatten();
-                operations.push(LeafOwnerOperation {
-                    primitive,
-                    owner: owner.into(),
-                    location: location(file.path.as_str(), call.callee),
-                    fix,
-                });
-            }
-        }
-    }
-    operations
-}
-
-fn cleanup_returns_for_file<'a, 'f>(
-    lookup: &SemanticLookup<'a>,
-    file: &'f FileFacts,
-    symbol_names: &HashMap<String, String>,
-) -> (Vec<InvalidCleanupReturn>, Vec<UnresolvedCleanupReturn>)
-where
-    'a: 'f,
-{
-    let entities = lookup.entities();
-    let mut invalid = Vec::new();
-    let mut unresolved = Vec::new();
-    for call in &file.ast.calls {
-        let primitive = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        );
-        let callback_index = match primitive.as_deref() {
-            Some("onSettled" | "createTrackedEffect" | "createReaction") => 0,
-            Some("createEffect" | "createRenderEffect") => 1,
-            _ => continue,
-        };
-        let Some(argument) = call.arguments.get(callback_index) else {
-            continue;
-        };
-        let Some((callback_file, callback)) = callback_function(lookup, file, argument.span) else {
-            let callback_type = lookup
-                .entity_at(file.path.as_str(), argument.span)
-                .and_then(|entity| entity.type_descriptor.as_ref())
-                .map(|descriptor| descriptor.text.as_str());
-            if callback_type.is_some_and(callable_returns_cleanup_compatible) {
-                continue;
-            }
-            unresolved.push(UnresolvedCleanupReturn {
-                primitive: primitive.expect("matched cleanup-return primitive"),
-                location: location(file.path.as_str(), argument.span),
-            });
-            continue;
-        };
-        let primitive = primitive.expect("matched cleanup-return primitive");
-        if callback.r#async {
-            invalid.push(InvalidCleanupReturn {
-                primitive,
-                location: location(callback_file.path.as_str(), callback.span),
-            });
-            continue;
-        }
-        let returns =
-            callback
-                .expression_return
-                .iter()
-                .chain(callback_file.ast.returns.iter().filter(|returned| {
-                    containing_ast_function(&callback_file.ast.functions, returned.span)
-                        .is_some_and(|function| function.span == callback.span)
-                }));
-        for returned in returns {
-            match cleanup_return_status(lookup, callback_file, returned) {
-                CleanupReturnStatus::Valid => {}
-                CleanupReturnStatus::Invalid => {
-                    invalid.push(InvalidCleanupReturn {
-                        primitive: primitive.clone(),
-                        location: expand_parenthesized_location(
-                            callback_file,
-                            returned.argument.unwrap_or(returned.span),
-                        ),
-                    });
-                }
-                CleanupReturnStatus::Unresolved => {
-                    unresolved.push(UnresolvedCleanupReturn {
-                        primitive: primitive.clone(),
-                        location: location(
-                            callback_file.path.as_str(),
-                            returned.argument.unwrap_or(returned.span),
-                        ),
-                    });
-                }
-            }
-        }
-    }
-    (invalid, unresolved)
-}
-
-fn callback_function<'a, 'f>(
-    lookup: &SemanticLookup<'a>,
-    call_file: &'f solid_facts::FileFacts,
-    argument: Span,
-) -> Option<(
-    &'f solid_facts::FileFacts,
-    &'f solid_ast_facts::FunctionFact,
-)>
-where
-    'a: 'f,
-{
-    if let Some(function) = call_file
-        .ast
-        .functions
-        .iter()
-        .filter(|function| argument.contains(function.span))
-        .max_by_key(|function| function.span.end - function.span.start)
-    {
-        return Some((call_file, function));
-    }
-    let symbol = lookup.entities().at(call_file.path.as_str(), argument)?;
-    lookup.function_for_symbol(symbol)
-}
-
-enum CleanupReturnStatus {
-    Valid,
-    Invalid,
-    Unresolved,
-}
-
-fn callable_returns_cleanup_compatible(type_text: &str) -> bool {
-    let return_type = type_text
-        .rsplit_once("=>")
-        .map(|(_, returned)| returned.trim());
-    matches!(return_type, Some("void" | "undefined" | "never"))
-        || type_text.trim() == "VoidFunction"
-}
-
-fn expand_parenthesized_location(file: &solid_facts::FileFacts, span: Span) -> Location {
-    let mut start = usize::try_from(span.start).unwrap_or(0);
-    let mut end = usize::try_from(span.end).unwrap_or(file.source.len());
-    while start > 0
-        && end < file.source.len()
-        && file.source.as_bytes()[start - 1] == b'('
-        && file.source.as_bytes()[end] == b')'
-    {
-        start -= 1;
-        end += 1;
-    }
-    location(
-        file.path.as_str(),
-        Span::new(
-            u32::try_from(start).unwrap_or(span.start),
-            u32::try_from(end).unwrap_or(span.end),
-        ),
-    )
-}
-
-fn terminal_cleanup_fix(
-    file: &solid_facts::FileFacts,
-    owner_region: Span,
-    call: &solid_ast_facts::CallFact,
-) -> Option<Fix> {
-    let callback = file
-        .ast
-        .functions
-        .iter()
-        .filter(|function| owner_region.contains(function.span))
-        .max_by_key(|function| function.span.end - function.span.start)?;
-    let body_end = usize::try_from(callback.body.end).ok()?.checked_sub(1)?;
-    let call_end = usize::try_from(call.span.end).ok()?;
-    if call_end > body_end || body_end > file.source.len() {
-        return None;
-    }
-    if !file.source.as_bytes()[call_end..body_end]
-        .iter()
-        .all(|byte| byte.is_ascii_whitespace() || *byte == b';')
-    {
-        return None;
-    }
-    let [argument] = call.arguments.as_slice() else {
-        return None;
-    };
-    let start = usize::try_from(argument.span.start).ok()?;
-    let end = usize::try_from(argument.span.end).ok()?;
-    let argument = file.source.get(start..end)?.trim();
-    if argument.is_empty() {
-        return None;
-    }
-    Some(Fix {
-        message: "return the cleanup function from the leaf-owner callback".into(),
-        applicability: "safe".into(),
-        edits: vec![TextEdit {
-            location: location(file.path.as_str(), call.span),
-            new_text: format!("return {argument}"),
-        }],
-    })
-}
-
 fn component_props_parameter_fix(
     facts: &ProjectFacts,
     file: &solid_facts::FileFacts,
@@ -3514,76 +3315,11 @@ fn component_props_parameter_fix(
     })
 }
 
-fn cleanup_return_status(
-    lookup: &SemanticLookup<'_>,
-    file: &solid_facts::FileFacts,
-    returned: &solid_ast_facts::ReturnFact,
-) -> CleanupReturnStatus {
-    let entities = lookup.entities();
-    match returned.value {
-        solid_ast_facts::ReturnValueKind::Undefined
-        | solid_ast_facts::ReturnValueKind::Function => CleanupReturnStatus::Valid,
-        solid_ast_facts::ReturnValueKind::Member => CleanupReturnStatus::Unresolved,
-        solid_ast_facts::ReturnValueKind::Other => CleanupReturnStatus::Invalid,
-        solid_ast_facts::ReturnValueKind::Call => {
-            let Some(callee) = returned.callee else {
-                return CleanupReturnStatus::Unresolved;
-            };
-            let return_type = lookup
-                .entity_at(file.path.as_str(), callee)
-                .and_then(|entity| entity.resolved_call.as_ref())
-                .map(|call| call.return_type_text.trim());
-            match return_type {
-                Some("void" | "undefined" | "never" | "VoidFunction") => CleanupReturnStatus::Valid,
-                Some(value)
-                    if value.contains("=>")
-                        && ![
-                            "Promise",
-                            "AsyncIterable",
-                            "number",
-                            "string",
-                            "boolean",
-                            "null",
-                            "{",
-                        ]
-                        .iter()
-                        .any(|invalid| value.contains(invalid)) =>
-                {
-                    CleanupReturnStatus::Valid
-                }
-                _ => CleanupReturnStatus::Unresolved,
-            }
-        }
-        solid_ast_facts::ReturnValueKind::Identifier => {
-            let Some(symbol) = entities.get(&location(file.path.as_str(), returned.span)) else {
-                return CleanupReturnStatus::Unresolved;
-            };
-            let function = file.ast.functions.iter().any(|function| {
-                function.name.as_ref().is_some_and(|name| {
-                    entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-                })
-            }) || file.ast.bindings.iter().any(|binding| {
-                binding.initializer_function
-                    && binding.names.iter().any(|name| {
-                        entities.get(&location(file.path.as_str(), name.span)) == Some(symbol)
-                    })
-            });
-            if function {
-                CleanupReturnStatus::Valid
-            } else {
-                CleanupReturnStatus::Unresolved
-            }
-        }
-    }
-}
-
 fn containing_ast_function(
-    functions: &[solid_ast_facts::FunctionFact],
+    ast: &solid_ast_facts::AstFacts,
     span: Span,
 ) -> Option<&solid_ast_facts::FunctionFact> {
-    functions
-        .iter()
-        .filter(|function| function.body.contains(span))
+    ast.functions_body_containing(span)
         .min_by_key(|function| function.body.end - function.body.start)
 }
 
@@ -4512,64 +4248,6 @@ fn owner_context_at(
         .map_or(OWNER_CONTEXT_UNOWNED, |index| contexts[index])
 }
 
-fn function_returns_cleanup(
-    lookup: &SemanticLookup<'_>,
-    file: &solid_facts::FileFacts,
-    function: &solid_ast_facts::FunctionFact,
-) -> bool {
-    function
-        .expression_return
-        .iter()
-        .chain(file.ast.returns.iter().filter(|returned| {
-            containing_ast_function(&file.ast.functions, returned.span)
-                .is_some_and(|owner| owner.span == function.span)
-        }))
-        .any(|returned| cleanup_return_is_function(lookup, file, returned))
-}
-
-fn cleanup_return_is_function(
-    lookup: &SemanticLookup<'_>,
-    file: &solid_facts::FileFacts,
-    returned: &solid_ast_facts::ReturnFact,
-) -> bool {
-    match returned.value {
-        solid_ast_facts::ReturnValueKind::Function => true,
-        solid_ast_facts::ReturnValueKind::Identifier => {
-            matches!(
-                cleanup_return_status(lookup, file, returned),
-                CleanupReturnStatus::Valid
-            )
-        }
-        solid_ast_facts::ReturnValueKind::Call => {
-            let Some(callee) = returned.callee else {
-                return false;
-            };
-            lookup
-                .entity_at(file.path.as_str(), callee)
-                .and_then(|entity| entity.resolved_call.as_ref())
-                .map(|call| call.return_type_text.trim())
-                .is_some_and(|return_type| {
-                    return_type == "VoidFunction"
-                        || return_type.contains("=>")
-                            && ![
-                                "Promise",
-                                "AsyncIterable",
-                                "number",
-                                "string",
-                                "boolean",
-                                "null",
-                                "{",
-                            ]
-                            .iter()
-                            .any(|invalid| return_type.contains(invalid))
-                })
-        }
-        solid_ast_facts::ReturnValueKind::Undefined
-        | solid_ast_facts::ReturnValueKind::Member
-        | solid_ast_facts::ReturnValueKind::Other => false,
-    }
-}
-
 fn push_owner_requirement(
     requirements: &mut Vec<OwnerRequirement>,
     seen: &mut HashSet<(String, u64, u64, String)>,
@@ -4600,7 +4278,10 @@ fn containing_leaf_owner(
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> Option<String> {
-    file.ast.calls.iter().find_map(|call| {
+    file.ast.arguments_containing(span).find_map(|(call, index)| {
+        if index != 0 {
+            return None;
+        }
         let owner = primitive_name(
             file.path.as_str(),
             call.callee,
@@ -4608,13 +4289,7 @@ fn containing_leaf_owner(
             entities,
             symbol_names,
         )?;
-        if !matches!(owner.as_str(), "onSettled" | "createTrackedEffect") {
-            return None;
-        }
-        call.arguments
-            .first()
-            .is_some_and(|argument| argument.span.contains(span))
-            .then_some(owner)
+        matches!(owner.as_str(), "onSettled" | "createTrackedEffect").then_some(owner)
     })
 }
 
@@ -4625,54 +4300,41 @@ fn read_is_under_loading(
     symbol_names: &HashMap<String, String>,
 ) -> bool {
     let entities = lookup.entities();
-    if file.ast.jsx_elements.iter().any(|element| {
-        element.span.contains(span) && jsx_element_is_loading(file, element, entities, symbol_names)
-    }) {
+    if file
+        .ast
+        .jsx_containing(span)
+        .any(|element| jsx_element_is_loading(file, element, entities, symbol_names))
+    {
         return true;
     }
-    if file.ast.jsx_elements.iter().any(|element| {
-        element.span.contains(span)
-            && jsx_target_function(lookup, file, element).is_some_and(|(target_file, target)| {
-                target_file.ast.jsx_elements.iter().any(|candidate| {
-                    target.body.contains(candidate.span)
-                        && jsx_element_is_loading(target_file, candidate, entities, symbol_names)
-                })
-            })
+    if file.ast.jsx_containing(span).any(|element| {
+        jsx_target_function(lookup, file, element).is_some_and(|(target_file, target)| {
+            target_file
+                .ast
+                .jsx_within(target.body)
+                .any(|candidate| jsx_element_is_loading(target_file, candidate, entities, symbol_names))
+        })
     }) {
         return true;
     }
     let Some(owner) = file
         .ast
-        .functions
-        .iter()
-        .filter(|function| function.body.contains(span))
+        .functions_body_containing(span)
         .min_by_key(|function| function.body.end - function.body.start)
     else {
         return false;
     };
-    lookup.facts().files.iter().any(|caller_file| {
-        caller_file.ast.jsx_elements.iter().any(|element| {
-            jsx_target_function(lookup, caller_file, element).is_some_and(
-                |(target_file, target)| target_file.path == file.path && target.span == owner.span,
-            ) && (caller_file.ast.jsx_elements.iter().any(|boundary| {
-                boundary.span.contains(element.span)
-                    && boundary.span != element.span
-                    && jsx_element_is_loading(caller_file, boundary, entities, symbol_names)
-            }) || jsx_target_function(lookup, caller_file, element).is_some_and(
-                |(wrapper_file, wrapper)| {
-                    wrapper_file.ast.jsx_elements.iter().any(|candidate| {
-                        wrapper.body.contains(candidate.span)
-                            && jsx_element_is_loading(
-                                wrapper_file,
-                                candidate,
-                                entities,
-                                symbol_names,
-                            )
-                    })
-                },
-            ))
-        })
-    })
+    // For call sites whose target matched (file, owner), the "wrapper" the
+    // second branch resolves is the owner itself, so the caller scan
+    // distributes into: a Loading-wrapped call site exists, or any call site
+    // exists and the owner's own body renders a Loading element.
+    let call_sites = lookup.jsx_call_site_loading(file.path.as_str(), owner.span);
+    call_sites.loading_wrapped
+        || (call_sites.any
+            && file
+                .ast
+                .jsx_within(owner.body)
+                .any(|candidate| jsx_element_is_loading(file, candidate, entities, symbol_names)))
 }
 
 fn jsx_element_is_loading(
@@ -4721,17 +4383,15 @@ fn computation_is_async(
         return true;
     }
     file.ast
-        .functions
-        .iter()
-        .filter(|function| argument.contains(function.span))
+        .functions_within(argument)
         .max_by_key(|function| function.span.end - function.span.start)
         .is_some_and(|function| {
             function.r#async
                 || function
                     .expression_return
                     .iter()
-                    .chain(file.ast.returns.iter().filter(|returned| {
-                        containing_ast_function(&file.ast.functions, returned.span)
+                    .chain(file.ast.returns_within(function.body).filter(|returned| {
+                        containing_ast_function(&file.ast, returned.span)
                             .is_some_and(|owner| owner.span == function.span)
                     }))
                     .any(|returned| {
@@ -4759,32 +4419,28 @@ fn inside_lowercase_named_function(file: &solid_facts::FileFacts, span: Span) ->
     {
         return false;
     }
-    if file.ast.calls.iter().any(|call| {
-        call.arguments
-            .iter()
-            .any(|argument| argument.span.contains(span))
-            && call.static_callee.as_deref().is_some_and(|callee| {
-                matches!(
-                    callee.rsplit('.').next(),
-                    Some(
-                        "createMemo"
-                            | "createEffect"
-                            | "createRenderEffect"
-                            | "createTrackedEffect"
-                            | "onSettled"
-                            | "untrack"
-                            | "action"
-                    )
+    if file.ast.arguments_containing(span).any(|(call, _)| {
+        call.static_callee.as_deref().is_some_and(|callee| {
+            matches!(
+                callee.rsplit('.').next(),
+                Some(
+                    "createMemo"
+                        | "createEffect"
+                        | "createRenderEffect"
+                        | "createTrackedEffect"
+                        | "onSettled"
+                        | "untrack"
+                        | "action"
                 )
-            })
+            )
+        })
     }) {
         return false;
     }
-    file.ast.functions.iter().any(|function| {
-        function.body.contains(span)
-            && function_binding_name(file, function)
-                .and_then(|name| name.name.chars().next())
-                .is_some_and(char::is_lowercase)
+    file.ast.functions_body_containing(span).any(|function| {
+        function_binding_name(file, function)
+            .and_then(|name| name.name.chars().next())
+            .is_some_and(char::is_lowercase)
     })
 }
 
@@ -4798,1676 +4454,9 @@ fn inside_unclassified_callback(file: &solid_facts::FileFacts, span: Span) -> bo
         return false;
     }
     file.ast
-        .functions
-        .iter()
-        .filter(|function| function.body.contains(span))
+        .functions_body_containing(span)
         .min_by_key(|function| function.body.end - function.body.start)
         .is_some_and(|function| function_binding_name(file, function).is_none())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SummaryRead {
-    symbol: String,
-    display: String,
-    kind: Option<String>,
-    declaration: Location,
-    origin: Location,
-    origin_context: String,
-}
-
-struct DirectReferenceContribution {
-    owner: usize,
-    read: SummaryRead,
-    unique: bool,
-}
-
-#[derive(Clone, Default)]
-struct SummaryReads {
-    ordered: Vec<SummaryRead>,
-    seen: HashSet<(String, Location, Location)>,
-}
-
-impl SummaryReads {
-    fn key(read: &SummaryRead) -> (String, Location, Location) {
-        (
-            read.display.clone(),
-            read.origin.clone(),
-            read.declaration.clone(),
-        )
-    }
-
-    fn push(&mut self, read: SummaryRead) {
-        self.seen.insert(Self::key(&read));
-        self.ordered.push(read);
-    }
-
-    fn push_unique(&mut self, read: SummaryRead) -> bool {
-        if !self.seen.insert(Self::key(&read)) {
-            return false;
-        }
-        self.ordered.push(read);
-        true
-    }
-
-    fn insert(&mut self, index: usize, read: SummaryRead) {
-        self.seen.insert(Self::key(&read));
-        self.ordered.insert(index, read);
-    }
-
-    fn take(&mut self) -> Vec<SummaryRead> {
-        self.seen.clear();
-        std::mem::take(&mut self.ordered)
-    }
-
-    fn replace(&mut self, reads: Vec<SummaryRead>) {
-        self.seen = reads.iter().map(Self::key).collect();
-        self.ordered = reads;
-    }
-
-    fn to_vec(&self) -> Vec<SummaryRead> {
-        self.ordered.clone()
-    }
-}
-
-impl std::ops::Deref for SummaryReads {
-    type Target = [SummaryRead];
-
-    fn deref(&self) -> &Self::Target {
-        &self.ordered
-    }
-}
-
-#[derive(Clone)]
-struct SummaryNode {
-    path: String,
-    span: Span,
-    body: Span,
-    name: Option<String>,
-    symbol: Option<String>,
-    parameters: Vec<String>,
-    exported: bool,
-    r#async: bool,
-}
-
-impl FunctionBoundary for SummaryNode {
-    fn path(&self) -> &str {
-        &self.path
-    }
-
-    fn body(&self) -> Span {
-        self.body
-    }
-}
-
-#[derive(Clone)]
-struct InterproceduralResult {
-    reads: Vec<ReactiveRead>,
-    exports: Arc<BTreeMap<String, ContractExport>>,
-    factory_instances: usize,
-    timings: InterproceduralTimings,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-struct InterproceduralTimings {
-    graph: Duration,
-    direct_summaries: Duration,
-    direct_index: Duration,
-    direct_references: Duration,
-    typed_accessors: Duration,
-    propagation: Duration,
-    returned_direct: Duration,
-    returned_delta: Duration,
-    call_summary_delta: Duration,
-    factory_propagation: Duration,
-    results_and_exports: Duration,
-    result_reads: Duration,
-    export_summaries: Duration,
-    typed_accessor_reused_files: u64,
-    typed_accessor_recomputed_files: u64,
-    graph_reused_files: u64,
-    graph_recomputed_files: u64,
-    result_reused_files: u64,
-    result_recomputed_files: u64,
-}
-
-fn discover_typed_accessors(
-    file: &solid_facts::FileFacts,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-    project_indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> Vec<TypedAccessorContribution> {
-    let path_entities = project_indexes.entities_for_path(file.path.as_str());
-    let mut contributions = Vec::new();
-    for call in &file.ast.calls {
-        let callee_location = location(file.path.as_str(), call.callee);
-        let descriptor = path_entities
-            .iter()
-            .find(|entity| {
-                entity.location.start_byte == callee_location.start_byte
-                    && entity.location.end_byte == callee_location.end_byte
-            })
-            .and_then(|entity| entity.type_descriptor.as_ref());
-        let Some(descriptor) =
-            descriptor.filter(|descriptor| go_solid_accessor_descriptor(descriptor))
-        else {
-            continue;
-        };
-        let Some(owner) = containing_summary_function_indexed(
-            nodes,
-            nodes_by_path,
-            file.path.as_str(),
-            call.callee,
-        ) else {
-            continue;
-        };
-        if inside_effect_apply(file, call.callee, entities, symbol_names)
-            || enclosing_render_function(file, call.callee)
-        {
-            continue;
-        }
-        let call_location = location(file.path.as_str(), call.span);
-        let display = usize::try_from(call.callee.start)
-            .ok()
-            .zip(usize::try_from(call.callee.end).ok())
-            .and_then(|(start, end)| file.source.get(start..end))
-            .unwrap_or("accessor")
-            .to_string();
-        let declaration = descriptor.alias_declarations.first().map_or_else(
-            || callee_location.clone(),
-            |declaration| declaration.location.clone(),
-        );
-        contributions.push(TypedAccessorContribution {
-            owner: nodes[owner].span,
-            read: SummaryRead {
-                symbol: format!(
-                    "typed:{}\0{}\0{}",
-                    call_location.path, call_location.start_byte, call_location.end_byte
-                ),
-                display,
-                kind: Some("accessor".into()),
-                declaration,
-                origin: call_location,
-                origin_context: nodes[owner].name.clone().unwrap_or_default(),
-            },
-        });
-    }
-    contributions
-}
-
-fn merge_typed_accessors(
-    path: &str,
-    contributions: &[TypedAccessorContribution],
-    indexes: &HashMap<(String, Span), usize>,
-    summaries: &mut [SummaryReads],
-) {
-    for contribution in contributions {
-        let Some(owner) = indexes
-            .get(&(path.to_string(), contribution.owner))
-            .copied()
-        else {
-            continue;
-        };
-        if summaries[owner]
-            .iter()
-            .any(|read| read.origin == contribution.read.origin)
-        {
-            continue;
-        }
-        let insertion = summaries[owner]
-            .iter()
-            .position(|existing| existing.origin.path.starts_with("bundled://"))
-            .unwrap_or(summaries[owner].len());
-        summaries[owner].insert(insertion, contribution.read.clone());
-    }
-}
-
-fn discover_summary_nodes(
-    file: &solid_facts::FileFacts,
-    project_indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
-) -> Vec<SummaryNode> {
-    let mut nodes = Vec::new();
-    let typescript_file = project_indexes.typescript_file(file.path.as_str());
-    for arrow in [false, true] {
-        for function in &file.ast.functions {
-            let source_function = typescript_file.and_then(|typescript_file| {
-                typescript_file.functions.iter().find(|candidate| {
-                    candidate.body.start_byte == u64::from(function.body.start)
-                        && candidate.body.end_byte.saturating_add(1) == u64::from(function.body.end)
-                })
-            });
-            // Preserve the checker's finite function universe and ordering:
-            // declarations first, then block-bodied arrows,
-            // each in source order.
-            if typescript_file.is_some() && source_function.is_none() {
-                continue;
-            }
-            let is_arrow = source_function.map_or(
-                function.kind == solid_ast_facts::FunctionKind::Arrow,
-                |function| function.arrow,
-            );
-            if is_arrow != arrow {
-                continue;
-            }
-            let binding_name = function_binding_name(file, function);
-            let symbol = binding_name.as_ref().and_then(|name| {
-                entities
-                    .get(&location(file.path.as_str(), name.span))
-                    .cloned()
-            });
-            let parameters = function
-                .parameters
-                .iter()
-                .filter(|parameter| parameter.shape == solid_ast_facts::BindingShape::Identifier)
-                .filter_map(|parameter| parameter.names.first())
-                .filter_map(|name| {
-                    entities
-                        .get(&location(file.path.as_str(), name.span))
-                        .cloned()
-                })
-                .collect();
-            nodes.push(SummaryNode {
-                path: file.path.to_string(),
-                span: function.span,
-                body: function.body,
-                name: binding_name.as_ref().map(|name| name.name.clone()),
-                symbol,
-                parameters,
-                exported: source_function.map_or_else(
-                    || source_function_exported(project_indexes, file, function),
-                    |function| function.exported,
-                ),
-                r#async: source_function.map_or(function.r#async, |function| function.r#async),
-            });
-        }
-    }
-    nodes
-}
-
-fn discover_interprocedural_graph(
-    file: &solid_facts::FileFacts,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-    entities: &EntitySymbols,
-    contract_reads: &HashMap<String, Vec<(String, String, Location, String)>>,
-    contract_callbacks: &HashMap<String, Vec<ContractCallback>>,
-) -> InterproceduralGraphContribution {
-    let mut contribution = InterproceduralGraphContribution::default();
-    for call in &file.ast.calls {
-        let Some(owner) = containing_summary_function_indexed(
-            nodes,
-            nodes_by_path,
-            file.path.as_str(),
-            call.span,
-        ) else {
-            continue;
-        };
-        let owner_span = nodes[owner].span;
-        let callee = location(file.path.as_str(), call.callee);
-        let Some(symbol) = entities.get(&callee) else {
-            continue;
-        };
-        if !call.type_arguments
-            && let Some(contracted) = contract_reads.get(symbol)
-        {
-            for (display, _, declaration, kind) in contracted {
-                contribution.direct_reads.push((
-                    owner_span,
-                    SummaryRead {
-                        symbol: symbol.clone(),
-                        display: display.clone(),
-                        kind: Some(kind.clone()),
-                        declaration: declaration.clone(),
-                        origin: location(file.path.as_str(), call.span),
-                        origin_context: nodes[owner].name.clone().unwrap_or_default(),
-                    },
-                ));
-            }
-        }
-        if !contract_reads.contains_key(symbol) && call.direct_callee && !call.type_arguments {
-            contribution.edges.push((
-                owner_span,
-                InterproceduralGraphTarget::Symbol(symbol.clone()),
-            ));
-        }
-        if call.direct_callee
-            && let Some((callback_owner, parameter)) =
-                functions_for_path(nodes, nodes_by_path, file.path.as_str())
-                    .filter_map(|(index, node)| {
-                        node.parameters
-                            .iter()
-                            .position(|parameter| parameter == symbol)
-                            .map(|parameter| (index, parameter))
-                    })
-                    .next()
-        {
-            contribution
-                .invoked_parameters
-                .push((owner_span, parameter));
-            contribution.callbacks.push((
-                nodes[callback_owner].span,
-                ContractCallback {
-                    parameter,
-                    execution: contract_callback_execution(execution_role(
-                        &file.compiler,
-                        call.callee,
-                        &[],
-                    ))
-                    .into(),
-                },
-            ));
-        }
-        if let Some(callbacks) = contract_callbacks.get(symbol) {
-            for callback in callbacks {
-                let Some(argument) = call.arguments.get(callback.parameter) else {
-                    continue;
-                };
-                let argument_location = location(file.path.as_str(), argument.span);
-                if let Some(argument_symbol) = entities.get(&argument_location) {
-                    if callback.execution == "inline" {
-                        contribution.edges.push((
-                            owner_span,
-                            InterproceduralGraphTarget::Symbol(argument_symbol.clone()),
-                        ));
-                    }
-                    if let Some((callback_owner, parameter)) =
-                        functions_for_path(nodes, nodes_by_path, file.path.as_str())
-                            .filter_map(|(index, node)| {
-                                node.parameters
-                                    .iter()
-                                    .position(|parameter| parameter == argument_symbol)
-                                    .map(|parameter| (index, parameter))
-                            })
-                            .next()
-                    {
-                        if callback.execution == "inline" {
-                            contribution
-                                .invoked_parameters
-                                .push((owner_span, parameter));
-                        }
-                        contribution.callbacks.push((
-                            nodes[callback_owner].span,
-                            ContractCallback {
-                                parameter,
-                                execution: callback.execution.clone(),
-                            },
-                        ));
-                    }
-                } else if callback.execution == "inline"
-                    && let Some(target) =
-                        functions_for_path(nodes, nodes_by_path, file.path.as_str())
-                            .filter(|(_, node)| argument.span.contains(node.span))
-                            .min_by_key(|(_, node)| node.span.end - node.span.start)
-                            .map(|(_, node)| node.span)
-                {
-                    contribution
-                        .edges
-                        .push((owner_span, InterproceduralGraphTarget::LocalSpan(target)));
-                }
-            }
-        }
-    }
-    contribution
-}
-
-struct InterproceduralGraphAssembly<'a> {
-    nodes: &'a [SummaryNode],
-    nodes_by_path: &'a HashMap<String, Vec<usize>>,
-    by_symbol: &'a HashMap<String, usize>,
-    summaries: &'a mut [SummaryReads],
-    callback_summaries: &'a mut [Vec<ContractCallback>],
-    edges: &'a mut [Vec<usize>],
-    invoked_parameters: &'a mut [Vec<usize>],
-}
-
-impl InterproceduralGraphAssembly<'_> {
-    fn merge(&mut self, path: &str, contribution: &InterproceduralGraphContribution) {
-        let node_index = |span| {
-            self.nodes_by_path.get(path).and_then(|indices| {
-                indices
-                    .iter()
-                    .rev()
-                    .find(|index| self.nodes[**index].span == span)
-                    .copied()
-            })
-        };
-        for (owner, read) in &contribution.direct_reads {
-            if let Some(owner) = node_index(*owner) {
-                self.summaries[owner].push_unique(read.clone());
-            }
-        }
-        for (owner, target) in &contribution.edges {
-            let Some(owner) = node_index(*owner) else {
-                continue;
-            };
-            let target = match target {
-                InterproceduralGraphTarget::Symbol(symbol) => self.by_symbol.get(symbol).copied(),
-                InterproceduralGraphTarget::LocalSpan(span) => node_index(*span),
-            };
-            if let Some(target) = target {
-                self.edges[owner].push(target);
-            }
-        }
-        for (owner, parameter) in &contribution.invoked_parameters {
-            if let Some(owner) = node_index(*owner) {
-                self.invoked_parameters[owner].push(*parameter);
-            }
-        }
-        for (owner, callback) in &contribution.callbacks {
-            if let Some(owner) = node_index(*owner) {
-                push_contract_callback(&mut self.callback_summaries[owner], callback.clone());
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct InterproceduralResultView<'a> {
-    nodes: &'a [SummaryNode],
-    indexes: &'a HashMap<(String, Span), usize>,
-    by_symbol: &'a HashMap<String, usize>,
-    summaries: &'a [SummaryReads],
-    invoked_parameters: &'a [Vec<usize>],
-    returned_bindings: &'a HashMap<String, Vec<SummaryRead>>,
-}
-
-impl InterproceduralResultView<'_> {
-    fn dependency_state(
-        &self,
-        dependency: &InterproceduralResultDependency,
-    ) -> InterproceduralResultDependencyState {
-        match dependency {
-            InterproceduralResultDependency::Symbol(symbol) => {
-                if let Some(index) = self.by_symbol.get(symbol) {
-                    InterproceduralResultDependencyState::Function {
-                        name: self.nodes[*index].name.clone(),
-                        summary: self.summaries[*index].to_vec(),
-                        invoked_parameters: self.invoked_parameters[*index].clone(),
-                    }
-                } else if let Some(summary) = self.returned_bindings.get(symbol) {
-                    InterproceduralResultDependencyState::Returned(summary.clone())
-                } else {
-                    InterproceduralResultDependencyState::Missing
-                }
-            }
-            InterproceduralResultDependency::InlineFunction(path, span) => self
-                .indexes
-                .get(&(path.clone(), *span))
-                .map_or(InterproceduralResultDependencyState::Missing, |index| {
-                    InterproceduralResultDependencyState::Inline(self.summaries[*index].to_vec())
-                }),
-        }
-    }
-
-    fn dependency_matches(
-        &self,
-        retained: &InterproceduralResultDependencyState,
-        dependency: &InterproceduralResultDependency,
-    ) -> bool {
-        match dependency {
-            InterproceduralResultDependency::Symbol(symbol) => {
-                if let Some(index) = self.by_symbol.get(symbol) {
-                    matches!(
-                        retained,
-                        InterproceduralResultDependencyState::Function {
-                            name,
-                            summary,
-                            invoked_parameters: previous_parameters,
-                        } if name == &self.nodes[*index].name
-                            && summary.as_slice() == &self.summaries[*index][..]
-                            && previous_parameters == &self.invoked_parameters[*index]
-                    )
-                } else if let Some(summary) = self.returned_bindings.get(symbol) {
-                    matches!(
-                        retained,
-                        InterproceduralResultDependencyState::Returned(previous)
-                            if previous == summary
-                    )
-                } else {
-                    matches!(retained, InterproceduralResultDependencyState::Missing)
-                }
-            }
-            InterproceduralResultDependency::InlineFunction(path, span) => {
-                if let Some(index) = self.indexes.get(&(path.clone(), *span)) {
-                    matches!(
-                        retained,
-                        InterproceduralResultDependencyState::Inline(previous)
-                            if previous.as_slice() == &self.summaries[*index][..]
-                    )
-                } else {
-                    matches!(retained, InterproceduralResultDependencyState::Missing)
-                }
-            }
-        }
-    }
-}
-
-fn add_interprocedural_dependency_user(
-    users: &mut HashMap<InterproceduralResultDependency, usize>,
-    dependency: &InterproceduralResultDependency,
-) {
-    *users.entry(dependency.clone()).or_default() += 1;
-}
-
-fn remove_interprocedural_dependency_user(
-    users: &mut HashMap<InterproceduralResultDependency, usize>,
-    states: &mut HashMap<InterproceduralResultDependency, InterproceduralResultDependencyState>,
-    dependency: &InterproceduralResultDependency,
-) {
-    let Some(count) = users.get_mut(dependency) else {
-        debug_assert!(false, "missing interprocedural dependency reference count");
-        return;
-    };
-    *count -= 1;
-    if *count == 0 {
-        users.remove(dependency);
-        states.remove(dependency);
-    }
-}
-
-struct InterproceduralResultReadContext<'a> {
-    result: InterproceduralResultView<'a>,
-    contract_callbacks: &'a HashMap<String, Vec<ContractCallback>>,
-    entities: &'a EntitySymbols,
-    symbol_names: &'a HashMap<String, String>,
-}
-
-fn interprocedural_result_reads_for_file(
-    file: &solid_facts::FileFacts,
-    context: &InterproceduralResultReadContext<'_>,
-) -> (Vec<ReactiveRead>, HashSet<InterproceduralResultDependency>) {
-    let InterproceduralResultReadContext {
-        result:
-            InterproceduralResultView {
-                nodes,
-                by_symbol,
-                summaries,
-                invoked_parameters,
-                returned_bindings,
-                ..
-            },
-        contract_callbacks,
-        entities,
-        symbol_names,
-    } = context;
-    let mut result = Vec::new();
-    let mut dependencies = HashSet::new();
-    let mut seen = HashSet::new();
-    let allowed = allowed_callback_spans(file, entities, symbol_names);
-    for call in &file.ast.calls {
-        if !enclosing_render_function(file, call.span) {
-            continue;
-        }
-        let callee = location(file.path.as_str(), call.callee);
-        let Some(symbol) = entities.get(&callee) else {
-            continue;
-        };
-        dependencies.insert(InterproceduralResultDependency::Symbol(symbol.clone()));
-        let (label, mut effective, target) = if let Some(target) = by_symbol.get(symbol).copied() {
-            (
-                nodes[target]
-                    .name
-                    .clone()
-                    .or_else(|| call.static_callee.clone())
-                    .unwrap_or_else(|| "helper".into()),
-                summaries[target].to_vec(),
-                Some(target),
-            )
-        } else if let Some(summary) = returned_bindings.get(symbol) {
-            (
-                call.static_callee
-                    .clone()
-                    .unwrap_or_else(|| "returned helper".into()),
-                summary.clone(),
-                None,
-            )
-        } else if contract_callbacks.contains_key(symbol) {
-            (
-                call.static_callee
-                    .clone()
-                    .unwrap_or_else(|| "contract callback".into()),
-                Vec::new(),
-                None,
-            )
-        } else {
-            continue;
-        };
-        if let Some(target) = target {
-            for parameter in &invoked_parameters[target] {
-                let Some(argument) = call.arguments.get(*parameter) else {
-                    continue;
-                };
-                let Some(argument_symbol) =
-                    entities.get(&location(file.path.as_str(), argument.span))
-                else {
-                    continue;
-                };
-                dependencies.insert(InterproceduralResultDependency::Symbol(
-                    argument_symbol.clone(),
-                ));
-                let argument_summary = by_symbol
-                    .get(argument_symbol)
-                    .map(|index| &summaries[*index][..])
-                    .or_else(|| returned_bindings.get(argument_symbol).map(Vec::as_slice));
-                if let Some(argument_summary) = argument_summary {
-                    for read in argument_summary {
-                        push_unique_summary_read(&mut effective, read.clone());
-                    }
-                }
-            }
-        }
-        let execution =
-            semantic_execution_role(file, call.callee, &allowed, entities, symbol_names);
-        let mut context = None::<String>;
-        if let Some(callbacks) = contract_callbacks.get(symbol) {
-            for callback in callbacks {
-                let Some(argument) = call.arguments.get(callback.parameter) else {
-                    continue;
-                };
-                let argument_symbol = entities.get(&location(file.path.as_str(), argument.span));
-                let argument_summary = argument_symbol
-                    .and_then(|argument_symbol| {
-                        dependencies.insert(InterproceduralResultDependency::Symbol(
-                            argument_symbol.clone(),
-                        ));
-                        by_symbol
-                            .get(argument_symbol)
-                            .map(|index| &summaries[*index][..])
-                            .or_else(|| returned_bindings.get(argument_symbol).map(Vec::as_slice))
-                    })
-                    .or_else(|| {
-                        nodes
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, node)| {
-                                node.path == file.path.as_str() && argument.span.contains(node.span)
-                            })
-                            .min_by_key(|(_, node)| node.span.end - node.span.start)
-                            .map(|(index, node)| {
-                                dependencies.insert(
-                                    InterproceduralResultDependency::InlineFunction(
-                                        node.path.clone(),
-                                        node.span,
-                                    ),
-                                );
-                                &summaries[index][..]
-                            })
-                    });
-                let Some(argument_summary) = argument_summary else {
-                    continue;
-                };
-                let callback_execution = match callback.execution.as_str() {
-                    "tracked" => ExecutionRole::TrackedJsx,
-                    "deferred" => ExecutionRole::DeferredCallback,
-                    _ => execution,
-                };
-                for read in argument_summary {
-                    if seen.insert((
-                        callee.path.clone(),
-                        callee.start_byte,
-                        format!("{}#callback-{}", read.symbol, callback.parameter),
-                    )) {
-                        result.push(ReactiveRead {
-                            kind: "accessor".into(),
-                            accessor: read.display.clone(),
-                            location: location(file.path.as_str(), call.span),
-                            declaration: read.declaration.clone(),
-                            execution: callback_execution,
-                            context: context
-                                .get_or_insert_with(|| enclosing_function_label(file, call.span))
-                                .clone(),
-                            via: label.clone(),
-                            origin: Some(read.origin.clone()),
-                            origin_context: read.origin_context.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        for read in effective {
-            let accessor = read.display.clone();
-            if seen.insert((callee.path.clone(), callee.start_byte, read.symbol.clone())) {
-                result.push(ReactiveRead {
-                    kind: if read.display.contains('.') {
-                        "store-path".into()
-                    } else {
-                        "accessor".into()
-                    },
-                    accessor,
-                    location: location(file.path.as_str(), call.span),
-                    declaration: read.declaration,
-                    execution,
-                    context: context
-                        .get_or_insert_with(|| enclosing_function_label(file, call.span))
-                        .clone(),
-                    via: label.clone(),
-                    origin: Some(read.origin),
-                    origin_context: read.origin_context,
-                });
-            }
-        }
-    }
-    (result, dependencies)
-}
-
-fn cached_reactive_source(
-    symbol: &str,
-    display: &str,
-    declaration: &Location,
-    source_phases: &HashMap<String, u8>,
-) -> CachedReactiveSource {
-    CachedReactiveSource {
-        symbol: symbol.to_owned(),
-        display: display.to_owned(),
-        declaration: declaration.clone(),
-        phase: source_phases.get(symbol).copied().unwrap_or(1),
-    }
-}
-
-fn reactive_source_order(
-    left: &CachedReactiveSource,
-    right: &CachedReactiveSource,
-) -> std::cmp::Ordering {
-    left.phase
-        .cmp(&right.phase)
-        .then_with(|| location_order(&left.declaration, &right.declaration))
-}
-
-fn retained_reactive_sources(
-    cache: &mut Option<Arc<Vec<CachedReactiveSource>>>,
-    accessors: &HashMap<String, (String, Location)>,
-    contracted_accessor_symbols: &HashSet<String>,
-    summary_source_symbols: &HashSet<String>,
-    source_phases: &HashMap<String, u8>,
-) -> Arc<Vec<CachedReactiveSource>> {
-    let eligible = |symbol: &str| {
-        !contracted_accessor_symbols.contains(symbol) && summary_source_symbols.contains(symbol)
-    };
-    let matches = |source: &CachedReactiveSource| {
-        eligible(source.symbol.as_str())
-            && accessors
-                .get(source.symbol.as_str())
-                .is_some_and(|(display, declaration)| {
-                    display == &source.display
-                        && declaration == &source.declaration
-                        && source.phase
-                            == source_phases
-                                .get(source.symbol.as_str())
-                                .copied()
-                                .unwrap_or(1)
-                })
-    };
-    let eligible_count = accessors
-        .keys()
-        .filter(|symbol| eligible(symbol.as_str()))
-        .count();
-    if let Some(retained) = cache.as_ref()
-        && retained.len() == eligible_count
-        && retained.iter().all(matches)
-    {
-        return retained.clone();
-    }
-
-    if cache.is_none() {
-        let mut sources = accessors
-            .iter()
-            .filter(|(symbol, _)| eligible(symbol.as_str()))
-            .map(|(symbol, (display, declaration))| {
-                cached_reactive_source(symbol, display, declaration, source_phases)
-            })
-            .collect::<Vec<_>>();
-        sources.sort_by(reactive_source_order);
-        let sources = Arc::new(sources);
-        *cache = Some(sources.clone());
-        return sources;
-    }
-
-    let retained = Arc::make_mut(cache.as_mut().expect("reactive sources initialized"));
-    retained.retain(&matches);
-    let mut retained_symbols = retained
-        .iter()
-        .map(|source| source.symbol.clone())
-        .collect::<HashSet<_>>();
-    for (symbol, (display, declaration)) in accessors {
-        if !eligible(symbol.as_str()) || retained_symbols.contains(symbol.as_str()) {
-            continue;
-        }
-        let source = cached_reactive_source(symbol, display, declaration, source_phases);
-        let insert_at = retained.partition_point(|current| {
-            reactive_source_order(current, &source) != std::cmp::Ordering::Greater
-        });
-        retained.insert(insert_at, source);
-        retained_symbols.insert(symbol.clone());
-    }
-    cache.as_ref().expect("reactive sources retained").clone()
-}
-
-fn direct_reference_contributions(
-    source: &CachedReactiveSource,
-    context: &InterproceduralContext<'_>,
-    nodes: &[SummaryNode],
-    nodes_by_path: &HashMap<String, Vec<usize>>,
-) -> Vec<DirectReferenceContribution> {
-    let InterproceduralContext {
-        references_by_source,
-        project_indexes,
-        entities,
-        symbol_names,
-        source_primitives,
-        bundled_returns,
-        source_kinds,
-        ..
-    } = context;
-    let mut contributions = Vec::new();
-    for reference in references_by_source
-        .get(source.symbol.as_str())
-        .into_iter()
-        .flatten()
-    {
-        let Some(&file) = project_indexes.files_by_path.get(reference.path.as_str()) else {
-            continue;
-        };
-        let Ok(start) = u32::try_from(reference.start_byte) else {
-            continue;
-        };
-        let Ok(end) = u32::try_from(reference.end_byte) else {
-            continue;
-        };
-        let reference_span = Span::new(start, end);
-        let Some(owner) = containing_summary_function_indexed(
-            nodes,
-            nodes_by_path,
-            file.path.as_str(),
-            reference_span,
-        ) else {
-            continue;
-        };
-        if inside_effect_apply(file, reference_span, entities, symbol_names) {
-            continue;
-        }
-        if let Some(call) = project_indexes
-            .ast_files_by_path
-            .get(file.path.as_str())
-            .and_then(|index| index.direct_call_by_callee(reference_span))
-        {
-            let mut read = SummaryRead {
-                symbol: source.symbol.clone(),
-                display: source.display.clone(),
-                kind: None,
-                declaration: source.declaration.clone(),
-                origin: location(file.path.as_str(), call.span),
-                origin_context: nodes[owner].name.clone().unwrap_or_default(),
-            };
-            let factory_return =
-                source_primitives
-                    .get(source.symbol.as_str())
-                    .and_then(|primitive| {
-                        bundled_returns
-                            .get(primitive)
-                            .map(|returned| (primitive, returned))
-                    });
-            if let Some((primitive, returned)) = factory_return {
-                let contract_location = Location {
-                    path: format!("bundled://solid-js.json#{primitive}"),
-                    start_byte: 0,
-                    end_byte: 0,
-                };
-                read.display.clone_from(&returned.label);
-                read.kind = Some(returned.kind.clone());
-                read.declaration.clone_from(&contract_location);
-                if semantic_execution_role(file, call.callee, &[], entities, symbol_names)
-                    == ExecutionRole::UntrackedRendering
-                    && !enclosing_render_function(file, call.span)
-                {
-                    read.origin = contract_location;
-                }
-                contributions.push(DirectReferenceContribution {
-                    owner,
-                    read,
-                    unique: true,
-                });
-            } else {
-                contributions.push(DirectReferenceContribution {
-                    owner,
-                    read,
-                    unique: false,
-                });
-            }
-            continue;
-        }
-        if source_kinds.get(source.symbol.as_str()) == Some(&ReactiveSourceKind::Store) {
-            contributions.extend(
-                file.ast
-                    .members
-                    .iter()
-                    .filter(|member| member.object == reference_span)
-                    .map(|member| DirectReferenceContribution {
-                        owner,
-                        read: SummaryRead {
-                            symbol: source.symbol.clone(),
-                            display: format!("{}.{}", source.display, member.property.name),
-                            kind: None,
-                            declaration: source.declaration.clone(),
-                            origin: location(file.path.as_str(), member.span),
-                            origin_context: nodes[owner].name.clone().unwrap_or_default(),
-                        },
-                        unique: false,
-                    }),
-            );
-        }
-    }
-    contributions
-}
-
-struct InterproceduralContext<'a> {
-    facts: &'a ProjectFacts,
-    project_indexes: &'a ProjectIndexes<'a>,
-    accessors: &'a HashMap<String, (String, Location)>,
-    contracted_accessor_symbols: &'a HashSet<String>,
-    returned_source_symbols: &'a HashSet<String>,
-    summary_source_symbols: &'a HashSet<String>,
-    source_phases: &'a HashMap<String, u8>,
-    source_kinds: &'a HashMap<String, ReactiveSourceKind>,
-    contract_reads: &'a HashMap<String, Vec<(String, String, Location, String)>>,
-    contract_callbacks: &'a HashMap<String, Vec<ContractCallback>>,
-    contract_returns: &'a HashMap<String, (ContractReturn, Location)>,
-    bundled_returns: &'a HashMap<String, ContractReturn>,
-    source_primitives: &'a HashMap<String, String>,
-    entities: &'a EntitySymbols,
-    references_by_source: &'a HashMap<String, Vec<Location>>,
-    symbol_names: &'a HashMap<String, String>,
-    changed_semantic_symbols: Option<&'a HashSet<String>>,
-    retained_source_paths: &'a HashSet<String>,
-}
-
-impl InterproceduralContext<'_> {
-    fn build(
-        &self,
-        typed_accessor_cache: Option<&mut HashMap<String, CachedTypedAccessors>>,
-        interprocedural_graph_cache: Option<&mut HashMap<String, CachedInterproceduralGraph>>,
-        interprocedural_result_cache: Option<&mut CachedInterproceduralResults>,
-    ) -> InterproceduralResult {
-        interprocedural_reads(
-            self,
-            InterproceduralCaches {
-                typed_accessors: typed_accessor_cache,
-                graph: interprocedural_graph_cache,
-                results: interprocedural_result_cache,
-            },
-        )
-    }
-}
-
-struct InterproceduralCaches<'a> {
-    typed_accessors: Option<&'a mut HashMap<String, CachedTypedAccessors>>,
-    graph: Option<&'a mut HashMap<String, CachedInterproceduralGraph>>,
-    results: Option<&'a mut CachedInterproceduralResults>,
-}
-
-fn interprocedural_reads(
-    context: &InterproceduralContext<'_>,
-    caches: InterproceduralCaches<'_>,
-) -> InterproceduralResult {
-    let InterproceduralContext {
-        facts,
-        project_indexes,
-        accessors,
-        contracted_accessor_symbols,
-        returned_source_symbols,
-        summary_source_symbols,
-        source_phases,
-        source_kinds,
-        contract_reads,
-        contract_callbacks,
-        contract_returns,
-        bundled_returns,
-        source_primitives,
-        entities,
-        references_by_source: _,
-        symbol_names,
-        changed_semantic_symbols,
-        retained_source_paths,
-    } = context;
-    let InterproceduralCaches {
-        typed_accessors: typed_accessor_cache,
-        graph: mut interprocedural_graph_cache,
-        results: mut interprocedural_result_cache,
-    } = caches;
-    let mut phase_started = Instant::now();
-    let mut nodes = Vec::new();
-    let mut graph_node_reused_paths = HashSet::new();
-    if let Some(cache) = interprocedural_graph_cache.as_deref_mut() {
-        let current_paths = facts
-            .files
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<HashSet<_>>();
-        cache.retain(|path, _| current_paths.contains(path.as_str()));
-        for file in &facts.files {
-            if retained_source_paths.contains(file.path.as_str())
-                && let Some(cached) = cache.get(file.path.as_str())
-                && (Arc::ptr_eq(&cached.compiler, &file.compiler)
-                    || same_compiler_semantics(&cached.compiler, &file.compiler))
-            {
-                nodes.extend(cached.nodes.iter().cloned());
-                graph_node_reused_paths.insert(file.path.as_str());
-                continue;
-            }
-            let file_nodes = discover_summary_nodes(file, project_indexes, entities);
-            nodes.extend(file_nodes.iter().cloned());
-            cache.insert(
-                file.path.to_string(),
-                CachedInterproceduralGraph {
-                    nodes: file_nodes,
-                    contribution: InterproceduralGraphContribution::default(),
-                    compiler: file.compiler.clone(),
-                },
-            );
-        }
-    } else {
-        for file in &facts.files {
-            nodes.extend(discover_summary_nodes(file, project_indexes, entities));
-        }
-    }
-    let nodes_by_path = function_indices_by_path(&nodes);
-    let indexes = nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| ((node.path.clone(), node.span), index))
-        .collect::<HashMap<_, _>>();
-    let by_symbol = nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(index, node)| node.symbol.clone().map(|symbol| (symbol, index)))
-        .collect::<HashMap<_, _>>();
-    let mut summaries = vec![SummaryReads::default(); nodes.len()];
-    let mut callback_summaries = vec![Vec::<ContractCallback>::new(); nodes.len()];
-    let mut edges = vec![Vec::<usize>::new(); nodes.len()];
-    let mut invoked_parameters = vec![Vec::<usize>::new(); nodes.len()];
-    let mut graph_reused_files = 0;
-    let mut graph_recomputed_files = 0;
-    {
-        let mut graph = InterproceduralGraphAssembly {
-            nodes: &nodes,
-            nodes_by_path: &nodes_by_path,
-            by_symbol: &by_symbol,
-            summaries: &mut summaries,
-            callback_summaries: &mut callback_summaries,
-            edges: &mut edges,
-            invoked_parameters: &mut invoked_parameters,
-        };
-        match interprocedural_graph_cache {
-            None => {
-                for file in &facts.files {
-                    graph_recomputed_files += 1;
-                    let contribution = discover_interprocedural_graph(
-                        file,
-                        &nodes,
-                        &nodes_by_path,
-                        entities,
-                        contract_reads,
-                        contract_callbacks,
-                    );
-                    graph.merge(file.path.as_str(), &contribution);
-                }
-            }
-            Some(cache) => {
-                for file in &facts.files {
-                    if graph_node_reused_paths.contains(file.path.as_str())
-                        && let Some(cached) = cache.get(file.path.as_str())
-                    {
-                        graph_reused_files += 1;
-                        graph.merge(file.path.as_str(), &cached.contribution);
-                        continue;
-                    }
-                    graph_recomputed_files += 1;
-                    let contribution = discover_interprocedural_graph(
-                        file,
-                        &nodes,
-                        &nodes_by_path,
-                        entities,
-                        contract_reads,
-                        contract_callbacks,
-                    );
-                    graph.merge(file.path.as_str(), &contribution);
-                    cache.insert(
-                        file.path.to_string(),
-                        CachedInterproceduralGraph {
-                            nodes: nodes_by_path
-                                .get(file.path.as_str())
-                                .into_iter()
-                                .flatten()
-                                .map(|index| nodes[*index].clone())
-                                .collect(),
-                            contribution,
-                            compiler: file.compiler.clone(),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    let graph = phase_started.elapsed();
-    phase_started = Instant::now();
-    let owned_reactive_sources;
-    let reactive_sources = if let Some(cache) = interprocedural_result_cache.as_deref_mut() {
-        owned_reactive_sources = retained_reactive_sources(
-            &mut cache.reactive_sources,
-            accessors,
-            contracted_accessor_symbols,
-            summary_source_symbols,
-            source_phases,
-        );
-        owned_reactive_sources.as_slice()
-    } else {
-        owned_reactive_sources = {
-            let mut sources = accessors
-                .iter()
-                .filter(|(symbol, _)| !contracted_accessor_symbols.contains(*symbol))
-                .filter(|(symbol, _)| summary_source_symbols.contains(*symbol))
-                .map(|(symbol, (display, declaration))| {
-                    cached_reactive_source(symbol, display, declaration, source_phases)
-                })
-                .collect::<Vec<_>>();
-            sources.sort_by(reactive_source_order);
-            Arc::new(sources)
-        };
-        owned_reactive_sources.as_slice()
-    };
-    let direct_index = phase_started.elapsed();
-    let direct_references_started = Instant::now();
-    for contributions in parallel_slice_results(reactive_sources, |source| {
-        direct_reference_contributions(source, context, &nodes, &nodes_by_path)
-    }) {
-        for contribution in contributions {
-            if contribution.unique {
-                summaries[contribution.owner].push_unique(contribution.read);
-            } else {
-                summaries[contribution.owner].push(contribution.read);
-            }
-        }
-    }
-    let direct_references = direct_references_started.elapsed();
-    let typed_accessors_started = Instant::now();
-    let mut typed_accessor_reused_files = 0;
-    let mut typed_accessor_recomputed_files = 0;
-    match typed_accessor_cache {
-        None => {
-            for file in &facts.files {
-                let contributions = discover_typed_accessors(
-                    file,
-                    &nodes,
-                    &nodes_by_path,
-                    project_indexes,
-                    entities,
-                    symbol_names,
-                );
-                merge_typed_accessors(file.path.as_str(), &contributions, &indexes, &mut summaries);
-            }
-        }
-        Some(cache) => {
-            let current_paths = facts
-                .files
-                .iter()
-                .map(|file| file.path.as_str())
-                .collect::<HashSet<_>>();
-            cache.retain(|path, _| current_paths.contains(path.as_str()));
-            for file in &facts.files {
-                let contributions = if retained_source_paths.contains(file.path.as_str())
-                    && let Some(cached) = cache.get(file.path.as_str())
-                {
-                    typed_accessor_reused_files += 1;
-                    cached.contributions.clone()
-                } else {
-                    typed_accessor_recomputed_files += 1;
-                    let contributions = discover_typed_accessors(
-                        file,
-                        &nodes,
-                        &nodes_by_path,
-                        project_indexes,
-                        entities,
-                        symbol_names,
-                    );
-                    cache.insert(
-                        file.path.to_string(),
-                        CachedTypedAccessors {
-                            contributions: contributions.clone(),
-                        },
-                    );
-                    contributions
-                };
-                merge_typed_accessors(file.path.as_str(), &contributions, &indexes, &mut summaries);
-            }
-        }
-    }
-    let typed_accessors = typed_accessors_started.elapsed();
-    let direct_summaries = phase_started.elapsed();
-    phase_started = Instant::now();
-    let mut returned = vec![SummaryReads::default(); nodes.len()];
-    let mut returned_edges = Vec::<(usize, usize)>::new();
-    for (index, node) in nodes.iter().enumerate() {
-        let Some(&file) = project_indexes.files_by_path.get(node.path.as_str()) else {
-            continue;
-        };
-        let returned_closures = file
-            .ast
-            .returns
-            .iter()
-            .filter(|returned| {
-                returned.value == solid_ast_facts::ReturnValueKind::Function
-                    && returned.argument.is_some_and(|argument| {
-                        go_returned_arrow_pattern_accepts(file.source.as_str(), argument)
-                    })
-                    && containing_summary_function_indexed(
-                        &nodes,
-                        &nodes_by_path,
-                        file.path.as_str(),
-                        returned.span,
-                    ) == Some(index)
-            })
-            .filter_map(|returned| returned.argument)
-            .collect::<Vec<_>>();
-        for returned_value in file.ast.returns.iter().filter(|returned| {
-            containing_summary_function_indexed(
-                &nodes,
-                &nodes_by_path,
-                file.path.as_str(),
-                returned.span,
-            ) == Some(index)
-        }) {
-            match returned_value.value {
-                solid_ast_facts::ReturnValueKind::Identifier => {
-                    let returned_location = location(file.path.as_str(), returned_value.span);
-                    if let Some(symbol) = entities.get(&returned_location)
-                        && returned_source_symbols.contains(symbol)
-                        && let Some((display, declaration)) = accessors.get(symbol)
-                    {
-                        returned[index].push_unique(SummaryRead {
-                            symbol: symbol.clone(),
-                            display: display.clone(),
-                            kind: None,
-                            declaration: declaration.clone(),
-                            origin: returned_location,
-                            origin_context: node.name.clone().unwrap_or_default(),
-                        });
-                    }
-                }
-                solid_ast_facts::ReturnValueKind::Call => {
-                    let Some(callee) = returned_value.callee else {
-                        continue;
-                    };
-                    let Some(call) = project_indexes
-                        .ast_files_by_path
-                        .get(file.path.as_str())
-                        .into_iter()
-                        .flat_map(|index| index.calls_by_callee(callee))
-                        .find(|call| {
-                            !call.type_arguments && returned_value.argument == Some(call.span)
-                        })
-                    else {
-                        continue;
-                    };
-                    let callee_location = location(file.path.as_str(), call.callee);
-                    if let Some(symbol) = entities.get(&callee_location) {
-                        if let Some(target) = by_symbol.get(symbol).copied() {
-                            returned_edges.push((index, target));
-                        } else {
-                            let contracted = contract_returns.get(symbol).cloned().or_else(|| {
-                                primitive_name(
-                                    file.path.as_str(),
-                                    call.callee,
-                                    call.static_callee.as_deref(),
-                                    entities,
-                                    symbol_names,
-                                )
-                                .and_then(|primitive| {
-                                    bundled_returns.get(&primitive).cloned().map(|returned| {
-                                        (
-                                            returned,
-                                            Location {
-                                                path: format!(
-                                                    "bundled://solid-js.json#{primitive}"
-                                                ),
-                                                start_byte: 0,
-                                                end_byte: 0,
-                                            },
-                                        )
-                                    })
-                                })
-                            });
-                            if let Some((returned_contract, declaration)) = contracted {
-                                returned[index].push_unique(SummaryRead {
-                                    symbol: symbol.clone(),
-                                    display: returned_contract.label,
-                                    kind: Some(returned_contract.kind),
-                                    declaration,
-                                    origin: location(file.path.as_str(), call.span),
-                                    origin_context: node.name.clone().unwrap_or_default(),
-                                });
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        if returned_closures.is_empty() {
-            continue;
-        }
-        let mut direct = Vec::with_capacity(summaries[index].len());
-        for read in summaries[index].take() {
-            let in_returned_closure = returned_closures.iter().any(|closure| {
-                read.origin.path == node.path
-                    && u64::from(closure.start) <= read.origin.start_byte
-                    && read.origin.end_byte <= u64::from(closure.end)
-            });
-            if in_returned_closure {
-                if returned_source_symbols.contains(&read.symbol) {
-                    returned[index].push(read);
-                } else {
-                    direct.push(read);
-                }
-            } else {
-                direct.push(read);
-            }
-        }
-        summaries[index].replace(direct);
-    }
-    let returned_direct = phase_started.elapsed();
-    let returned_delta_started = Instant::now();
-    propagate_returned_summary_deltas(&mut returned, &returned_edges);
-    let returned_delta = returned_delta_started.elapsed();
-    let call_summary_delta_started = Instant::now();
-    let mut reverse_edges = vec![Vec::new(); nodes.len()];
-    for (owner, targets) in edges.iter_mut().enumerate() {
-        targets.sort_unstable();
-        targets.dedup();
-        for target in targets.iter().copied() {
-            reverse_edges[target].push(owner);
-        }
-    }
-    let mut propagated_lengths = vec![0; summaries.len()];
-    propagate_summary_deltas(&mut summaries, &reverse_edges, &mut propagated_lengths);
-
-    for (index, node) in nodes.iter().enumerate() {
-        let Some(&file) = project_indexes.files_by_path.get(node.path.as_str()) else {
-            continue;
-        };
-        let Some(function) = project_indexes
-            .ast_files_by_path
-            .get(file.path.as_str())
-            .and_then(|index| index.function_by_span(node.span))
-        else {
-            continue;
-        };
-        for value in function
-            .expression_return
-            .iter()
-            .chain(file.ast.returns.iter().filter(|returned| {
-                containing_ast_function(&file.ast.functions, returned.span)
-                    .is_some_and(|owner| owner.span == function.span)
-            }))
-        {
-            if value.value == solid_ast_facts::ReturnValueKind::Function
-                && let Some(target) = indexes.get(&(node.path.clone(), value.span))
-            {
-                for read in summaries[*target].iter() {
-                    returned[index].push_unique(read.clone());
-                }
-            }
-        }
-    }
-    let call_summary_delta = call_summary_delta_started.elapsed();
-    let factory_propagation_started = Instant::now();
-    let mut returned_bindings = HashMap::<String, Vec<SummaryRead>>::new();
-    if returned.iter().any(|summary| !summary.is_empty()) {
-        for file in &facts.files {
-            for binding in &file.ast.bindings {
-                let Some(initializer) = binding.call_initializer else {
-                    continue;
-                };
-                let Some(call) = project_indexes
-                    .ast_files_by_path
-                    .get(file.path.as_str())
-                    .and_then(|index| index.call_by_span(initializer))
-                else {
-                    continue;
-                };
-                let Some(target_symbol) = entities.get(&location(file.path.as_str(), call.callee))
-                else {
-                    continue;
-                };
-                let Some(target) = by_symbol.get(target_symbol).copied() else {
-                    continue;
-                };
-                for name in &binding.names {
-                    if let Some(binding_symbol) =
-                        entities.get(&location(file.path.as_str(), name.span))
-                    {
-                        let mut summary = returned[target].to_vec();
-                        for read in &mut summary {
-                            if read.origin_context.is_empty() {
-                                read.origin_context =
-                                    nodes[target].name.clone().unwrap_or_default();
-                            }
-                        }
-                        returned_bindings.insert(binding_symbol.clone(), summary);
-                    }
-                }
-            }
-        }
-        let mut factory_reads_added = false;
-        for file in &facts.files {
-            for call in &file.ast.calls {
-                if !call.direct_callee {
-                    continue;
-                }
-                let Some(owner) = containing_summary_function_indexed(
-                    &nodes,
-                    &nodes_by_path,
-                    file.path.as_str(),
-                    call.span,
-                ) else {
-                    continue;
-                };
-                let Some(symbol) = entities.get(&location(file.path.as_str(), call.callee)) else {
-                    continue;
-                };
-                if accessors.contains_key(symbol) {
-                    continue;
-                }
-                let Some(factory_reads) = returned_bindings.get(symbol) else {
-                    continue;
-                };
-                for read in factory_reads {
-                    let previous_len = summaries[owner].len();
-                    summaries[owner].push_unique(read.clone());
-                    factory_reads_added |= summaries[owner].len() != previous_len;
-                }
-            }
-        }
-        if factory_reads_added {
-            propagate_summary_deltas(&mut summaries, &reverse_edges, &mut propagated_lengths);
-        }
-    }
-
-    let factory_propagation = factory_propagation_started.elapsed();
-    let propagation = phase_started.elapsed();
-    phase_started = Instant::now();
-    let result_capacity = interprocedural_result_cache.as_ref().map_or(0, |cache| {
-        cache.files.values().map(|file| file.reads.len()).sum()
-    });
-    let mut result = Vec::with_capacity(result_capacity);
-    let mut result_reused_files = 0;
-    let mut result_recomputed_files = 0;
-    let result_view = InterproceduralResultView {
-        nodes: &nodes,
-        indexes: &indexes,
-        by_symbol: &by_symbol,
-        summaries: &summaries,
-        invoked_parameters: &invoked_parameters,
-        returned_bindings: &returned_bindings,
-    };
-    let result_read_context = InterproceduralResultReadContext {
-        result: result_view,
-        contract_callbacks,
-        entities,
-        symbol_names,
-    };
-    if let Some(cache) = interprocedural_result_cache.as_deref_mut() {
-        let current_paths = facts
-            .files
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<HashSet<_>>();
-        let removed_paths = cache
-            .files
-            .keys()
-            .filter(|path| !current_paths.contains(path.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
-        for path in removed_paths {
-            let Some(removed) = cache.files.remove(path.as_str()) else {
-                continue;
-            };
-            for dependency in &removed.dependencies {
-                remove_interprocedural_dependency_user(
-                    &mut cache.dependency_users,
-                    &mut cache.dependency_states,
-                    dependency,
-                );
-            }
-        }
-        let changed_dependencies = cache
-            .dependency_states
-            .iter()
-            .filter(|(dependency, retained)| !result_view.dependency_matches(retained, dependency))
-            .map(|(dependency, _)| dependency.clone())
-            .collect::<HashSet<_>>();
-        for file in &facts.files {
-            if retained_source_paths.contains(file.path.as_str())
-                && let Some(cached) = cache.files.get(file.path.as_str())
-                && (Arc::ptr_eq(&cached.compiler, &file.compiler)
-                    || same_compiler_semantics(&cached.compiler, &file.compiler))
-                && cached.dependencies.is_disjoint(&changed_dependencies)
-            {
-                result_reused_files += 1;
-                result.extend(cached.reads.iter().cloned());
-                continue;
-            }
-            result_recomputed_files += 1;
-            let (reads, dependencies) =
-                interprocedural_result_reads_for_file(file, &result_read_context);
-            result.extend(reads.iter().cloned());
-            if let Some(previous) = cache.files.remove(file.path.as_str()) {
-                for dependency in previous.dependencies.difference(&dependencies) {
-                    remove_interprocedural_dependency_user(
-                        &mut cache.dependency_users,
-                        &mut cache.dependency_states,
-                        dependency,
-                    );
-                }
-                for dependency in dependencies.difference(&previous.dependencies) {
-                    add_interprocedural_dependency_user(&mut cache.dependency_users, dependency);
-                }
-            } else {
-                for dependency in &dependencies {
-                    add_interprocedural_dependency_user(&mut cache.dependency_users, dependency);
-                }
-            }
-            cache.files.insert(
-                file.path.to_string(),
-                CachedInterproceduralResultFile {
-                    dependencies,
-                    reads,
-                    compiler: file.compiler.clone(),
-                },
-            );
-        }
-        for dependency in cache.dependency_users.keys() {
-            if changed_dependencies.contains(dependency)
-                || !cache.dependency_states.contains_key(dependency)
-            {
-                cache
-                    .dependency_states
-                    .insert(dependency.clone(), result_view.dependency_state(dependency));
-            }
-        }
-    } else {
-        for file in &facts.files {
-            result_recomputed_files += 1;
-            result.extend(interprocedural_result_reads_for_file(file, &result_read_context).0);
-        }
-    }
-    let factory_instances = returned_bindings
-        .values()
-        .filter(|summary| !summary.is_empty())
-        .count();
-    let result_reads = phase_started.elapsed();
-    let export_started = Instant::now();
-    let contract_graph = ContractGraph {
-        nodes: &nodes,
-        nodes_by_path: &nodes_by_path,
-        by_symbol: &by_symbol,
-        entities,
-    };
-    let contract_analysis = ContractAnalysis {
-        summaries: &summaries,
-        returned: &returned,
-        callbacks: &callback_summaries,
-        semantics: ContractSemantics {
-            bundled_returns,
-            source_kinds,
-            source_primitives,
-        },
-    };
-    let exports = if let Some(cache) = interprocedural_result_cache {
-        contract_export_summaries_incremental(
-            &mut cache.contract_exports,
-            facts,
-            &contract_graph,
-            &reverse_edges,
-            &graph_node_reused_paths,
-            *changed_semantic_symbols,
-            &contract_analysis,
-        )
-    } else {
-        Arc::new(contract_export_summaries(
-            facts,
-            &contract_graph,
-            &contract_analysis,
-        ))
-    };
-    let export_summaries = export_started.elapsed();
-    let results_and_exports = phase_started.elapsed();
-    InterproceduralResult {
-        reads: result,
-        exports,
-        factory_instances,
-        timings: InterproceduralTimings {
-            graph,
-            direct_summaries,
-            direct_index,
-            direct_references,
-            typed_accessors,
-            propagation,
-            returned_direct,
-            returned_delta,
-            call_summary_delta,
-            factory_propagation,
-            results_and_exports,
-            result_reads,
-            export_summaries,
-            typed_accessor_reused_files,
-            typed_accessor_recomputed_files,
-            graph_reused_files,
-            graph_recomputed_files,
-            result_reused_files,
-            result_recomputed_files,
-        },
-    }
 }
 
 fn function_binding_name<'a>(
@@ -6476,15 +4465,12 @@ fn function_binding_name<'a>(
 ) -> Option<&'a solid_ast_facts::NamedSpan> {
     function.name.as_ref().or_else(|| {
         file.ast
-            .bindings
-            .iter()
+            .bindings_initializer_containing(function.span)
             .find(|binding| {
                 binding.initializer_function
                     && binding.initializer.is_some_and(|initializer| {
                         file.ast
-                            .functions
-                            .iter()
-                            .filter(|candidate| initializer.contains(candidate.span))
+                            .functions_within(initializer)
                             .max_by_key(|candidate| candidate.span.end - candidate.span.start)
                             .is_some_and(|candidate| candidate.span == function.span)
                     })
@@ -6591,10 +4577,8 @@ fn inside_effect_apply(
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
 ) -> bool {
-    file.ast.calls.iter().any(|call| {
-        call.arguments
-            .get(1)
-            .is_some_and(|argument| argument.span.contains(span))
+    file.ast.arguments_containing(span).any(|(call, index)| {
+        index == 1
             && matches!(
                 primitive_name(
                     file.path.as_str(),
@@ -6607,6 +4591,17 @@ fn inside_effect_apply(
                 Some("createEffect" | "createRenderEffect")
             )
     })
+}
+
+/// The typed descriptor at a callee, kept only when it names a Solid accessor.
+fn typed_accessor_descriptor_at<'a>(
+    lookup: &SemanticLookup<'a>,
+    path: &str,
+    callee: Span,
+) -> Option<&'a solid_ts_facts::TypeDescriptor> {
+    lookup
+        .smallest_contained_descriptor(path, callee)
+        .filter(|descriptor| go_solid_accessor_descriptor(descriptor))
 }
 
 fn go_solid_accessor_descriptor(descriptor: &solid_ts_facts::TypeDescriptor) -> bool {
@@ -6636,404 +4631,19 @@ fn source_function_exported(
                     && candidate.body.end_byte == u64::from(function.body.end)
             })
         })
-        || file.ast.exports.iter().any(|export| {
-            export.span.contains(function.span)
-                && !file.ast.functions.iter().any(|candidate| {
-                    candidate.span != function.span
-                        && export.span.contains(candidate.span)
-                        && candidate.span.contains(function.span)
-                })
+        || file.ast.exports_containing(function.span).any(|export| {
+            !file.ast.functions_within(export.span).any(|candidate| {
+                candidate.span != function.span && candidate.span.contains(function.span)
+            })
         })
-}
-
-struct ContractSemantics<'a> {
-    bundled_returns: &'a HashMap<String, ContractReturn>,
-    source_kinds: &'a HashMap<String, ReactiveSourceKind>,
-    source_primitives: &'a HashMap<String, String>,
-}
-
-struct ContractGraph<'a> {
-    nodes: &'a [SummaryNode],
-    nodes_by_path: &'a HashMap<String, Vec<usize>>,
-    by_symbol: &'a HashMap<String, usize>,
-    entities: &'a EntitySymbols,
-}
-
-struct ContractAnalysis<'a> {
-    summaries: &'a [SummaryReads],
-    returned: &'a [SummaryReads],
-    callbacks: &'a [Vec<ContractCallback>],
-    semantics: ContractSemantics<'a>,
-}
-
-fn contract_export_function(
-    node: &SummaryNode,
-    summary: &SummaryReads,
-    returned_summary: &SummaryReads,
-    callbacks: &[ContractCallback],
-    semantics: &ContractSemantics<'_>,
-) -> ContractExport {
-    let reactive_reads = summary
-        .iter()
-        .map(|read| ContractReactiveRead {
-            kind: read.kind.clone().unwrap_or_else(|| {
-                if read.display.contains('.') {
-                    "store-path".into()
-                } else {
-                    "accessor".into()
-                }
-            }),
-            label: semantics
-                .source_primitives
-                .get(&read.symbol)
-                .and_then(|primitive| semantics.bundled_returns.get(primitive))
-                .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
-        })
-        .collect::<Vec<_>>();
-    let first_returned =
-        returned_summary
-            .iter()
-            .fold(None::<&SummaryRead>, |current, candidate| match current {
-                None => Some(candidate),
-                Some(best) if location_order(&candidate.declaration, &best.declaration).is_lt() => {
-                    Some(candidate)
-                }
-                Some(best) => Some(best),
-            });
-    let returns = first_returned.map(|read| ContractReturn {
-        kind: if semantics.source_kinds.get(&read.symbol) == Some(&ReactiveSourceKind::Store) {
-            "store-path".into()
-        } else {
-            "accessor".into()
-        },
-        label: semantics
-            .source_primitives
-            .get(&read.symbol)
-            .and_then(|primitive| semantics.bundled_returns.get(primitive))
-            .map_or_else(|| read.display.clone(), |returned| returned.label.clone()),
-    });
-    let mut callback_summary = callbacks.to_vec();
-    callback_summary.sort_by_key(|callback| callback.parameter);
-    ContractExport {
-        kind: "function".into(),
-        reactive_reads,
-        callbacks: callback_summary,
-        returns,
-        async_behavior: if node.r#async {
-            "promise".into()
-        } else {
-            String::new()
-        },
-    }
-}
-
-fn contract_export_fragment(
-    file: &solid_facts::FileFacts,
-    project_directory: Option<&Path>,
-    graph: &ContractGraph<'_>,
-    node_keys: &[ContractNodeKey],
-    node_contracts: &HashMap<ContractNodeKey, ContractExport>,
-) -> ContractExportFragment {
-    let mut fragment = ContractExportFragment::default();
-    if project_directory
-        .is_some_and(|directory| !Path::new(file.path.as_str()).starts_with(directory))
-    {
-        return fragment;
-    }
-    for index in graph
-        .nodes_by_path
-        .get(file.path.as_str())
-        .into_iter()
-        .flatten()
-        .copied()
-    {
-        let node = &graph.nodes[index];
-        if node.exported
-            && let (Some(name), Some(symbol)) = (&node.name, &node.symbol)
-            && let Some(target) = graph.by_symbol.get(symbol).copied()
-            && let Some(summary) = node_contracts.get(&node_keys[target])
-        {
-            fragment.dependencies.insert(node_keys[target].clone());
-            fragment.direct.push((name.clone(), summary.clone()));
-        }
-    }
-    for export in file.ast.exports.iter().filter(|export| !export.type_only) {
-        for specifier in export
-            .specifiers
-            .iter()
-            .chain(export.declarations.iter())
-            .filter(|specifier| !specifier.type_only)
-        {
-            let target = graph
-                .entities
-                .get(&location(file.path.as_str(), specifier.local.span))
-                .and_then(|symbol| graph.by_symbol.get(symbol))
-                .copied();
-            let summary = target
-                .and_then(|index| {
-                    fragment.dependencies.insert(node_keys[index].clone());
-                    node_contracts.get(&node_keys[index]).cloned()
-                })
-                .unwrap_or_else(value_contract_export);
-            fragment
-                .syntax
-                .push((specifier.exported.clone(), summary, true));
-        }
-        for binding in file.ast.bindings.iter().filter(|binding| {
-            binding.shape != solid_ast_facts::BindingShape::Array
-                && export.span.contains(binding.declaration)
-                && !file.ast.functions.iter().any(|function| {
-                    export.span.contains(function.span)
-                        && function.body.contains(binding.declaration)
-                })
-        }) {
-            for name in &binding.names {
-                let target = graph
-                    .entities
-                    .get(&location(file.path.as_str(), name.span))
-                    .and_then(|symbol| graph.by_symbol.get(symbol))
-                    .copied();
-                let summary = target
-                    .and_then(|index| {
-                        fragment.dependencies.insert(node_keys[index].clone());
-                        node_contracts.get(&node_keys[index]).cloned()
-                    })
-                    .unwrap_or_else(value_contract_export);
-                fragment.syntax.push((name.name.clone(), summary, false));
-            }
-        }
-    }
-    fragment
-}
-
-fn contract_export_summaries_incremental(
-    cache: &mut CachedContractExports,
-    facts: &ProjectFacts,
-    graph: &ContractGraph<'_>,
-    reverse_edges: &[Vec<usize>],
-    graph_node_reused_paths: &HashSet<&str>,
-    changed_semantic_symbols: Option<&HashSet<String>>,
-    analysis: &ContractAnalysis<'_>,
-) -> Arc<BTreeMap<String, ContractExport>> {
-    let mut ordinals = HashMap::<&str, usize>::new();
-    let node_keys = graph
-        .nodes
-        .iter()
-        .map(|node| {
-            let ordinal = ordinals.entry(node.path.as_str()).or_default();
-            let key = ContractNodeKey {
-                path: node.path.clone(),
-                ordinal: *ordinal,
-            };
-            *ordinal += 1;
-            key
-        })
-        .collect::<Vec<_>>();
-    let current_keys = node_keys.iter().cloned().collect::<HashSet<_>>();
-    let mut dirty = graph
-        .nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(index, node)| {
-            (!graph_node_reused_paths.contains(node.path.as_str())
-                || !cache.nodes.contains_key(&node_keys[index])
-                || changed_semantic_symbols.is_some_and(|changed| {
-                    analysis.summaries[index]
-                        .iter()
-                        .chain(analysis.returned[index].iter())
-                        .any(|read| changed.contains(&read.symbol))
-                }))
-            .then_some(index)
-        })
-        .collect::<Vec<_>>();
-    let mut dirty_set = dirty.iter().copied().collect::<HashSet<_>>();
-    while let Some(target) = dirty.pop() {
-        for owner in reverse_edges.get(target).into_iter().flatten().copied() {
-            if dirty_set.insert(owner) {
-                dirty.push(owner);
-            }
-        }
-    }
-    let mut changed_nodes = HashSet::<ContractNodeKey>::new();
-    for index in dirty_set {
-        let contract = contract_export_function(
-            &graph.nodes[index],
-            &analysis.summaries[index],
-            &analysis.returned[index],
-            &analysis.callbacks[index],
-            &analysis.semantics,
-        );
-        let key = node_keys[index].clone();
-        if cache.nodes.get(&key) != Some(&contract) {
-            changed_nodes.insert(key.clone());
-            cache.nodes.insert(key, contract);
-        }
-    }
-    let removed_nodes = cache
-        .nodes
-        .keys()
-        .filter(|key| !current_keys.contains(*key))
-        .cloned()
-        .collect::<Vec<_>>();
-    for key in removed_nodes {
-        cache.nodes.remove(&key);
-        changed_nodes.insert(key);
-    }
-    let current_paths = facts
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<HashSet<_>>();
-    let removed_files = cache
-        .files
-        .keys()
-        .filter(|path| !current_paths.contains(path.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut fragments_changed = !removed_files.is_empty();
-    for path in removed_files {
-        cache.files.remove(&path);
-    }
-    let project_directory = Path::new(&facts.project_id).parent();
-    for file in &facts.files {
-        let rebuild = !graph_node_reused_paths.contains(file.path.as_str())
-            || cache
-                .files
-                .get(file.path.as_str())
-                .is_none_or(|fragment| !fragment.dependencies.is_disjoint(&changed_nodes));
-        if !rebuild {
-            continue;
-        }
-        let fragment =
-            contract_export_fragment(file, project_directory, graph, &node_keys, &cache.nodes);
-        fragments_changed |= cache.files.get(file.path.as_str()) != Some(&fragment);
-        cache.files.insert(file.path.to_string(), fragment);
-    }
-    if !fragments_changed && let Some(aggregate) = &cache.aggregate {
-        return Arc::clone(aggregate);
-    }
-    let mut aggregate = BTreeMap::new();
-    for file in &facts.files {
-        if let Some(fragment) = cache.files.get(file.path.as_str()) {
-            for (name, summary) in &fragment.direct {
-                aggregate.insert(name.clone(), summary.clone());
-            }
-        }
-    }
-    for file in &facts.files {
-        if let Some(fragment) = cache.files.get(file.path.as_str()) {
-            for (name, summary, replace) in &fragment.syntax {
-                if *replace {
-                    aggregate.insert(name.clone(), summary.clone());
-                } else {
-                    aggregate
-                        .entry(name.clone())
-                        .or_insert_with(|| summary.clone());
-                }
-            }
-        }
-    }
-    let aggregate = Arc::new(aggregate);
-    cache.aggregate = Some(Arc::clone(&aggregate));
-    aggregate
-}
-
-fn contract_export_summaries(
-    facts: &ProjectFacts,
-    graph: &ContractGraph<'_>,
-    analysis: &ContractAnalysis<'_>,
-) -> BTreeMap<String, ContractExport> {
-    let project_directory = Path::new(&facts.project_id).parent();
-    let mut by_symbol = HashMap::<String, ContractExport>::with_capacity(graph.nodes.len());
-    for (index, node) in graph.nodes.iter().enumerate() {
-        let Some(symbol) = &node.symbol else {
-            continue;
-        };
-        let contribution = contract_export_function(
-            node,
-            &analysis.summaries[index],
-            &analysis.returned[index],
-            &analysis.callbacks[index],
-            &analysis.semantics,
-        );
-        by_symbol.insert(symbol.clone(), contribution);
-    }
-
-    let mut exports = BTreeMap::new();
-    for node in graph.nodes.iter().filter(|node| {
-        node.exported
-            && project_directory
-                .is_none_or(|directory| Path::new(&node.path).starts_with(directory))
-    }) {
-        if let (Some(name), Some(symbol)) = (&node.name, &node.symbol)
-            && let Some(summary) = by_symbol.get(symbol)
-        {
-            exports.insert(name.clone(), summary.clone());
-        }
-    }
-    for file in facts.files.iter().filter(|file| {
-        project_directory
-            .is_none_or(|directory| Path::new(file.path.as_str()).starts_with(directory))
-    }) {
-        for export in file.ast.exports.iter().filter(|export| !export.type_only) {
-            for specifier in export
-                .specifiers
-                .iter()
-                .chain(export.declarations.iter())
-                .filter(|specifier| !specifier.type_only)
-            {
-                let summary = graph
-                    .entities
-                    .get(&location(file.path.as_str(), specifier.local.span))
-                    .and_then(|symbol| by_symbol.get(symbol))
-                    .cloned();
-                if let Some(summary) = summary {
-                    exports.insert(specifier.exported.clone(), summary);
-                } else {
-                    exports
-                        .entry(specifier.exported.clone())
-                        .or_insert_with(value_contract_export);
-                }
-            }
-            for binding in file.ast.bindings.iter().filter(|binding| {
-                binding.shape != solid_ast_facts::BindingShape::Array
-                    && export.span.contains(binding.declaration)
-                    && !file.ast.functions.iter().any(|function| {
-                        export.span.contains(function.span)
-                            && function.body.contains(binding.declaration)
-                    })
-            }) {
-                for name in &binding.names {
-                    if !exports.contains_key(&name.name) {
-                        let summary = graph
-                            .entities
-                            .get(&location(file.path.as_str(), name.span))
-                            .and_then(|symbol| by_symbol.get(symbol))
-                            .cloned()
-                            .unwrap_or_else(value_contract_export);
-                        exports.insert(name.name.clone(), summary);
-                    }
-                }
-            }
-        }
-    }
-    exports
-}
-
-fn value_contract_export() -> ContractExport {
-    ContractExport {
-        kind: "value".into(),
-        ..ContractExport::default()
-    }
 }
 
 fn enclosing_render_function(file: &solid_facts::FileFacts, span: Span) -> bool {
-    file.ast.functions.iter().any(|function| {
-        function.body.contains(span)
-            && function_binding_name(file, function)
-                .or(function.name.as_ref())
-                .and_then(|name| name.name.chars().next())
-                .is_some_and(char::is_uppercase)
+    file.ast.functions_body_containing(span).any(|function| {
+        function_binding_name(file, function)
+            .or(function.name.as_ref())
+            .and_then(|name| name.name.chars().next())
+            .is_some_and(char::is_uppercase)
     })
 }
 
@@ -7042,20 +4652,18 @@ fn function_is_solid_callback(
     function: &solid_ast_facts::FunctionFact,
     entities: &EntitySymbols,
     symbol_names: &HashMap<String, String>,
+    lookup: &SemanticLookup<'_>,
 ) -> bool {
-    if file.ast.jsx_elements.iter().any(|element| {
-        element.span.contains(function.span)
-            && !file.ast.functions.iter().any(|outer| {
-                outer.span != function.span
-                    && element.span.contains(outer.span)
-                    && outer.span.contains(function.span)
-            })
-            && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
-                matches!(
-                    primitive.as_str(),
-                    "For" | "Repeat" | "Show" | "Match" | "Switch"
-                )
-            })
+    let primitives = lookup.primitives(file);
+    if file.ast.jsx_containing(function.span).any(|element| {
+        !file.ast.functions_within(element.span).any(|outer| {
+            outer.span != function.span && outer.span.contains(function.span)
+        }) && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
+            matches!(
+                primitive.as_str(),
+                "For" | "Repeat" | "Show" | "Match" | "Switch"
+            )
+        })
     }) {
         return true;
     }
@@ -7067,17 +4675,10 @@ fn function_is_solid_callback(
         .as_ref()
         .or_else(|| function_binding_name(file, function))
         .map(|name| name.name.as_str());
-    file.ast.calls.iter().any(|call| {
-        primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        )
-        .is_some_and(|primitive| {
+    file.ast.calls.iter().enumerate().any(|(call_index, call)| {
+        primitives.calls[call_index].as_deref().is_some_and(|primitive| {
             matches!(
-                primitive.as_str(),
+                primitive,
                 "createMemo"
                     | "createEffect"
                     | "createRenderEffect"
@@ -7092,19 +4693,13 @@ fn function_is_solid_callback(
         }) && call.arguments.iter().any(|argument| {
             argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
         })
-    }) || file.ast.jsx_elements.iter().any(|element| {
-        jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
-            matches!(
-                primitive.as_str(),
-                "For" | "Repeat" | "Show" | "Match" | "Switch"
-            )
-        }) && file.ast.identifiers.iter().any(|identifier| {
-            element.span.contains(identifier.span)
-                && identifier.role == solid_ast_facts::IdentifierRole::Reference
-                && !file.ast.jsx_elements.iter().any(|nested| {
-                    nested.span != element.span
-                        && element.span.contains(nested.span)
-                        && nested.span.contains(identifier.span)
+    }) || file.ast.jsx_elements.iter().enumerate().any(|(element_index, element)| {
+        primitives.jsx[element_index].as_deref().is_some_and(|primitive| {
+            matches!(primitive, "For" | "Repeat" | "Show" | "Match" | "Switch")
+        }) && file.ast.identifiers_within(element.span).any(|identifier| {
+            identifier.role == solid_ast_facts::IdentifierRole::Reference
+                && !file.ast.jsx_containing(identifier.span).any(|nested| {
+                    nested.span != element.span && element.span.contains(nested.span)
                 })
                 && (entities.get(&location(file.path.as_str(), identifier.span)) == Some(symbol)
                     || binding_name == Some(identifier.name.as_str()))
@@ -7123,9 +4718,7 @@ fn counts_as_strict_read_root(
 fn enclosing_function_label(file: &solid_facts::FileFacts, span: Span) -> String {
     let Some(function) = file
         .ast
-        .functions
-        .iter()
-        .filter(|function| function.body.contains(span))
+        .functions_body_containing(span)
         .min_by_key(|function| function.body.end - function.body.start)
     else {
         return String::new();
@@ -7145,9 +4738,7 @@ fn analysis_context(
     let enclosing = enclosing_function_label(file, span);
     if let Some(rendering) = file
         .ast
-        .functions
-        .iter()
-        .filter(|function| function.body.contains(span))
+        .functions_body_containing(span)
         .filter_map(|function| function.name.as_ref())
         .filter(|name| name.name.chars().next().is_some_and(char::is_uppercase))
         .min_by_key(|name| name.span.end - name.span.start)
@@ -7156,15 +4747,8 @@ fn analysis_context(
     }
     let callback = file
         .ast
-        .calls
-        .iter()
-        .flat_map(|call| {
-            call.arguments
-                .iter()
-                .enumerate()
-                .filter(move |(_, argument)| argument.span.contains(span))
-                .map(move |(index, argument)| (call, index, argument.span))
-        })
+        .arguments_containing(span)
+        .map(|(call, index)| (call, index, call.arguments[index].span))
         .min_by_key(|(_, _, argument)| argument.end - argument.start);
     if let Some((call, argument, _)) = callback
         && let Some(primitive) = primitive_name(
@@ -7273,760 +4857,6 @@ fn push_contract_callback(callbacks: &mut Vec<ContractCallback>, callback: Contr
     callbacks.push(callback);
 }
 
-fn reachability_topology(
-    functions: &[FunctionNode],
-    roots: &[ReachabilityTarget],
-    edges: &[ReachabilityEdge],
-    callback_edges: &[(Option<Span>, Vec<ReachabilityTarget>)],
-) -> ReachabilityTopology {
-    let local = |span: Span| functions.iter().position(|function| function.span == span);
-    let target = |target: &ReachabilityTarget| match target {
-        ReachabilityTarget::Symbol(symbol) => {
-            Some(ReachabilityTopologyTarget::Symbol(symbol.clone()))
-        }
-        ReachabilityTarget::LocalSpan(span) => local(*span).map(ReachabilityTopologyTarget::Local),
-    };
-    ReachabilityTopology {
-        function_symbols: functions
-            .iter()
-            .map(|function| function.symbol.clone())
-            .collect(),
-        roots: roots.iter().filter_map(target).collect(),
-        edges: edges
-            .iter()
-            .filter_map(|edge| Some((edge.owner.and_then(local), target(&edge.target)?)))
-            .collect(),
-        callback_edges: callback_edges
-            .iter()
-            .map(|(owner, targets)| {
-                (
-                    owner.and_then(local),
-                    targets.iter().filter_map(target).collect(),
-                )
-            })
-            .collect(),
-    }
-}
-
-fn effective_reachability_topology(
-    topology: &ReachabilityTopology,
-    function_symbols: &HashSet<String>,
-) -> ReachabilityTopology {
-    let retained_target = |target: &ReachabilityTopologyTarget| match target {
-        ReachabilityTopologyTarget::Local(_) => true,
-        ReachabilityTopologyTarget::Symbol(symbol) => function_symbols.contains(symbol),
-    };
-    ReachabilityTopology {
-        function_symbols: topology.function_symbols.clone(),
-        roots: topology
-            .roots
-            .iter()
-            .filter(|target| retained_target(target))
-            .cloned()
-            .collect(),
-        edges: topology
-            .edges
-            .iter()
-            .filter(|(_, target)| retained_target(target))
-            .cloned()
-            .collect(),
-        callback_edges: topology
-            .callback_edges
-            .iter()
-            .filter_map(|(owner, targets)| {
-                let targets = targets
-                    .iter()
-                    .filter(|target| retained_target(target))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                (!targets.is_empty()).then_some((*owner, targets))
-            })
-            .collect(),
-    }
-}
-
-fn discover_reachability_file(
-    file: &solid_facts::FileFacts,
-    indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> CachedReachabilityFile {
-    let functions = file
-        .ast
-        .functions
-        .iter()
-        .map(|function| {
-            let symbol = function.name.as_ref().and_then(|name| {
-                entities
-                    .get(&location(file.path.as_str(), name.span))
-                    .cloned()
-            });
-            FunctionNode {
-                path: file.path.to_string(),
-                span: function.span,
-                body: function.body,
-                name: function.name.as_ref().map(|name| name.name.clone()),
-                symbol,
-            }
-        })
-        .collect::<Vec<_>>();
-    let functions_by_path = function_indices_by_path(&functions);
-    let call_owners = file
-        .ast
-        .calls
-        .iter()
-        .map(|call| {
-            containing_function_indexed(
-                &functions,
-                &functions_by_path,
-                file.path.as_str(),
-                call.span,
-            )
-            .map(|index| functions[index].span)
-        })
-        .collect::<Vec<_>>();
-    let exported_bodies = indexes
-        .typescript_file(file.path.as_str())
-        .into_iter()
-        .flat_map(|file| &file.functions)
-        .filter(|function| function.exported)
-        .map(|function| (function.body.start_byte, function.body.end_byte))
-        .collect::<HashSet<_>>();
-    let mut roots = functions
-        .iter()
-        .filter(|function| {
-            function
-                .name
-                .as_deref()
-                .and_then(|name| name.chars().next())
-                .is_some_and(char::is_uppercase)
-                || file
-                    .ast
-                    .functions
-                    .iter()
-                    .find(|candidate| candidate.span == function.span)
-                    .is_some_and(|candidate| {
-                        function_is_solid_callback(file, candidate, entities, symbol_names)
-                    })
-                || exported_bodies
-                    .contains(&(u64::from(function.body.start), u64::from(function.body.end)))
-                || file
-                    .ast
-                    .exports
-                    .iter()
-                    .any(|export| export.span.contains(function.span))
-        })
-        .map(|function| ReachabilityTarget::LocalSpan(function.span))
-        .collect::<Vec<_>>();
-    for export in &file.ast.exports {
-        if functions
-            .iter()
-            .any(|function| export.span.contains(function.span))
-        {
-            continue;
-        }
-        for entity in indexes.entities_for_path(file.path.as_str()) {
-            let Ok(start) = u32::try_from(entity.location.start_byte) else {
-                continue;
-            };
-            let Ok(end) = u32::try_from(entity.location.end_byte) else {
-                continue;
-            };
-            if export.span.contains(Span::new(start, end))
-                && let Some(symbol) = entities.get(&entity.location)
-            {
-                roots.push(ReachabilityTarget::Symbol(symbol.clone()));
-            }
-        }
-    }
-    let mut edges = Vec::new();
-    for (call_index, call) in file.ast.calls.iter().enumerate() {
-        let owner = call_owners[call_index];
-        let callee = location(file.path.as_str(), call.callee);
-        if let Some(symbol) = entities.get(&callee) {
-            edges.push(ReachabilityEdge {
-                owner,
-                target: ReachabilityTarget::Symbol(symbol.clone()),
-            });
-        }
-        if matches!(
-            primitive_name(
-                file.path.as_str(),
-                call.callee,
-                call.static_callee.as_deref(),
-                entities,
-                symbol_names,
-            )
-            .as_deref(),
-            Some(
-                "createMemo"
-                    | "createEffect"
-                    | "createRenderEffect"
-                    | "createTrackedEffect"
-                    | "createSignal"
-                    | "createStore"
-                    | "createProjection"
-                    | "createOptimistic"
-                    | "createOptimisticStore"
-                    | "dynamic"
-                    | "createReaction"
-                    | "untrack"
-                    | "onSettled"
-                    | "action"
-            )
-        ) {
-            for function in &functions {
-                if call
-                    .arguments
-                    .iter()
-                    .any(|argument| argument.span.contains(function.span))
-                {
-                    edges.push(ReachabilityEdge {
-                        owner,
-                        target: ReachabilityTarget::LocalSpan(function.span),
-                    });
-                }
-            }
-            for property in call
-                .arguments
-                .iter()
-                .flat_map(|argument| &argument.identifier_properties)
-            {
-                if let Some(symbol) = entities.get(&location(file.path.as_str(), property.span)) {
-                    edges.push(ReachabilityEdge {
-                        owner,
-                        target: ReachabilityTarget::Symbol(symbol.clone()),
-                    });
-                } else if let Some(function) = functions
-                    .iter()
-                    .find(|function| function.name.as_deref() == Some(property.name.as_str()))
-                {
-                    edges.push(ReachabilityEdge {
-                        owner,
-                        target: ReachabilityTarget::LocalSpan(function.span),
-                    });
-                }
-            }
-        }
-    }
-    let mut callback_edges = Vec::new();
-    for callback in &file.compiler.callback_roles {
-        let owner = containing_function_indexed(
-            &functions,
-            &functions_by_path,
-            file.path.as_str(),
-            callback.span,
-        )
-        .map(|index| functions[index].span);
-        let mut targets = functions
-            .iter()
-            .filter(|function| callback.span.contains(function.span))
-            .map(|function| ReachabilityTarget::LocalSpan(function.span))
-            .collect::<Vec<_>>();
-        if let Some(symbol) = entities.get(&location(file.path.as_str(), callback.span)) {
-            targets.push(ReachabilityTarget::Symbol(symbol.clone()));
-        }
-        callback_edges.push((owner, targets));
-    }
-    let call_owner_indices = call_owners
-        .iter()
-        .map(|owner| {
-            owner.and_then(|span| functions.iter().position(|function| function.span == span))
-        })
-        .collect();
-    let topology = reachability_topology(&functions, &roots, &edges, &callback_edges);
-    CachedReachabilityFile {
-        identity: source_discovery_identity(file, indexes),
-        compiler: file.compiler.clone(),
-        functions,
-        roots,
-        edges,
-        callback_edges,
-        call_owners,
-        call_owner_indices,
-        topology,
-    }
-}
-
-struct ReachabilityInputs<'a> {
-    facts: &'a ProjectFacts,
-    indexes: &'a ProjectIndexes<'a>,
-    entities: &'a EntitySymbols,
-    symbol_names: &'a HashMap<String, String>,
-    typescript_unchanged: bool,
-    typescript_delta: Option<&'a SourceDiscoveryTypeScriptDelta>,
-}
-
-struct ReachabilityState<'a> {
-    files: &'a mut HashMap<String, CachedReachabilityFile>,
-    multiplicity_by_path: &'a mut HashMap<String, Vec<usize>>,
-    calls: &'a mut HashMap<Location, usize>,
-    function_symbols: &'a mut HashSet<String>,
-}
-
-fn reachable_call_multiplicity_incremental(
-    inputs: ReachabilityInputs<'_>,
-    state: ReachabilityState<'_>,
-) -> (u64, u64) {
-    let ReachabilityInputs {
-        facts,
-        indexes,
-        entities,
-        symbol_names,
-        typescript_unchanged,
-        typescript_delta,
-    } = inputs;
-    let ReachabilityState {
-        files: cache,
-        multiplicity_by_path,
-        calls,
-        function_symbols,
-    } = state;
-    let current_paths = facts
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<HashSet<_>>();
-    let removed_paths = cache
-        .keys()
-        .filter(|path| !current_paths.contains(path.as_str()))
-        .cloned()
-        .collect::<HashSet<_>>();
-    cache.retain(|path, _| current_paths.contains(path.as_str()));
-    multiplicity_by_path.retain(|path, _| current_paths.contains(path.as_str()));
-    let mut reused_files = 0;
-    let mut recomputed_files = 0;
-    let mut recomputed_paths = HashSet::<String>::new();
-    let mut topology_unchanged = !multiplicity_by_path.is_empty() && removed_paths.is_empty();
-    for file in &facts.files {
-        let reusable = (typescript_unchanged || typescript_delta.is_some())
-            && cache.get(file.path.as_str()).is_some_and(|cached| {
-                source_discovery_identity_matches(
-                    &cached.identity,
-                    file,
-                    indexes,
-                    typescript_unchanged,
-                    typescript_delta,
-                ) && (Arc::ptr_eq(&cached.compiler, &file.compiler)
-                    || same_compiler_semantics(&cached.compiler, &file.compiler))
-            });
-        if reusable {
-            reused_files += 1;
-            continue;
-        }
-        recomputed_files += 1;
-        recomputed_paths.insert(file.path.to_string());
-        let discovered = discover_reachability_file(file, indexes, entities, symbol_names);
-        topology_unchanged &= cache.get(file.path.as_str()).is_some_and(|previous| {
-            effective_reachability_topology(&previous.topology, function_symbols)
-                == effective_reachability_topology(&discovered.topology, function_symbols)
-        });
-        cache.insert(file.path.to_string(), discovered);
-    }
-
-    if topology_unchanged {
-        calls.retain(|location, _| {
-            !removed_paths.contains(location.path.as_str())
-                && !recomputed_paths.contains(location.path.as_str())
-        });
-        for file in facts
-            .files
-            .iter()
-            .filter(|file| recomputed_paths.contains(file.path.as_str()))
-        {
-            let Some(cached) = cache.get(file.path.as_str()) else {
-                continue;
-            };
-            let Some(multiplicity) = multiplicity_by_path.get(file.path.as_str()) else {
-                topology_unchanged = false;
-                break;
-            };
-            for ((call, owner), owner_index) in file
-                .ast
-                .calls
-                .iter()
-                .zip(&cached.call_owners)
-                .zip(&cached.call_owner_indices)
-            {
-                let Some(owner_index) = owner_index else {
-                    continue;
-                };
-                if multiplicity.get(*owner_index).copied().unwrap_or(0) != 0 {
-                    calls.insert(
-                        location(file.path.as_str(), call.callee),
-                        multiplicity[*owner_index],
-                    );
-                }
-                debug_assert_eq!(
-                    owner.and_then(|span| {
-                        cached
-                            .functions
-                            .iter()
-                            .position(|function| function.span == span)
-                    }),
-                    Some(*owner_index)
-                );
-            }
-        }
-        if topology_unchanged {
-            return (reused_files, recomputed_files);
-        }
-    }
-
-    let mut functions = Vec::new();
-    for file in &facts.files {
-        if let Some(cached) = cache.get(file.path.as_str()) {
-            functions.extend(cached.functions.iter().cloned());
-        }
-    }
-    let functions_by_path = function_indices_by_path(&functions);
-    let by_symbol = functions
-        .iter()
-        .enumerate()
-        .filter_map(|(index, function)| function.symbol.clone().map(|symbol| (symbol, index)))
-        .collect::<HashMap<_, _>>();
-    function_symbols.clear();
-    function_symbols.extend(by_symbol.keys().cloned());
-    let local_target = |path: &str, span: Span| {
-        functions_by_path.get(path).and_then(|indices| {
-            indices
-                .iter()
-                .find(|index| functions[**index].span == span)
-                .copied()
-        })
-    };
-    let resolve_target = |path: &str, target: &ReachabilityTarget| match target {
-        ReachabilityTarget::Symbol(symbol) => by_symbol.get(symbol).copied(),
-        ReachabilityTarget::LocalSpan(span) => local_target(path, *span),
-    };
-    let mut edges = vec![Vec::new(); functions.len()];
-    let mut roots = Vec::new();
-    for file in &facts.files {
-        let Some(cached) = cache.get(file.path.as_str()) else {
-            continue;
-        };
-        roots.extend(
-            cached
-                .roots
-                .iter()
-                .filter_map(|target| resolve_target(file.path.as_str(), target)),
-        );
-        for edge in &cached.edges {
-            let Some(target) = resolve_target(file.path.as_str(), &edge.target) else {
-                continue;
-            };
-            if let Some(owner) = edge
-                .owner
-                .and_then(|span| local_target(file.path.as_str(), span))
-            {
-                edges[owner].push(target);
-            } else {
-                roots.push(target);
-            }
-        }
-        for (owner, targets) in &cached.callback_edges {
-            let mut targets = targets
-                .iter()
-                .filter_map(|target| resolve_target(file.path.as_str(), target))
-                .collect::<Vec<_>>();
-            targets.sort_unstable();
-            targets.dedup();
-            for target in targets {
-                if let Some(owner) = owner.and_then(|span| local_target(file.path.as_str(), span)) {
-                    edges[owner].push(target);
-                } else {
-                    roots.push(target);
-                }
-            }
-        }
-    }
-    roots.sort_unstable();
-    roots.dedup();
-    let mut multiplicity = vec![0_usize; functions.len()];
-    for root in roots {
-        accumulate_function(root, &edges, &mut HashSet::new(), &mut multiplicity);
-    }
-    multiplicity_by_path.clear();
-    let mut offset = 0;
-    for file in &facts.files {
-        let count = cache
-            .get(file.path.as_str())
-            .map_or(0, |cached| cached.functions.len());
-        multiplicity_by_path.insert(
-            file.path.to_string(),
-            multiplicity[offset..offset + count].to_vec(),
-        );
-        offset += count;
-    }
-    calls.clear();
-    for file in &facts.files {
-        let Some(cached) = cache.get(file.path.as_str()) else {
-            continue;
-        };
-        for (call, owner) in file.ast.calls.iter().zip(&cached.call_owners) {
-            if let Some(function) = owner.and_then(|span| local_target(file.path.as_str(), span))
-                && multiplicity[function] != 0
-            {
-                calls.insert(
-                    location(file.path.as_str(), call.callee),
-                    multiplicity[function],
-                );
-            }
-        }
-    }
-    (reused_files, recomputed_files)
-}
-
-fn reachable_call_multiplicity(
-    facts: &ProjectFacts,
-    indexes: &ProjectIndexes<'_>,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> HashMap<Location, usize> {
-    let mut functions = Vec::new();
-    for file in &facts.files {
-        for function in &file.ast.functions {
-            let symbol = function.name.as_ref().and_then(|name| {
-                entities
-                    .get(&location(file.path.as_str(), name.span))
-                    .cloned()
-            });
-            functions.push(FunctionNode {
-                path: file.path.to_string(),
-                span: function.span,
-                body: function.body,
-                name: function.name.as_ref().map(|name| name.name.clone()),
-                symbol,
-            });
-        }
-    }
-    let functions_by_path = function_indices_by_path(&functions);
-    let call_owners = facts
-        .files
-        .iter()
-        .map(|file| {
-            file.ast
-                .calls
-                .iter()
-                .map(|call| {
-                    containing_function_indexed(
-                        &functions,
-                        &functions_by_path,
-                        file.path.as_str(),
-                        call.span,
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let by_symbol = functions
-        .iter()
-        .enumerate()
-        .filter_map(|(index, function)| function.symbol.clone().map(|symbol| (symbol, index)))
-        .collect::<HashMap<_, _>>();
-    let mut exported_bodies = HashMap::<&str, HashSet<(u64, u64)>>::new();
-    for file in &facts.typescript.files {
-        for function in &file.functions {
-            if function.exported {
-                exported_bodies
-                    .entry(file.path.as_str())
-                    .or_default()
-                    .insert((function.body.start_byte, function.body.end_byte));
-            }
-        }
-    }
-    let mut exported_symbols = HashSet::new();
-    for file in &facts.files {
-        for export in &file.ast.exports {
-            if functions_by_path
-                .get(file.path.as_str())
-                .into_iter()
-                .flatten()
-                .any(|index| export.span.contains(functions[*index].span))
-            {
-                continue;
-            }
-            for entity in indexes.entities_for_path(file.path.as_str()) {
-                let Ok(start) = u32::try_from(entity.location.start_byte) else {
-                    continue;
-                };
-                let Ok(end) = u32::try_from(entity.location.end_byte) else {
-                    continue;
-                };
-                if export.span.contains(Span::new(start, end))
-                    && let Some(symbol) = entities.get(&entity.location)
-                {
-                    exported_symbols.insert(symbol.clone());
-                }
-            }
-        }
-    }
-    let mut edges = vec![Vec::new(); functions.len()];
-    let mut roots = Vec::new();
-    for (index, function) in functions.iter().enumerate() {
-        let component = function
-            .name
-            .as_deref()
-            .and_then(|name| name.chars().next())
-            .is_some_and(char::is_uppercase);
-        let callback = facts
-            .files
-            .iter()
-            .find(|file| file.path.as_str() == function.path)
-            .and_then(|file| {
-                file.ast
-                    .functions
-                    .iter()
-                    .find(|candidate| candidate.span == function.span)
-                    .map(|candidate| (file, candidate))
-            })
-            .is_some_and(|(file, candidate)| {
-                function_is_solid_callback(file, candidate, entities, symbol_names)
-            });
-        let exported = exported_bodies
-            .get(function.path.as_str())
-            .is_some_and(|bodies| {
-                bodies.contains(&(u64::from(function.body.start), u64::from(function.body.end)))
-            })
-            || function
-                .symbol
-                .as_ref()
-                .is_some_and(|symbol| exported_symbols.contains(symbol));
-        if component || callback || exported {
-            roots.push(index);
-        }
-    }
-    for (file_index, file) in facts.files.iter().enumerate() {
-        for (call_index, call) in file.ast.calls.iter().enumerate() {
-            let owner = call_owners[file_index][call_index];
-            let callee = location(file.path.as_str(), call.callee);
-            if let Some(target) = entities
-                .get(&callee)
-                .and_then(|symbol| by_symbol.get(symbol))
-                .copied()
-            {
-                if let Some(owner) = owner {
-                    edges[owner].push(target);
-                } else {
-                    roots.push(target);
-                }
-            }
-            if matches!(
-                primitive_name(
-                    file.path.as_str(),
-                    call.callee,
-                    call.static_callee.as_deref(),
-                    entities,
-                    symbol_names,
-                )
-                .as_deref(),
-                Some(
-                    "createMemo"
-                        | "createEffect"
-                        | "createRenderEffect"
-                        | "createSignal"
-                        | "createStore"
-                        | "createProjection"
-                        | "createOptimistic"
-                        | "createOptimisticStore"
-                        | "dynamic"
-                        | "createTrackedEffect"
-                        | "createReaction"
-                        | "untrack"
-                        | "onSettled"
-                        | "action"
-                )
-            ) {
-                for index in functions_by_path
-                    .get(file.path.as_str())
-                    .into_iter()
-                    .flatten()
-                    .copied()
-                {
-                    let function = &functions[index];
-                    if call
-                        .arguments
-                        .iter()
-                        .any(|argument| argument.span.contains(function.span))
-                    {
-                        if let Some(owner) = owner {
-                            edges[owner].push(index);
-                        } else {
-                            roots.push(index);
-                        }
-                    }
-                }
-            }
-        }
-        for callback in &file.compiler.callback_roles {
-            let owner = containing_function_indexed(
-                &functions,
-                &functions_by_path,
-                file.path.as_str(),
-                callback.span,
-            );
-            let mut targets = functions_by_path
-                .get(file.path.as_str())
-                .into_iter()
-                .flatten()
-                .copied()
-                .filter(|index| callback.span.contains(functions[*index].span))
-                .collect::<Vec<_>>();
-            if let Some(symbol) = entities.get(&location(file.path.as_str(), callback.span))
-                && let Some(target) = by_symbol.get(symbol)
-            {
-                targets.push(*target);
-            }
-            targets.sort_unstable();
-            targets.dedup();
-            for target in targets {
-                if let Some(owner) = owner {
-                    edges[owner].push(target);
-                } else {
-                    roots.push(target);
-                }
-            }
-        }
-    }
-    roots.sort_unstable();
-    roots.dedup();
-    let mut multiplicity = vec![0_usize; functions.len()];
-    for root in roots {
-        accumulate_function(root, &edges, &mut HashSet::new(), &mut multiplicity);
-    }
-    let mut result = HashMap::new();
-    for (file_index, file) in facts.files.iter().enumerate() {
-        for (call_index, call) in file.ast.calls.iter().enumerate() {
-            let owner = call_owners[file_index][call_index];
-            if let Some(function) = owner
-                && multiplicity[function] != 0
-            {
-                result.insert(
-                    location(file.path.as_str(), call.callee),
-                    multiplicity[function],
-                );
-            }
-        }
-    }
-    result
-}
-
-fn accumulate_function(
-    function: usize,
-    edges: &[Vec<usize>],
-    visiting: &mut HashSet<usize>,
-    multiplicity: &mut [usize],
-) {
-    if !visiting.insert(function) {
-        return;
-    }
-    multiplicity[function] += 1;
-    for target in &edges[function] {
-        accumulate_function(*target, edges, visiting, multiplicity);
-    }
-    visiting.remove(&function);
-}
-
 fn function_indices_by_path<T>(functions: &[T]) -> HashMap<String, Vec<usize>>
 where
     T: FunctionBoundary,
@@ -8096,449 +4926,6 @@ fn location_order(left: &Location, right: &Location) -> std::cmp::Ordering {
         right.start_byte,
         right.end_byte,
     ))
-}
-
-fn execution_role(
-    facts: &solid_facts::solid_compiler_facts::ExecutionMap,
-    span: Span,
-    allowed: &[Span],
-) -> ExecutionRole {
-    if allowed.iter().any(|region| region.contains(span)) {
-        return ExecutionRole::DeferredCallback;
-    }
-    if facts
-        .tracked_regions
-        .iter()
-        .any(|region| region.span.contains(span))
-    {
-        return ExecutionRole::TrackedJsx;
-    }
-    for callback in &facts.callback_roles {
-        if callback.span.contains(span) {
-            return match callback.role {
-                solid_facts::solid_compiler_facts::CallbackRoleKind::EventHandler => {
-                    ExecutionRole::EventCallback
-                }
-                solid_facts::solid_compiler_facts::CallbackRoleKind::Deferred => {
-                    ExecutionRole::DeferredCallback
-                }
-                solid_facts::solid_compiler_facts::CallbackRoleKind::DirectiveApply => {
-                    ExecutionRole::DirectiveApply
-                }
-                solid_facts::solid_compiler_facts::CallbackRoleKind::Render => {
-                    ExecutionRole::UntrackedRendering
-                }
-            };
-        }
-    }
-    ExecutionRole::UntrackedRendering
-}
-
-fn semantic_execution_role(
-    file: &solid_facts::FileFacts,
-    span: Span,
-    allowed: &[Span],
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> ExecutionRole {
-    if let Some(role) = named_callback_execution_role(file, span, entities, symbol_names) {
-        return role;
-    }
-    if file.ast.calls.iter().any(|call| {
-        call.arguments
-            .get(1)
-            .is_some_and(|argument| direct_callback_contains(file, argument.span, span))
-            && primitive_name(
-                file.path.as_str(),
-                call.callee,
-                call.static_callee.as_deref(),
-                entities,
-                symbol_names,
-            )
-            .is_some_and(|primitive| {
-                matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
-            })
-    }) {
-        return ExecutionRole::EffectApply;
-    }
-    if allowed.iter().any(|region| region.contains(span)) {
-        return ExecutionRole::DeferredCallback;
-    }
-    if let Some(role) = control_flow_execution_role(file, span, entities, symbol_names) {
-        return role;
-    }
-    if file
-        .compiler
-        .tracked_regions
-        .iter()
-        .any(|region| region.span.contains(span))
-    {
-        return ExecutionRole::TrackedJsx;
-    }
-    if file.ast.calls.iter().any(|call| {
-        call.arguments.first().is_some_and(|argument| {
-            argument.span.contains(span)
-                && matches!(
-                    argument.value,
-                    solid_ast_facts::ArgumentValueKind::Identifier
-                        | solid_ast_facts::ArgumentValueKind::Function
-                        | solid_ast_facts::ArgumentValueKind::AsyncFunction
-                )
-        }) && primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        )
-        .is_some_and(|primitive| {
-            matches!(
-                primitive.as_str(),
-                "createMemo"
-                    | "createEffect"
-                    | "createRenderEffect"
-                    | "createTrackedEffect"
-                    | "createSignal"
-                    | "createStore"
-                    | "createProjection"
-                    | "createOptimistic"
-                    | "createOptimisticStore"
-                    | "dynamic"
-            )
-        })
-    }) {
-        return ExecutionRole::TrackedJsx;
-    }
-    execution_role(&file.compiler, span, allowed)
-}
-
-fn control_flow_execution_role(
-    file: &solid_facts::FileFacts,
-    span: Span,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> Option<ExecutionRole> {
-    let element = file
-        .ast
-        .jsx_elements
-        .iter()
-        .filter(|element| {
-            element.span.contains(span)
-                && jsx_primitive_name(file, element, entities, symbol_names).is_some_and(
-                    |primitive| {
-                        matches!(
-                            primitive.as_str(),
-                            "For" | "Repeat" | "Show" | "Match" | "Switch"
-                        )
-                    },
-                )
-        })
-        .min_by_key(|element| element.span.end - element.span.start)?;
-    let callback = file
-        .ast
-        .functions
-        .iter()
-        .filter(|function| element.span.contains(function.span) && function.body.contains(span))
-        .max_by_key(|function| function.body.end - function.body.start)?;
-    let owner = containing_ast_function(&file.ast.functions, span)?;
-    if owner.span != callback.span {
-        return Some(ExecutionRole::DeferredCallback);
-    }
-    if file
-        .ast
-        .jsx_elements
-        .iter()
-        .any(|nested| callback.body.contains(nested.span) && nested.span.contains(span))
-    {
-        Some(ExecutionRole::TrackedJsx)
-    } else {
-        Some(ExecutionRole::UntrackedRendering)
-    }
-}
-
-fn named_callback_execution_role(
-    file: &solid_facts::FileFacts,
-    span: Span,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> Option<ExecutionRole> {
-    let callback = file
-        .ast
-        .functions
-        .iter()
-        .filter(|function| function.body.contains(span))
-        .find(|function| {
-            let Some(symbol) = function_symbol(file, function, entities) else {
-                return false;
-            };
-            let binding_name = function
-                .name
-                .as_ref()
-                .or_else(|| function_binding_name(file, function))
-                .map(|name| name.name.as_str());
-            file.ast.calls.iter().any(|call| {
-                let primitive = primitive_name(
-                    file.path.as_str(),
-                    call.callee,
-                    call.static_callee.as_deref(),
-                    entities,
-                    symbol_names,
-                );
-                let argument_index = match primitive.as_deref() {
-                    Some("createEffect" | "createRenderEffect") => 1,
-                    Some(
-                        "createMemo"
-                        | "createTrackedEffect"
-                        | "createSignal"
-                        | "createStore"
-                        | "createProjection"
-                        | "createOptimistic"
-                        | "createOptimisticStore"
-                        | "dynamic"
-                        | "flush"
-                        | "untrack"
-                        | "onSettled"
-                        | "createReaction"
-                        | "action",
-                    ) => 0,
-                    _ => return false,
-                };
-                call.arguments.get(argument_index).is_some_and(|argument| {
-                    argument_references_callback_symbol(
-                        file,
-                        argument,
-                        symbol,
-                        entities,
-                        symbol_names,
-                    ) || argument
-                        .identifier_properties
-                        .iter()
-                        .any(|property| binding_name == Some(property.name.as_str()))
-                })
-            }) || file.ast.jsx_elements.iter().any(|element| {
-                jsx_primitive_name(file, element, entities, symbol_names).is_some_and(|primitive| {
-                    matches!(
-                        primitive.as_str(),
-                        "For" | "Repeat" | "Show" | "Match" | "Switch"
-                    )
-                }) && file.ast.identifiers.iter().any(|identifier| {
-                    element.span.contains(identifier.span)
-                        && identifier.role == solid_ast_facts::IdentifierRole::Reference
-                        && !file.ast.jsx_elements.iter().any(|nested| {
-                            nested.span != element.span
-                                && element.span.contains(nested.span)
-                                && nested.span.contains(identifier.span)
-                        })
-                        && (entities.get(&location(file.path.as_str(), identifier.span))
-                            == Some(symbol)
-                            || binding_name == Some(identifier.name.as_str()))
-                })
-            })
-        })?;
-    let owner = containing_ast_function(&file.ast.functions, span)?;
-    if owner.span != callback.span {
-        return Some(ExecutionRole::DeferredCallback);
-    }
-    if file.ast.calls.iter().any(|call| {
-        primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        )
-        .is_some_and(|primitive| {
-            matches!(primitive.as_str(), "createEffect" | "createRenderEffect")
-        }) && call.arguments.get(1).is_some_and(|argument| {
-            function_symbol(file, callback, entities).is_some_and(|symbol| {
-                argument_references_callback_symbol(file, argument, symbol, entities, symbol_names)
-            }) || function_binding_name(file, callback)
-                .or(callback.name.as_ref())
-                .is_some_and(|name| {
-                    argument
-                        .identifier_properties
-                        .iter()
-                        .any(|property| property.name == name.name)
-                })
-        })
-    }) {
-        return Some(ExecutionRole::EffectApply);
-    }
-    if file.ast.calls.iter().any(|call| {
-        let primitive = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        );
-        matches!(
-            primitive.as_deref(),
-            Some(
-                "createMemo"
-                    | "createTrackedEffect"
-                    | "createSignal"
-                    | "createStore"
-                    | "createProjection"
-                    | "createOptimistic"
-                    | "createOptimisticStore"
-                    | "dynamic"
-            )
-        ) && call.arguments.first().is_some_and(|argument| {
-            function_symbol(file, callback, entities).is_some_and(|symbol| {
-                entities.get(&location(file.path.as_str(), argument.span)) == Some(symbol)
-            })
-        })
-    }) {
-        return Some(ExecutionRole::TrackedJsx);
-    }
-    if file.ast.calls.iter().any(|call| {
-        let primitive = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        );
-        matches!(
-            primitive.as_deref(),
-            Some("flush" | "untrack" | "onSettled" | "createReaction" | "action")
-        ) && call.arguments.first().is_some_and(|argument| {
-            function_symbol(file, callback, entities).is_some_and(|symbol| {
-                entities.get(&location(file.path.as_str(), argument.span)) == Some(symbol)
-            })
-        })
-    }) {
-        return Some(ExecutionRole::DeferredCallback);
-    }
-    if file
-        .ast
-        .jsx_elements
-        .iter()
-        .any(|element| callback.body.contains(element.span) && element.span.contains(span))
-    {
-        Some(ExecutionRole::TrackedJsx)
-    } else {
-        Some(ExecutionRole::UntrackedRendering)
-    }
-}
-
-fn function_symbol<'a>(
-    file: &solid_facts::FileFacts,
-    function: &solid_ast_facts::FunctionFact,
-    entities: &'a EntitySymbols,
-) -> Option<&'a String> {
-    let name = function
-        .name
-        .as_ref()
-        .or_else(|| function_binding_name(file, function))?;
-    entities.get(&location(file.path.as_str(), name.span))
-}
-
-fn argument_references_callback_symbol(
-    file: &solid_facts::FileFacts,
-    argument: &solid_ast_facts::ArgumentFact,
-    symbol: &str,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> bool {
-    entities
-        .get(&location(file.path.as_str(), argument.span))
-        .map(String::as_str)
-        == Some(symbol)
-        || argument.identifier_properties.iter().any(|property| {
-            entities
-                .get(&location(file.path.as_str(), property.span))
-                .map(String::as_str)
-                == Some(symbol)
-                || symbol_names.get(symbol) == Some(&property.name)
-        })
-}
-
-fn direct_callback_contains(file: &solid_facts::FileFacts, argument: Span, span: Span) -> bool {
-    if !argument.contains(span) {
-        return false;
-    }
-    let callback = file
-        .ast
-        .functions
-        .iter()
-        .filter(|function| argument.contains(function.span))
-        .max_by_key(|function| function.span.end - function.span.start);
-    let owner = containing_ast_function(&file.ast.functions, span);
-    match (callback, owner) {
-        (Some(callback), Some(owner)) => callback.span == owner.span,
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-fn read_analysis_context(
-    file: &solid_facts::FileFacts,
-    span: Span,
-    execution: ExecutionRole,
-) -> String {
-    if execution == ExecutionRole::EffectApply {
-        "createEffect apply callback".into()
-    } else {
-        let context = enclosing_function_label(file, span);
-        if file
-            .ast
-            .conditional_tests
-            .iter()
-            .any(|test| test.contains(span))
-        {
-            format!("{context} conditional return")
-        } else {
-            context
-        }
-    }
-}
-
-fn async_execution_role(
-    file: &solid_facts::FileFacts,
-    span: Span,
-    execution: ExecutionRole,
-) -> ExecutionRole {
-    if execution == ExecutionRole::DeferredCallback
-        && file
-            .ast
-            .jsx_elements
-            .iter()
-            .any(|element| element.span.contains(span))
-    {
-        ExecutionRole::TrackedJsx
-    } else {
-        execution
-    }
-}
-
-fn allowed_callback_spans(
-    file: &solid_facts::FileFacts,
-    entities: &EntitySymbols,
-    symbol_names: &HashMap<String, String>,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    for call in &file.ast.calls {
-        let primitive = primitive_name(
-            file.path.as_str(),
-            call.callee,
-            call.static_callee.as_deref(),
-            entities,
-            symbol_names,
-        );
-        let indices: &[usize] = match primitive.as_deref() {
-            Some("createEffect" | "createRenderEffect") => &[1],
-            Some("flush" | "untrack" | "onSettled" | "createReaction" | "action") => &[0],
-            _ => &[],
-        };
-        for index in indices {
-            if let Some(argument) = call.arguments.get(*index) {
-                spans.push(argument.span);
-            }
-        }
-    }
-    spans
 }
 
 struct LocalAccessContext<'a> {
@@ -8782,31 +5169,13 @@ impl LocalAccessContext<'_> {
     fn discover(&self, file: &solid_facts::FileFacts) -> LocalAccessResult {
         let mut result = LocalAccessResult::default();
         let mut seen = HashSet::new();
-        let allowed = allowed_callback_spans(file, self.entities, self.symbol_names);
+        let allowed = allowed_callback_spans(file, self.lookup);
         for call in &file.ast.calls {
             let callee = location(file.path.as_str(), call.callee);
-            let entity_symbol = self.entities.get(&callee).or_else(|| {
-                self.facts
-                    .typescript
-                    .entities
-                    .iter()
-                    .filter(|entity| {
-                        entity.location.path == callee.path
-                            && callee.start_byte <= entity.location.start_byte
-                            && entity.location.end_byte <= callee.end_byte
-                            && !entity.symbol.is_empty()
-                    })
-                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
-                    .map(|entity| &entity.symbol)
-            });
-            let Some(symbol) = entity_symbol else {
+            let Some(symbol) = self.lookup.callee_symbol(file.path.as_str(), call.callee) else {
                 continue;
             };
-            let inside_function = file
-                .ast
-                .functions
-                .iter()
-                .any(|function| function.body.contains(call.span));
+            let inside_function = file.ast.any_function_body_containing(call.span);
             if inside_function && self.setters.contains_key(symbol) {
                 result.write_action_obligations.insert((
                     "write",
@@ -8829,23 +5198,12 @@ impl LocalAccessContext<'_> {
                 &allowed,
                 self.entities,
                 self.symbol_names,
+                self.lookup,
             );
             let typed_effect_accessor = execution == ExecutionRole::EffectApply
                 && call.arguments.is_empty()
-                && self
-                    .facts
-                    .typescript
-                    .entities
-                    .iter()
-                    .filter(|entity| {
-                        entity.location.path == callee.path
-                            && callee.start_byte <= entity.location.start_byte
-                            && entity.location.end_byte <= callee.end_byte
-                            && entity.type_descriptor.is_some()
-                    })
-                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
-                    .and_then(|entity| entity.type_descriptor.as_ref())
-                    .is_some_and(go_solid_accessor_descriptor);
+                && typed_accessor_descriptor_at(self.lookup, file.path.as_str(), call.callee)
+                    .is_some();
             let Some(multiplicity) = self.reachable_calls.get(&callee).copied().or_else(|| {
                 (typed_effect_accessor
                     || (self.accessors.contains_key(symbol)
@@ -8862,6 +5220,7 @@ impl LocalAccessContext<'_> {
                                 call.callee,
                                 self.entities,
                                 self.symbol_names,
+                                self.lookup,
                             )
                             .is_some()
                             || enclosing_render_function(file, call.callee))))
@@ -8877,6 +5236,7 @@ impl LocalAccessContext<'_> {
                         call.callee,
                         self.entities,
                         self.symbol_names,
+                        self.lookup,
                     )
                     .is_some())
                 && seen.insert(key.clone())
@@ -8928,20 +5288,8 @@ impl LocalAccessContext<'_> {
             if !self.accessors.contains_key(symbol)
                 && execution == ExecutionRole::EffectApply
                 && call.arguments.is_empty()
-                && let Some(descriptor) = self
-                    .facts
-                    .typescript
-                    .entities
-                    .iter()
-                    .filter(|entity| {
-                        entity.location.path == callee.path
-                            && callee.start_byte <= entity.location.start_byte
-                            && entity.location.end_byte <= callee.end_byte
-                            && entity.type_descriptor.is_some()
-                    })
-                    .min_by_key(|entity| entity.location.end_byte - entity.location.start_byte)
-                    .and_then(|entity| entity.type_descriptor.as_ref())
-                    .filter(|descriptor| go_solid_accessor_descriptor(descriptor))
+                && let Some(descriptor) =
+                    typed_accessor_descriptor_at(self.lookup, file.path.as_str(), call.callee)
                 && seen.insert(key.clone())
             {
                 let display = usize::try_from(call.callee.start)
@@ -9049,6 +5397,7 @@ impl LocalAccessContext<'_> {
                 &allowed,
                 self.entities,
                 self.symbol_names,
+                self.lookup,
             );
             if (inside_lowercase_named_function(file, member.span)
                 || inside_unclassified_callback(file, member.span))
@@ -9057,6 +5406,7 @@ impl LocalAccessContext<'_> {
                     member.span,
                     self.entities,
                     self.symbol_names,
+                    self.lookup,
                 )
                 .is_none()
                 && execution != ExecutionRole::EffectApply
@@ -9141,6 +5491,7 @@ impl LocalAccessContext<'_> {
                 &allowed,
                 self.entities,
                 self.symbol_names,
+                self.lookup,
             );
             if (inside_lowercase_named_function(file, spread.span)
                 || inside_unclassified_callback(file, spread.span))
@@ -9149,6 +5500,7 @@ impl LocalAccessContext<'_> {
                     spread.span,
                     self.entities,
                     self.symbol_names,
+                    self.lookup,
                 )
                 .is_none()
                 && execution != ExecutionRole::EffectApply
@@ -9298,501 +5650,6 @@ fn jsx_primitive_name(
     })
 }
 
-fn add_solid_namespace_names(
-    facts: &ProjectFacts,
-    entities: &EntitySymbols,
-    names: &mut HashMap<String, String>,
-) {
-    for file in &facts.files {
-        for import in &file.ast.imports {
-            let primitives: &[&str] = if import.module == "solid-js" {
-                &[
-                    "createSignal",
-                    "createMemo",
-                    "mapArray",
-                    "createStore",
-                    "createProjection",
-                    "createOptimistic",
-                    "createOptimisticStore",
-                    "createEffect",
-                    "createRenderEffect",
-                    "createTrackedEffect",
-                    "createReaction",
-                    "createRoot",
-                    "createOwner",
-                    "untrack",
-                    "onSettled",
-                    "onCleanup",
-                    "flush",
-                    "Loading",
-                    "Show",
-                    "Match",
-                    "Switch",
-                    "merge",
-                    "refresh",
-                    "affects",
-                    "action",
-                ]
-            } else if import.module.starts_with("@solidjs/") {
-                &["dynamic"]
-            } else {
-                continue;
-            };
-            for binding in &import.bindings {
-                if binding.kind != solid_ast_facts::ImportKind::Namespace {
-                    continue;
-                }
-                let location = location(file.path.as_str(), binding.local.span);
-                let Some(symbol) = entities.get(&location) else {
-                    continue;
-                };
-                for primitive in primitives {
-                    names.insert(format!("{symbol}::{primitive}"), (*primitive).into());
-                }
-            }
-        }
-    }
-}
-
-fn alias_roots_and_source_declarations(
-    table: &FactTable,
-) -> (HashMap<String, String>, HashMap<String, Declaration>) {
-    let targets = symbol_alias_targets(table);
-    let mut roots = HashMap::with_capacity(table.symbols.len());
-    let mut declarations = HashMap::new();
-    for symbol in &table.symbols {
-        let mut root = symbol.id.clone();
-        for _ in 0..=targets.len() {
-            let Some(next) = targets.get(&root) else {
-                break;
-            };
-            root.clone_from(next);
-        }
-        if !declarations.contains_key(root.as_str())
-            && let Some(declaration) = symbol
-                .declarations
-                .iter()
-                .find(|declaration| !declaration.location.path.ends_with(".d.ts"))
-        {
-            declarations.insert(root.clone(), declaration.clone());
-        }
-        roots.insert(symbol.id.clone(), root);
-    }
-    (roots, declarations)
-}
-
-fn symbol_alias_targets(table: &FactTable) -> HashMap<String, String> {
-    table
-        .symbols
-        .iter()
-        .filter(|symbol| !symbol.alias_target.is_empty())
-        .map(|symbol| (symbol.id.clone(), symbol.alias_target.clone()))
-        .collect()
-}
-
-fn source_discovery_symbol_semantics(
-    table: &FactTable,
-) -> HashMap<String, SourceDiscoverySymbolSemantics> {
-    table
-        .symbols
-        .iter()
-        .map(|symbol| {
-            (
-                symbol.id.clone(),
-                SourceDiscoverySymbolSemantics {
-                    alias_target: symbol.alias_target.clone(),
-                    declarations: symbol.declarations.clone(),
-                },
-            )
-        })
-        .collect()
-}
-
-fn symbols_by_root(
-    table: &FactTable,
-    aliases: &HashMap<String, String>,
-) -> HashMap<String, Vec<String>> {
-    let mut by_root = HashMap::<String, Vec<String>>::new();
-    for symbol in &table.symbols {
-        let root = aliases
-            .get(&symbol.id)
-            .cloned()
-            .unwrap_or_else(|| symbol.id.clone());
-        by_root.entry(root).or_default().push(symbol.id.clone());
-    }
-    by_root
-}
-
-fn alias_root(symbol: &str, targets: &HashMap<String, String>) -> String {
-    let mut root = symbol.to_owned();
-    for _ in 0..=targets.len() {
-        let Some(next) = targets.get(&root) else {
-            break;
-        };
-        root.clone_from(next);
-    }
-    root
-}
-
-fn patch_typescript_indexes(
-    cache: &mut CachedTypeScriptIndexes,
-    table: &FactTable,
-    symbols_by_id: &HashMap<&str, &SymbolFact>,
-    changes: &solid_facts::TypeScriptChanges,
-) -> Option<(Duration, Duration)> {
-    // An empty non-reuse change set is the sidecar's fail-closed description
-    // of a full table replacement, so only named deltas are patchable.
-    if changes.unchanged
-        || changes.entity_paths.is_empty()
-            && changes.symbol_ids.is_empty()
-            && changes.file_paths.is_empty()
-    {
-        return None;
-    }
-
-    let alias_started = Instant::now();
-    let changed_symbols = changes
-        .symbol_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
-    let current_targets = changes
-        .symbol_ids
-        .iter()
-        .map(|id| {
-            (
-                id,
-                symbols_by_id
-                    .get(id.as_str())
-                    .map(|symbol| symbol.alias_target.as_str())
-                    .filter(|target| !target.is_empty()),
-            )
-        })
-        .collect::<Vec<_>>();
-    let removed_aliases = current_targets
-        .iter()
-        .filter(|(id, current)| {
-            cache.symbol_alias_targets.contains_key(id.as_str()) && current.is_none()
-        })
-        .count();
-    let added_aliases = current_targets
-        .iter()
-        .filter(|(id, current)| {
-            !cache.symbol_alias_targets.contains_key(id.as_str()) && current.is_some()
-        })
-        .count();
-    let structurally_changed_symbols = current_targets
-        .iter()
-        .filter_map(|(id, current_target)| {
-            let existed = cache.aliases.contains_key(id.as_str());
-            let exists = symbols_by_id.contains_key(id.as_str());
-            let old_target = cache
-                .symbol_alias_targets
-                .get(id.as_str())
-                .map(String::as_str);
-            (existed != exists || old_target != *current_target).then_some(id.as_str())
-        })
-        .collect::<HashSet<_>>();
-    let alias_graph_is_local = added_aliases == removed_aliases
-        && current_targets.iter().all(|(id, current)| {
-            cache
-                .symbol_alias_targets
-                .get(id.as_str())
-                .zip(*current)
-                .is_none_or(|(old, current)| old == current)
-        })
-        && cache.symbol_alias_targets.iter().all(|(symbol, target)| {
-            changed_symbols.contains(symbol.as_str())
-                || !structurally_changed_symbols.contains(target.as_str())
-        });
-    if !alias_graph_is_local {
-        return None;
-    }
-
-    let mut semantic_symbol_ids = changes
-        .symbol_ids
-        .iter()
-        .filter(|id| {
-            let current =
-                symbols_by_id
-                    .get(id.as_str())
-                    .map(|symbol| SourceDiscoverySymbolSemantics {
-                        alias_target: symbol.alias_target.clone(),
-                        declarations: symbol.declarations.clone(),
-                    });
-            cache.source_discovery_symbol_semantics.get(id.as_str()) != current.as_ref()
-        })
-        .cloned()
-        .collect::<HashSet<_>>();
-
-    let mut affected_roots = changes
-        .symbol_ids
-        .iter()
-        .filter_map(|id| cache.aliases.get(id))
-        .cloned()
-        .collect::<HashSet<_>>();
-    for (id, target) in current_targets {
-        if let Some(target) = target {
-            cache
-                .symbol_alias_targets
-                .insert(id.clone(), target.to_owned());
-        } else {
-            cache.symbol_alias_targets.remove(id.as_str());
-        }
-    }
-    affected_roots.extend(changes.symbol_ids.iter().filter_map(|id| {
-        symbols_by_id
-            .get(id.as_str())
-            .map(|_| alias_root(id, &cache.symbol_alias_targets))
-    }));
-    let retained_root_semantics = affected_roots
-        .iter()
-        .map(|root| {
-            (
-                root.clone(),
-                (
-                    cache.source_declarations.get(root).cloned(),
-                    cache.symbol_names.get(root).cloned(),
-                ),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    for id in &changes.symbol_ids {
-        if let Some(old_root) = cache.aliases.get(id)
-            && let Some(members) = cache.symbols_by_root.get_mut(old_root)
-            && let Ok(index) = members.binary_search(id)
-        {
-            members.remove(index);
-        }
-    }
-    for id in &changes.symbol_ids {
-        if let Some(symbol) = symbols_by_id.get(id.as_str()) {
-            let root = alias_root(id, &cache.symbol_alias_targets);
-            cache.aliases.insert(id.clone(), root.clone());
-            let members = cache.symbols_by_root.entry(root).or_default();
-            if let Err(index) = members.binary_search(id) {
-                members.insert(index, id.clone());
-            }
-            cache.source_discovery_symbol_semantics.insert(
-                id.clone(),
-                SourceDiscoverySymbolSemantics {
-                    alias_target: symbol.alias_target.clone(),
-                    declarations: symbol.declarations.clone(),
-                },
-            );
-        } else {
-            cache.aliases.remove(id);
-            cache.source_discovery_symbol_semantics.remove(id);
-        }
-    }
-    for root in &affected_roots {
-        cache.source_declarations.remove(root);
-        cache.symbol_names.remove(root);
-        cache.references_by_source.remove(root);
-        for id in cache.symbols_by_root.get(root).into_iter().flatten() {
-            let Some(symbol) = symbols_by_id.get(id.as_str()) else {
-                continue;
-            };
-            if !cache.source_declarations.contains_key(root)
-                && let Some(declaration) = symbol
-                    .declarations
-                    .iter()
-                    .find(|declaration| !declaration.location.path.ends_with(".d.ts"))
-            {
-                cache
-                    .source_declarations
-                    .insert(root.clone(), declaration.clone());
-            }
-            for declaration in &symbol.declarations {
-                if solid_primitive_declaration(declaration) {
-                    cache
-                        .symbol_names
-                        .insert(root.clone(), declaration.name.clone());
-                }
-            }
-            if !symbol.references.is_empty() {
-                cache
-                    .references_by_source
-                    .entry(root.clone())
-                    .or_default()
-                    .extend(symbol.references.iter().cloned());
-            }
-        }
-    }
-    for root in &affected_roots {
-        if let Some(locations) = cache.references_by_source.get_mut(root) {
-            locations.sort_by(location_order);
-            locations.dedup();
-        }
-    }
-    semantic_symbol_ids.extend(
-        affected_roots
-            .iter()
-            .filter(|root| {
-                retained_root_semantics
-                    .get(root.as_str())
-                    .is_none_or(|(declaration, name)| {
-                        cache.source_declarations.get(root.as_str()) != declaration.as_ref()
-                            || cache.symbol_names.get(root.as_str()) != name.as_ref()
-                    })
-            })
-            .cloned(),
-    );
-    let alias_elapsed = alias_started.elapsed();
-
-    let entities_started = Instant::now();
-    for path in &changes.entity_paths {
-        cache.entities.by_path.remove(path);
-        let start = table
-            .entities
-            .partition_point(|entity| entity.location.path.as_str() < path.as_str());
-        let end = table
-            .entities
-            .partition_point(|entity| entity.location.path.as_str() <= path.as_str());
-        for entity in &table.entities[start..end] {
-            if entity.symbol.is_empty() {
-                continue;
-            }
-            cache
-                .entities
-                .by_path
-                .entry(entity.location.path.clone())
-                .or_default()
-                .insert(
-                    (entity.location.start_byte, entity.location.end_byte),
-                    cache
-                        .aliases
-                        .get(&entity.symbol)
-                        .cloned()
-                        .unwrap_or_else(|| entity.symbol.clone()),
-                );
-        }
-    }
-    let entities_elapsed = entities_started.elapsed();
-    cache.source_discovery_delta = Some(SourceDiscoveryTypeScriptDelta {
-        entity_paths: changes.entity_paths.iter().cloned().collect(),
-        file_paths: changes.file_paths.iter().cloned().collect(),
-        semantic_symbol_ids,
-    });
-
-    Some((alias_elapsed, entities_elapsed))
-}
-
-fn async_symbol_root(symbol: &str, table: &FactTable) -> String {
-    let aliases = table
-        .files
-        .iter()
-        .flat_map(|file| &file.async_functions)
-        .filter(|function| !function.symbol.is_empty() && !function.target.is_empty())
-        .map(|function| (function.symbol.as_str(), function.target.as_str()))
-        .collect::<HashMap<_, _>>();
-    let mut current = symbol;
-    let mut seen = HashSet::new();
-    while seen.insert(current) {
-        let Some(target) = aliases.get(current).copied() else {
-            break;
-        };
-        current = target;
-    }
-    current.into()
-}
-
-fn entity_symbols(table: &FactTable, roots: &HashMap<String, String>) -> EntitySymbols {
-    let mut by_path = HashMap::<String, HashMap<(u64, u64), String>>::new();
-    for entity in table
-        .entities
-        .iter()
-        .filter(|entity| !entity.symbol.is_empty())
-    {
-        by_path
-            .entry(entity.location.path.clone())
-            .or_default()
-            .insert(
-                (entity.location.start_byte, entity.location.end_byte),
-                roots
-                    .get(&entity.symbol)
-                    .cloned()
-                    .unwrap_or_else(|| entity.symbol.clone()),
-            );
-    }
-    EntitySymbols { by_path }
-}
-
-fn symbol_names(table: &FactTable, roots: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut names = HashMap::new();
-    for symbol in &table.symbols {
-        let root = roots
-            .get(&symbol.id)
-            .cloned()
-            .unwrap_or_else(|| symbol.id.clone());
-        for declaration in &symbol.declarations {
-            if solid_primitive_declaration(declaration) {
-                names.insert(root.clone(), declaration.name.clone());
-            }
-        }
-    }
-    names
-}
-
-fn references_by_source(
-    table: &FactTable,
-    roots: &HashMap<String, String>,
-) -> HashMap<String, Vec<Location>> {
-    let mut references = HashMap::<String, Vec<Location>>::new();
-    for symbol in &table.symbols {
-        if symbol.references.is_empty() {
-            continue;
-        }
-        let root = roots
-            .get(&symbol.id)
-            .cloned()
-            .unwrap_or_else(|| symbol.id.clone());
-        references
-            .entry(root)
-            .or_default()
-            .extend(symbol.references.iter().cloned());
-    }
-    for locations in references.values_mut() {
-        locations.sort_by(location_order);
-        locations.dedup();
-    }
-    references
-}
-
-fn solid_primitive_declaration(declaration: &Declaration) -> bool {
-    (declaration.location.path.contains("solid-js")
-        || declaration.location.path.contains("@solidjs"))
-        && matches!(
-            declaration.name.as_str(),
-            "createSignal"
-                | "createMemo"
-                | "mapArray"
-                | "createStore"
-                | "createProjection"
-                | "createOptimistic"
-                | "createOptimisticStore"
-                | "dynamic"
-                | "createEffect"
-                | "createRenderEffect"
-                | "createTrackedEffect"
-                | "createReaction"
-                | "createRoot"
-                | "createOwner"
-                | "untrack"
-                | "onSettled"
-                | "onCleanup"
-                | "flush"
-                | "Loading"
-                | "Show"
-                | "Match"
-                | "Switch"
-                | "merge"
-                | "refresh"
-                | "affects"
-                | "action"
-        )
-}
-
 fn location(path: &str, span: Span) -> Location {
     Location {
         path: path.into(),
@@ -9803,6 +5660,9 @@ fn location(path: &str, span: Span) -> Location {
 
 #[cfg(test)]
 mod tests {
+    use solid_ts_facts::{FactTable, SymbolFact};
+
+    use super::interproc::InterproceduralResultView;
     use super::*;
 
     fn summary_node(path: &str, span: Span, body: Span) -> SummaryNode {
@@ -10271,51 +6131,6 @@ mod tests {
                 .map(|read| read.symbol.as_str())
                 .collect::<Vec<_>>(),
             vec!["one", "two"]
-        );
-    }
-
-    #[test]
-    fn effective_reachability_topology_ignores_only_unresolved_symbols() {
-        let topology = ReachabilityTopology {
-            function_symbols: vec![Some("owner".into())],
-            roots: vec![
-                ReachabilityTopologyTarget::Symbol("known".into()),
-                ReachabilityTopologyTarget::Symbol("unresolved".into()),
-                ReachabilityTopologyTarget::Local(0),
-            ],
-            edges: vec![
-                (Some(0), ReachabilityTopologyTarget::Symbol("known".into())),
-                (
-                    Some(0),
-                    ReachabilityTopologyTarget::Symbol("unresolved".into()),
-                ),
-            ],
-            callback_edges: vec![
-                (
-                    Some(0),
-                    vec![
-                        ReachabilityTopologyTarget::Symbol("unresolved".into()),
-                        ReachabilityTopologyTarget::Local(0),
-                    ],
-                ),
-                (
-                    Some(0),
-                    vec![ReachabilityTopologyTarget::Symbol("unresolved".into())],
-                ),
-            ],
-        };
-
-        assert_eq!(
-            effective_reachability_topology(&topology, &HashSet::from(["known".into()])),
-            ReachabilityTopology {
-                function_symbols: vec![Some("owner".into())],
-                roots: vec![
-                    ReachabilityTopologyTarget::Symbol("known".into()),
-                    ReachabilityTopologyTarget::Local(0),
-                ],
-                edges: vec![(Some(0), ReachabilityTopologyTarget::Symbol("known".into()),)],
-                callback_edges: vec![(Some(0), vec![ReachabilityTopologyTarget::Local(0)],)],
-            }
         );
     }
 

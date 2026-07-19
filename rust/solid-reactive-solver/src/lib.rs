@@ -36,7 +36,7 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn new(rule: Rule, message: String, primary_location: Location) -> Self {
+    pub fn new(rule: Rule, message: String, primary_location: Location) -> Self {
         let metadata = rule.metadata();
         Self {
             id: metadata.code.into(),
@@ -137,7 +137,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     ..Finding::new(
                         Rule::ReactiveWriteInOwnedScope,
                         format!(
-                            "{operation} is called inside owned scope {context}; move the write to an event handler, action, onSettled, tracked effect, or untracked callback"
+                            "{operation} is called inside owned scope {context}; move the write to an event handler, action, onSettled, effect apply callback, or untracked callback"
                         ),
                         write.location.clone(),
                     )
@@ -233,6 +233,8 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             evidence: vec![EvidenceStep {
                 message: if violation.rule == "component-props-destructure" {
                     "the destructuring pattern is bound to proven component props".into()
+                } else if violation.rule == "component-returns-conditionally" {
+                    "a proven reactive read controls the component's return shape".into()
                 } else if violation.rule == "package-contract-export-missing" {
                     "the imported package has a contract, but this export has no effect summary"
                         .into()
