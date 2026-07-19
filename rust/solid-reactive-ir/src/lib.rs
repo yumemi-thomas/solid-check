@@ -784,11 +784,7 @@ fn late_stage_source_semantics(file: &solid_facts::FileFacts) -> LateStageSource
         .iter()
         .map(|binding| {
             let initializer = binding.call_initializer?;
-            let call = file
-                .ast
-                .calls
-                .iter()
-                .find(|call| call.span == initializer)?;
+            let call = file.ast.call_at(initializer)?;
             Some(go_binding_pattern_accepts_call(
                 file.source.as_str(),
                 binding,
@@ -2207,11 +2203,7 @@ fn discover_sources(
                     .cloned()
                     .or_else(|| {
                         let initializer = binding.call_initializer?;
-                        let call = file
-                            .ast
-                            .calls
-                            .iter()
-                            .find(|call| call.span == initializer)?;
+                        let call = file.ast.call_at(initializer)?;
                         let primitive = primitive_name(
                             file.path.as_str(),
                             call.callee,

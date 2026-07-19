@@ -1352,7 +1352,7 @@ fn structural_accessor_spans(file: &FileFacts) -> HashSet<Span> {
         let Some(initializer) = binding.call_initializer else {
             continue;
         };
-        let Some(call) = file.ast.calls.iter().find(|call| call.span == initializer) else {
+        let Some(call) = file.ast.call_at(initializer) else {
             continue;
         };
         let Some(static_callee) = call.static_callee(&file.source) else {

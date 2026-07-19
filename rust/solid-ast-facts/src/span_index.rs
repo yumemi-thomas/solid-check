@@ -20,6 +20,9 @@ use crate::{
     ReturnFact,
 };
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CallId(u32);
+
 /// Lazily-built [`AstSpanIndex`] slot embedded in [`AstFacts`]. Transparent
 /// to the derived trait implementations: clones start empty and any two
 /// slots compare equal, because the index is a pure function of the tables.
@@ -181,6 +184,23 @@ fn within<T>(
 impl AstFacts {
     pub fn span_index(&self) -> &AstSpanIndex {
         self.span_index.0.get_or_init(|| Box::new(AstSpanIndex::build(self)))
+    }
+
+    /// Typed handle for the call with exactly this span.
+    pub fn call_id_at(&self, span: Span) -> Option<CallId> {
+        self.calls
+            .binary_search_by_key(&span, |call| call.span)
+            .ok()
+            .and_then(|index| u32::try_from(index).ok())
+            .map(CallId)
+    }
+
+    pub fn call(&self, id: CallId) -> &CallFact {
+        &self.calls[id.0 as usize]
+    }
+
+    pub fn call_at(&self, span: Span) -> Option<&CallFact> {
+        self.call_id_at(span).map(|id| self.call(id))
     }
 
     /// Functions whose body contains `span`, in original array order.

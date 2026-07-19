@@ -446,12 +446,7 @@ fn discover_interprocedural_graph(
         let Some(initializer) = binding.call_initializer else {
             continue;
         };
-        let Some(call) = file
-            .ast
-            .calls
-            .iter()
-            .find(|call| call.span == initializer)
-        else {
+        let Some(call) = file.ast.call_at(initializer) else {
             continue;
         };
         let Some(target_symbol) = entities.get(&location(file.path.as_str(), call.callee)) else {
