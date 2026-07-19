@@ -13,7 +13,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use solid_facts_backend::{
     BackendError, CompilerSidecar, SourceFile, TypeFactsSidecar, analyze_project_measured_with,
-    build_project, build_project_native_measured, bundled_solid_js_contract,
+    build_project, build_project_native_measured, bundled_solid_js_contract, decode_source_files,
     default_typefacts_executable, package_contract_statuses, read_package_contract,
 };
 
@@ -111,6 +111,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     // into `sourcesFetchNs`, the first request that needs the built program).
     let sidecar_spawn_ns = started.elapsed().as_nanos();
     let mut sources_bytes = 0usize;
+    let mut sources_wire_bytes = 0u64;
     let mut preloaded_bundled = None;
     if request.sources.is_empty() {
         // Pipeline open+sources ahead of the program build: both frames queue
@@ -133,7 +134,8 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
         }
         typescript.lifecycle_wait(pending_open)?;
         let response = typescript.lifecycle_wait(pending_sources)?;
-        request.sources = decode_sources(response)?;
+        sources_wire_bytes = response.client_response_bytes;
+        request.sources = decode_source_files(response)?;
         sources_bytes = request.sources.iter().map(|s| s.source.len()).sum();
     }
     let source_setup_ns = started.elapsed().as_nanos();
@@ -228,6 +230,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
                     "sidecarSpawnNs": sidecar_spawn_ns,
                     "sourcesFetchNs": source_setup_ns.saturating_sub(sidecar_spawn_ns),
                     "sourcesBytes": sources_bytes,
+                    "sourcesWireBytes": sources_wire_bytes,
                     "sourceSetupNs": source_setup_ns,
                     "sourceAnalysisNs": source_analysis_ns,
                     "typeFactsNs": type_facts_ns,
@@ -499,22 +502,6 @@ fn lifecycle_request(
         removed_demand_paths: vec![],
         cancel_request_id: 0,
     }
-}
-
-fn decode_sources(
-    response: solid_ts_facts::v3::Response,
-) -> Result<Vec<SourceFile>, Box<dyn std::error::Error>> {
-    response
-        .sources
-        .into_iter()
-        .map(|source| {
-            Ok(SourceFile {
-                path: source.path,
-                source: String::from_utf8(source.source)?,
-                compiler_options: Default::default(),
-            })
-        })
-        .collect()
 }
 
 /// A per-project daemon holding the retained `NativeIncrementalSession` behind

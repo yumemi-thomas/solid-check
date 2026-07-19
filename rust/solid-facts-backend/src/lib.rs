@@ -2009,22 +2009,31 @@ fn sources_request(project_id: &str, generation: u64) -> solid_ts_facts::v3::Req
     }
 }
 
-fn decode_source_files(
+pub fn decode_source_files(
     response: solid_ts_facts::v3::Response,
 ) -> Result<Vec<SourceFile>, BackendError> {
     response
         .sources
         .into_iter()
-        .map(|source| {
-            Ok(SourceFile {
-                path: source.path,
-                source: String::from_utf8(source.source).map_err(|error| {
-                    BackendError::Process(format!("TypeFacts returned non-UTF-8 source: {error}"))
-                })?,
-                compiler_options: CompilerOptions::default(),
-            })
-        })
+        .map(decode_source_file)
         .collect()
+}
+
+fn decode_source_file(source: solid_ts_facts::v3::SourceFile) -> Result<SourceFile, BackendError> {
+    let bytes = if source.local {
+        std::fs::read(&source.path).map_err(|error| {
+            BackendError::Process(format!("read configured source {:?}: {error}", source.path))
+        })?
+    } else {
+        source.source
+    };
+    Ok(SourceFile {
+        path: source.path,
+        source: String::from_utf8(bytes).map_err(|error| {
+            BackendError::Process(format!("TypeFacts returned non-UTF-8 source: {error}"))
+        })?,
+        compiler_options: CompilerOptions::default(),
+    })
 }
 
 impl TypeFactsSidecar {
@@ -2625,6 +2634,31 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn hydrates_local_sources_and_preserves_inline_fallbacks() {
+        let path = std::env::temp_dir().join(format!(
+            "solid-check-source-hydration-{}.ts",
+            std::process::id()
+        ));
+        std::fs::write(&path, "export const local = 1;\n").unwrap();
+        let local = decode_source_file(solid_ts_facts::v3::SourceFile {
+            path: path.to_string_lossy().into_owned(),
+            local: true,
+            source: vec![],
+        })
+        .unwrap();
+        assert_eq!(local.source, "export const local = 1;\n");
+        std::fs::remove_file(path).unwrap();
+
+        let inline = decode_source_file(solid_ts_facts::v3::SourceFile {
+            path: "/virtual/generated.ts".into(),
+            local: false,
+            source: b"export const generated = 2;\n".to_vec(),
+        })
+        .unwrap();
+        assert_eq!(inline.source, "export const generated = 2;\n");
     }
 
     #[test]

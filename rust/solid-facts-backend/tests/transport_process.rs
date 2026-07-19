@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
-use solid_facts_backend::{TypeFactsProvider, TypeFactsSidecar};
+use solid_facts_backend::{TypeFactsProvider, TypeFactsSidecar, decode_source_files};
 use solid_facts_core::Generation;
 use solid_ts_facts::ClosureRequest;
 use solid_ts_facts::v3::{FileChange, Operation, Request, TYPE_FACTS_SCHEMA_V3};
@@ -130,12 +130,20 @@ fn v3_updates_and_reanalyzes_a_retained_project() {
     let project_id = project.to_string_lossy().into_owned();
     let mut service =
         TypeFactsSidecar::spawn(&executable, &["-project".into(), project_id.clone()]).unwrap();
-    let sources = service
+    let source_response = service
         .lifecycle(lifecycle_request(Operation::Sources, project_id.clone(), 1))
-        .unwrap()
-        .sources;
+        .unwrap();
+    let app_descriptor = source_response
+        .sources
+        .iter()
+        .find(|source| source.path.ends_with("App.tsx"))
+        .expect("App.tsx source descriptor exists");
+    assert!(app_descriptor.local);
+    assert!(app_descriptor.source.is_empty());
+
+    let hydrated_sources = decode_source_files(source_response).expect("local sources hydrate");
     assert!(
-        sources
+        hydrated_sources
             .iter()
             .any(|source| source.path.ends_with("App.tsx") && !source.source.is_empty())
     );
@@ -151,6 +159,16 @@ fn v3_updates_and_reanalyzes_a_retained_project() {
         deleted: false,
     });
     service.lifecycle(update).unwrap();
+    let updated_sources = service
+        .lifecycle(lifecycle_request(Operation::Sources, project_id.clone(), 2))
+        .unwrap()
+        .sources;
+    let app_overlay = updated_sources
+        .iter()
+        .find(|source| source.path.ends_with("App.tsx"))
+        .expect("updated App.tsx source descriptor exists");
+    assert!(!app_overlay.local);
+    assert!(!app_overlay.source.is_empty());
     assert!(
         service
             .lifecycle(lifecycle_request(Operation::Analyze, project_id.clone(), 2))
