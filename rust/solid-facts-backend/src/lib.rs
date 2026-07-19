@@ -2275,6 +2275,12 @@ impl TypeFactsSidecar {
                     .symbols
                     .iter()
                     .map(|symbol| symbol.id.clone())
+                    .chain(
+                        delta
+                            .symbol_reference_files
+                            .iter()
+                            .map(|references| references.id.clone()),
+                    )
                     .chain(delta.removed_symbol_ids.iter().cloned())
                     .collect::<Vec<_>>();
                 let mut file_paths = delta
@@ -2331,7 +2337,7 @@ impl TypeFactsSidecar {
                     response.table_delta.as_ref().ok_or_else(|| {
                         BackendError::Process("TypeFacts delta response has no delta".into())
                     })?,
-                );
+                )?;
                 table
             }
             other => {
@@ -2397,7 +2403,7 @@ fn demand_delta(
 fn apply_table_delta(
     table: &mut solid_ts_facts::FactTable,
     delta: &solid_ts_facts::v3::FactTableDelta,
-) {
+) -> Result<(), BackendError> {
     let source_paths: HashSet<_> = delta
         .sources
         .iter()
@@ -2462,6 +2468,51 @@ fn apply_table_delta(
     });
     table.symbols.extend(delta.symbols.iter().cloned());
     table.symbols.sort_by(|left, right| left.id.cmp(&right.id));
+    for replacement in &delta.symbol_reference_files {
+        if replacement
+            .references
+            .iter()
+            .any(|reference| reference.path != replacement.path)
+        {
+            return Err(BackendError::Process(format!(
+                "TypeFacts reference delta for {:?} contains another path",
+                replacement.path
+            )));
+        }
+        if replacement.references.windows(2).any(|pair| {
+            (
+                pair[0].start_byte,
+                pair[0].end_byte,
+            ) > (
+                pair[1].start_byte,
+                pair[1].end_byte,
+            )
+        }) {
+            return Err(BackendError::Process(format!(
+                "TypeFacts reference delta for {:?} is not ordered",
+                replacement.id
+            )));
+        }
+        let symbol_index = table
+            .symbols
+            .binary_search_by(|symbol| symbol.id.cmp(&replacement.id))
+            .map_err(|_| {
+                BackendError::Process(format!(
+                    "TypeFacts reference delta names missing symbol {:?}",
+                    replacement.id
+                ))
+            })?;
+        let symbol = &mut table.symbols[symbol_index];
+        let start = symbol
+            .references
+            .partition_point(|reference| reference.path < replacement.path);
+        let end = symbol
+            .references
+            .partition_point(|reference| reference.path <= replacement.path);
+        symbol
+            .references
+            .splice(start..end, replacement.references.iter().cloned());
+    }
 
     let file_paths: HashSet<_> = delta
         .files
@@ -2482,6 +2533,7 @@ fn apply_table_delta(
         .files
         .sort_by(|left, right| left.path.cmp(&right.path));
     table.generation = delta.generation;
+    Ok(())
 }
 
 impl TypeFactsProvider for TypeFactsSidecar {
