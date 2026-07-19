@@ -335,6 +335,8 @@ fn rust_pipeline_breakdown(
         "measuredTotal": durations(measured_pipeline_duration),
         "unattributedOrchestration": durations(|timing| timing.wall.saturating_sub(measured_pipeline_duration(timing))),
         "sourceAnalysis": durations(|timing| timing.facts.source_analysis),
+        "sourceFilesReused": distribution(samples.iter().map(|timing| timing.facts.source_files_reused).collect()),
+        "sourceFilesRecomputed": distribution(samples.iter().map(|timing| timing.facts.source_files_recomputed).collect()),
         "astFacts": durations(|timing| timing.facts.ast_facts),
         "compilerFacts": durations(|timing| timing.facts.compiler_facts),
         "fileFactAssembly": durations(|timing| timing.facts.file_fact_assembly),

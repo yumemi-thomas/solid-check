@@ -139,6 +139,8 @@ fn native_incremental_session_reuses_oxc_and_solid_facts() {
             None,
         )
         .unwrap();
+    assert_eq!(session.last_build_timings().source_files_reused, 1);
+    assert_eq!(session.last_build_timings().source_files_recomputed, 1);
     assert_eq!(session.generation(), 2);
     assert_eq!(
         session.cache_stats(),

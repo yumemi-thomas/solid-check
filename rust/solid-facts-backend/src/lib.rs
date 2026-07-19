@@ -478,6 +478,18 @@ impl NativeIncrementalSession {
         };
         let mut sources = self.sources.values().cloned().collect::<Vec<_>>();
         sources.sort_by(|left, right| left.path.cmp(&right.path));
+        let changed_paths = wire_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect::<HashSet<_>>();
+        let retained = self
+            .last_facts
+            .as_deref()
+            .filter(|facts| facts.generation.get() == self.generation)
+            .map(|facts| RetainedFileFacts {
+                previous: facts,
+                changed_paths: &changed_paths,
+            });
         let mut provider = PipelinedTypeFacts {
             sidecar: &mut self.typescript,
             pending_update,
@@ -491,6 +503,7 @@ impl NativeIncrementalSession {
             &mut provider,
             &mut self.cache,
             cancelled,
+            retained,
         );
         let leftover_update = provider.pending_update.take();
         if provider.update_landed {
@@ -598,6 +611,7 @@ impl NativeIncrementalSession {
             &mut self.typescript,
             &mut self.cache,
             Some(cancelled),
+            None,
         )?;
         self.last_build_timings = timings;
         let facts = Arc::new(facts);
@@ -835,6 +849,8 @@ pub fn build_project_native(
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeBuildTimings {
     pub source_analysis: Duration,
+    pub source_files_reused: u64,
+    pub source_files_recomputed: u64,
     pub ast_facts: Duration,
     pub compiler_facts: Duration,
     pub file_fact_assembly: Duration,
@@ -888,6 +904,7 @@ pub fn build_project_native_measured(
 ) -> Result<(ProjectFacts, NativeBuildTimings), BackendError> {
     let project_id = project_id.into();
     let generation = Generation::new(generation).map_err(|_| BackendError::Generation)?;
+    let source_files_recomputed = u64::try_from(sources.len()).unwrap_or(u64::MAX);
     let analysis_started = Instant::now();
     let workers = std::thread::available_parallelism()
         .map_or(1, usize::from)
@@ -963,6 +980,8 @@ pub fn build_project_native_measured(
         facts,
         NativeBuildTimings {
             source_analysis,
+            source_files_reused: 0,
+            source_files_recomputed,
             // This compatibility path intentionally fuses AST and compiler
             // extraction in the same parallel workers.
             ast_facts: source_analysis,
@@ -998,7 +1017,7 @@ pub fn build_project_native_cached_measured(
     cache: &mut FactsCache,
 ) -> Result<(ProjectFacts, NativeBuildTimings), BackendError> {
     build_project_native_cached_measured_inner(
-        project_id, generation, sources, typescript, cache, None,
+        project_id, generation, sources, typescript, cache, None, None,
     )
 }
 
@@ -1017,8 +1036,14 @@ pub fn build_project_native_cached_cancellable(
         typescript,
         cache,
         Some(cancelled),
+        None,
     )
     .map(|(facts, _)| facts)
+}
+
+struct RetainedFileFacts<'a> {
+    previous: &'a ProjectFacts,
+    changed_paths: &'a HashSet<String>,
 }
 
 fn build_project_native_cached_measured_inner(
@@ -1028,13 +1053,52 @@ fn build_project_native_cached_measured_inner(
     typescript: &mut impl TypeFactsProvider,
     cache: &mut FactsCache,
     cancelled: Option<&std::sync::atomic::AtomicBool>,
+    retained: Option<RetainedFileFacts<'_>>,
 ) -> Result<(ProjectFacts, NativeBuildTimings), BackendError> {
     let project_id = project_id.into();
     let generation = Generation::new(generation).map_err(|_| BackendError::Generation)?;
     check_cancelled(cancelled)?;
     let analysis_started = Instant::now();
+    let mut files = std::iter::repeat_with(|| None)
+        .take(sources.len())
+        .collect::<Vec<Option<FileFacts>>>();
+    let mut pending_indices = Vec::new();
+    let mut pending_sources = Vec::new();
+    let retained_by_path = retained.as_ref().map(|retained| {
+        retained
+            .previous
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file))
+            .collect::<HashMap<_, _>>()
+    });
+    for (index, source) in sources.into_iter().enumerate() {
+        let previous = retained_by_path
+            .as_ref()
+            .and_then(|files| files.get(source.path.as_str()).copied());
+        if let Some(previous) = previous.filter(|_| {
+            retained
+                .as_ref()
+                .is_some_and(|retained| !retained.changed_paths.contains(&source.path))
+        }) {
+            files[index] = Some(FileFacts {
+                generation,
+                path: previous.path.clone(),
+                source_hash: previous.source_hash.clone(),
+                source: source.source,
+                ast: Arc::clone(&previous.ast),
+                compiler: Arc::clone(&previous.compiler),
+            });
+        } else {
+            pending_indices.push(index);
+            pending_sources.push(source);
+        }
+    }
+    let source_files_recomputed = u64::try_from(pending_sources.len()).unwrap_or(u64::MAX);
+    let source_files_reused =
+        u64::try_from(files.len().saturating_sub(pending_sources.len())).unwrap_or(u64::MAX);
     let ast_started = Instant::now();
-    let prepared = prepare_ast_parallel(sources, cache)?;
+    let prepared = prepare_ast_parallel(pending_sources, cache)?;
     let ast_facts = ast_started.elapsed();
     check_cancelled(cancelled)?;
     let compiler_started = Instant::now();
@@ -1042,16 +1106,24 @@ fn build_project_native_cached_measured_inner(
     let compiler_facts = compiler_started.elapsed();
     check_cancelled(cancelled)?;
     let assembly_started = Instant::now();
-    let mut files = Vec::with_capacity(prepared.len());
-    let mut seeds = Vec::new();
-    let semantic_requires_compiler_spans = typescript.semantic_requires_compiler_spans();
-    for ((file, ast), execution) in prepared.into_iter().zip(executions) {
+    for (((file, ast), execution), index) in prepared
+        .into_iter()
+        .zip(executions)
+        .zip(pending_indices)
+    {
         let facts = FileFacts::new(generation, &file.source, ast, execution)?;
-        if semantic_requires_compiler_spans {
+        files[index] = Some(facts);
+    }
+    let files = files
+        .into_iter()
+        .map(|file| file.expect("every source was retained or recomputed"))
+        .collect::<Vec<_>>();
+    let mut seeds = Vec::new();
+    if typescript.semantic_requires_compiler_spans() {
+        for facts in &files {
             seeds.extend(facts.compiler_seed_locations()?);
             seeds.extend(facts.structural_seed_locations());
         }
-        files.push(facts);
     }
     let file_fact_assembly = assembly_started.elapsed();
     let source_analysis = analysis_started.elapsed();
@@ -1081,6 +1153,8 @@ fn build_project_native_cached_measured_inner(
             facts,
             NativeBuildTimings {
                 source_analysis,
+                source_files_reused,
+                source_files_recomputed,
                 ast_facts,
                 compiler_facts,
                 file_fact_assembly,
@@ -1123,6 +1197,8 @@ fn build_project_native_cached_measured_inner(
         facts,
         NativeBuildTimings {
             source_analysis,
+            source_files_reused,
+            source_files_recomputed,
             ast_facts,
             compiler_facts,
             file_fact_assembly,
