@@ -7,4 +7,5 @@
 **/.DS_Store
 **/target/
 **/node_modules/
+/.pnpm-store/
 *.test

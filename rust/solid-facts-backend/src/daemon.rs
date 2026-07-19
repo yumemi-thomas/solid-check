@@ -13,10 +13,11 @@ use std::{
     error::Error,
     fs,
     io::{self, BufRead, BufReader, Read, Write},
+    os::unix::fs::MetadataExt,
     os::unix::net::{UnixListener, UnixStream},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -79,11 +80,51 @@ fn idle_limit() -> Duration {
 struct State {
     project: PathBuf,
     session: NativeIncrementalSession,
-    sources: BTreeMap<String, SourceFile>,
-    hashes: BTreeMap<String, [u8; 32]>,
-    dirs: BTreeMap<PathBuf, Option<SystemTime>>,
-    tsconfig_hash: [u8; 32],
+    sources: Vec<SourceFile>,
+    fingerprints: BTreeMap<String, FileFingerprint>,
+    dirs: BTreeMap<PathBuf, Option<FileStamp>>,
+    tsconfig: FileFingerprint,
     last: Option<CachedAnswer>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FileStamp {
+    device: u64,
+    inode: u64,
+    length: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
+}
+
+impl FileStamp {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            length: metadata.len(),
+            modified_seconds: metadata.mtime(),
+            modified_nanoseconds: metadata.mtime_nsec(),
+            changed_seconds: metadata.ctime(),
+            changed_nanoseconds: metadata.ctime_nsec(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FileFingerprint {
+    stamp: FileStamp,
+    hash: [u8; 32],
+}
+
+enum FileRefresh {
+    Unchanged,
+    MetadataOnly(FileFingerprint),
+    Content {
+        fingerprint: FileFingerprint,
+        bytes: Vec<u8>,
+    },
 }
 
 enum Sync {
@@ -98,28 +139,31 @@ impl State {
         let (session, configured) =
             NativeIncrementalSession::open_pipelined(request.project_id.clone(), typescript)?;
         let project = PathBuf::from(&request.project_id);
-        let tsconfig_hash = hash_file(&project)?;
-        let mut sources = BTreeMap::new();
-        let mut hashes = BTreeMap::new();
+        let tsconfig = fingerprint_file(&project)?;
+        let mut sources = configured;
+        sources.sort_by(|left, right| left.path.cmp(&right.path));
+        let mut fingerprints = BTreeMap::new();
         let mut dirs = BTreeMap::new();
         if let Some(parent) = project.parent() {
             dirs.insert(parent.to_path_buf(), directory_stamp(parent));
         }
-        for source in configured {
-            hashes.insert(source.path.clone(), content_hash(source.source.as_bytes()));
+        for source in &sources {
+            fingerprints.insert(
+                source.path.clone(),
+                fingerprint_bytes(Path::new(&source.path), source.source.as_bytes())?,
+            );
             if let Some(parent) = PathBuf::from(&source.path).parent() {
                 dirs.entry(parent.to_path_buf())
                     .or_insert_with(|| directory_stamp(parent));
             }
-            sources.insert(source.path.clone(), source);
         }
         Ok(Self {
             project,
             session,
             sources,
-            hashes,
+            fingerprints,
             dirs,
-            tsconfig_hash,
+            tsconfig,
             last: None,
         })
     }
@@ -128,8 +172,10 @@ impl State {
     /// to known files become overlay updates; anything that can change
     /// the project's file set demands a full rebuild.
     fn resync(&mut self) -> Result<Sync, Box<dyn Error>> {
-        if hash_file(&self.project)? != self.tsconfig_hash {
-            return Ok(Sync::Rebuild);
+        match refresh_file_with(&self.project, &self.tsconfig, |path| fs::read(path))? {
+            FileRefresh::Unchanged => {}
+            FileRefresh::MetadataOnly(fingerprint) => self.tsconfig = fingerprint,
+            FileRefresh::Content { .. } => return Ok(Sync::Rebuild),
         }
         for (dir, recorded) in &self.dirs {
             if directory_stamp(dir) != *recorded {
@@ -137,31 +183,39 @@ impl State {
             }
         }
         let mut changes = Vec::new();
-        for (path, recorded) in &self.hashes {
-            let Ok(bytes) = fs::read(path) else {
-                return Ok(Sync::Rebuild);
-            };
-            if content_hash(&bytes) != *recorded {
-                changes.push(SourceChange {
-                    path: path.clone(),
-                    version: self.session.generation() + 1,
-                    source: Some(String::from_utf8(bytes)?),
-                    compiler_options: Default::default(),
-                });
+        let paths = self.fingerprints.keys().cloned().collect::<Vec<_>>();
+        for path in paths {
+            let recorded = self.fingerprints[&path];
+            let refresh =
+                match refresh_file_with(Path::new(&path), &recorded, |path| fs::read(path)) {
+                    Ok(refresh) => refresh,
+                    Err(_) => return Ok(Sync::Rebuild),
+                };
+            match refresh {
+                FileRefresh::Unchanged => {}
+                FileRefresh::MetadataOnly(fingerprint) => {
+                    self.fingerprints.insert(path, fingerprint);
+                }
+                FileRefresh::Content { fingerprint, bytes } => {
+                    let text = String::from_utf8(bytes)?;
+                    changes.push(SourceChange {
+                        path: path.clone(),
+                        version: self.session.generation() + 1,
+                        source: Some(text.clone()),
+                        compiler_options: Default::default(),
+                    });
+                    self.fingerprints.insert(path.clone(), fingerprint);
+                    let index = self
+                        .sources
+                        .binary_search_by(|source| source.path.as_str().cmp(path.as_str()))
+                        .map_err(|_| format!("configured source disappeared from state: {path}"))?;
+                    self.sources[index] = SourceFile {
+                        path,
+                        source: text,
+                        compiler_options: Default::default(),
+                    };
+                }
             }
-        }
-        for change in &changes {
-            let Some(text) = &change.source else { continue };
-            self.hashes
-                .insert(change.path.clone(), content_hash(text.as_bytes()));
-            self.sources.insert(
-                change.path.clone(),
-                SourceFile {
-                    path: change.path.clone(),
-                    source: text.clone(),
-                    compiler_options: Default::default(),
-                },
-            );
         }
         Ok(Sync::Ready(changes))
     }
@@ -175,10 +229,45 @@ fn hash_file(path: &std::path::Path) -> Result<[u8; 32], Box<dyn Error>> {
     Ok(content_hash(&fs::read(path)?))
 }
 
-fn directory_stamp(path: &std::path::Path) -> Option<SystemTime> {
-    fs::metadata(path)
-        .ok()
-        .and_then(|meta| meta.modified().ok())
+fn file_stamp(path: &Path) -> io::Result<FileStamp> {
+    fs::metadata(path).map(|metadata| FileStamp::from_metadata(&metadata))
+}
+
+fn fingerprint_bytes(path: &Path, bytes: &[u8]) -> Result<FileFingerprint, Box<dyn Error>> {
+    Ok(FileFingerprint {
+        stamp: file_stamp(path)?,
+        hash: content_hash(bytes),
+    })
+}
+
+fn fingerprint_file(path: &Path) -> Result<FileFingerprint, Box<dyn Error>> {
+    let bytes = fs::read(path)?;
+    fingerprint_bytes(path, &bytes)
+}
+
+fn refresh_file_with(
+    path: &Path,
+    recorded: &FileFingerprint,
+    read: impl FnOnce(&Path) -> io::Result<Vec<u8>>,
+) -> Result<FileRefresh, Box<dyn Error>> {
+    let stamp = file_stamp(path)?;
+    if stamp == recorded.stamp {
+        return Ok(FileRefresh::Unchanged);
+    }
+    let bytes = read(path)?;
+    let fingerprint = FileFingerprint {
+        stamp,
+        hash: content_hash(&bytes),
+    };
+    if fingerprint.hash == recorded.hash {
+        Ok(FileRefresh::MetadataOnly(fingerprint))
+    } else {
+        Ok(FileRefresh::Content { fingerprint, bytes })
+    }
+}
+
+fn directory_stamp(path: &Path) -> Option<FileStamp> {
+    file_stamp(path).ok()
 }
 
 pub fn serve(request: &Request) -> Result<i32, Box<dyn Error>> {
@@ -295,8 +384,12 @@ fn answer(
     } else {
         state.session.edit(changes, None)?
     };
-    let sources = state.sources.values().cloned().collect::<Vec<_>>();
-    let analysis = analyze_project(&state.project, &sources, &facts, &check.contract_paths)?;
+    let analysis = analyze_project(
+        &state.project,
+        &state.sources,
+        &facts,
+        &check.contract_paths,
+    )?;
     let body =
         snapshot_emission::emit("json", &request.project_id, &analysis.snapshot, false)?.output;
     let status = analysis.snapshot.status.to_string();
@@ -412,5 +505,98 @@ fn spawn_and_connect(
                 std::thread::sleep(Duration::from_millis(25));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        cell::Cell,
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{FileRefresh, fingerprint_file, refresh_file_with};
+
+    #[test]
+    fn unchanged_fingerprint_does_not_read_or_hash_source_content() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "solid-check-daemon-fingerprint-{}-{nonce}.tsx",
+            std::process::id()
+        ));
+        fs::write(&path, "export const value = 1;\n").expect("write fixture");
+        let recorded = fingerprint_file(&path).expect("fingerprint fixture");
+        let reads = Cell::new(0);
+
+        let refresh = refresh_file_with(&path, &recorded, |path| {
+            reads.set(reads.get() + 1);
+            fs::read(path)
+        })
+        .expect("refresh fixture");
+
+        assert!(matches!(refresh, FileRefresh::Unchanged));
+        assert_eq!(reads.get(), 0, "unchanged source content was read");
+        fs::remove_file(path).expect("remove fixture");
+    }
+
+    #[test]
+    fn metadata_change_with_same_content_reads_once_without_reporting_an_edit() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "solid-check-daemon-metadata-{}-{nonce}.tsx",
+            std::process::id()
+        ));
+        fs::write(&path, "export const value = 1;\n").expect("write fixture");
+        let mut recorded = fingerprint_file(&path).expect("fingerprint fixture");
+        recorded.stamp.changed_nanoseconds = recorded.stamp.changed_nanoseconds.wrapping_add(1);
+        let reads = Cell::new(0);
+
+        let refresh = refresh_file_with(&path, &recorded, |path| {
+            reads.set(reads.get() + 1);
+            fs::read(path)
+        })
+        .expect("refresh fixture");
+
+        assert!(matches!(refresh, FileRefresh::MetadataOnly(_)));
+        assert_eq!(reads.get(), 1);
+        fs::remove_file(path).expect("remove fixture");
+    }
+
+    #[test]
+    fn changed_content_reads_once_and_reports_the_new_bytes() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "solid-check-daemon-content-{}-{nonce}.tsx",
+            std::process::id()
+        ));
+        fs::write(&path, "export const value = 1;\n").expect("write fixture");
+        let recorded = fingerprint_file(&path).expect("fingerprint fixture");
+        fs::write(&path, "export const value = 2;\n").expect("edit fixture");
+        let reads = Cell::new(0);
+
+        let refresh = refresh_file_with(&path, &recorded, |path| {
+            reads.set(reads.get() + 1);
+            fs::read(path)
+        })
+        .expect("refresh fixture");
+
+        match refresh {
+            FileRefresh::Content { bytes, .. } => {
+                assert_eq!(bytes, b"export const value = 2;\n");
+            }
+            _ => panic!("changed content was not reported"),
+        }
+        assert_eq!(reads.get(), 1);
+        fs::remove_file(path).expect("remove fixture");
     }
 }
