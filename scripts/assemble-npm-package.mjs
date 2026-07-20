@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 const [inputArg, outputArg, version] = process.argv.slice(2);
@@ -63,6 +71,11 @@ for (const target of targets) {
   const manifest = JSON.parse(readFileSync(join(directory, "native-manifest.json"), "utf8"));
   manifests.push(manifest);
   const [platform, arch] = target.split("-");
+  if (platform !== "win32") {
+    for (const binary of Object.values(manifest.binaries)) {
+      chmodSync(join(nativeOutput, binary.path), 0o755);
+    }
+  }
   writeFileSync(join(nativeOutput, "package.json"), `${JSON.stringify({
     name: nativePackageName,
     version,

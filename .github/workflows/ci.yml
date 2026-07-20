@@ -172,4 +172,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sh -n scripts/*.sh
+      - run: node --test scripts/*.test.mjs
       - run: jq empty schema/*.json pkg/contracts/bundled/*.json
