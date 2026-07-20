@@ -28,3 +28,15 @@ _Avoid_: Path-only source, source shortcut
 **Semantic lookup**:
 The project-wide query surface rule discovery asks for semantic answers — the entity or symbol at or containing a location, the function a symbol names, whether an owner is rendered under a Loading boundary — instead of scanning fact tables.
 _Avoid_: Index helpers, fact-table scan, range-query module
+
+**Fact domain**:
+One of the independent evidence suppliers the checker cross-references: Oxc syntax facts, Solid compiler execution facts, Type Facts, and package contracts. User-facing documentation may call them "sources of evidence"; the canonical term is fact domain.
+_Avoid_: Backends, sidecars, analysis inputs
+
+**Finding kind**:
+Whether a finding is a **violation** (the analyzer proved the code misbehaves at runtime) or **uncertifiable** (a proof obligation the analyzer could not resolve). Distinct from severity (error/warning).
+_Avoid_: Finding status, finding type
+
+**Failure class**:
+A user-facing grouping of the runtime misbehavior that findings prevent: silent staleness (reads that register no dependency), feedback loops (writes and actions in owned scopes), escaped async (pending reads outside tracked or Loading-bounded regions), and lifecycle leaks (effects, cleanups, and boundaries without a live owner).
+_Avoid_: Bug category, rule group (that is the SCxxxx numbering)

@@ -9,7 +9,6 @@
 - [Semantic inventory](semantic-inventory.md) — diagnostics and proof boundaries
 - [Glossary](glossary.md) — canonical domain language
 - [Package contracts](package-contracts.md) — published reactivity summaries
-- [Zed integration](zed.md) — editor setup
 - [Monorepo policy](monorepo.md) — upstream and dependency policy
 
 Contribution and verification instructions are in

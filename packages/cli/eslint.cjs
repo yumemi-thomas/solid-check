@@ -134,16 +134,9 @@ function findingRange(sourceCode, location) {
   ];
 }
 
-function evidenceSuffix(finding) {
-  const messages = [];
-  for (const step of finding.evidence ?? []) {
-    if (step.message && !messages.includes(step.message)) messages.push(step.message);
-  }
-  for (const location of finding.relatedLocations ?? []) {
-    const summary = `related: ${location.path}:${location.line}:${location.column}`;
-    if (!messages.includes(summary)) messages.push(summary);
-  }
-  return messages.length === 0 ? "" : ` (${messages.join("; ")})`;
+function findingMessage(finding) {
+  const hint = finding.hint ? `\n\n${finding.hint}` : "";
+  return `[${finding.id}] ${finding.message}${hint}`;
 }
 
 function fixForFinding(fixer, finding, sourceCode, filename) {
@@ -202,7 +195,7 @@ const certification = {
             },
             messageId: "finding",
             data: {
-              message: `[${finding.id}] ${finding.message}${evidenceSuffix(finding)}`
+              message: findingMessage(finding)
             },
             fix: finding.fixes?.length
               ? fixer => fixForFinding(fixer, finding, sourceCode, filename)

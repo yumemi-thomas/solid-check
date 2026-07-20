@@ -361,11 +361,19 @@ pub(super) fn read_analysis_context(
         "createEffect apply callback".into()
     } else {
         let context = enclosing_function_label(file, span);
-        if file.ast.any_conditional_test_containing(span) {
-            format!("{context} conditional return")
+        format_read_context(&context, file.ast.any_conditional_test_containing(span))
+    }
+}
+
+fn format_read_context(context: &str, in_conditional_test: bool) -> String {
+    if in_conditional_test {
+        if context.is_empty() {
+            "while evaluating a condition".into()
         } else {
-            context
+            format!("{context} while evaluating a condition")
         }
+    } else {
+        context.into()
     }
 }
 
@@ -401,4 +409,21 @@ pub(super) fn allowed_callback_spans(
         }
     }
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_read_context;
+
+    #[test]
+    fn conditional_context_does_not_repeat_the_function_name_as_a_return_kind() {
+        assert_eq!(
+            format_read_context("ConditionalReturn", true),
+            "ConditionalReturn while evaluating a condition"
+        );
+        assert_eq!(
+            format_read_context("", true),
+            "while evaluating a condition"
+        );
+    }
 }

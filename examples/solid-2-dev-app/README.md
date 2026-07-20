@@ -85,21 +85,3 @@ identifier, proof evidence, and summary.
 The app installs the private workspace `solid-check` package for project-level
 certification and runs Oxlint independently for syntax linting. There is no
 ESLint compatibility adapter or shared snapshot between the two tools.
-
-## Zed
-
-Install the Oxc extension from Zed's extension view, then install
-`packages/zed-solid-check` as a development extension. The checked-in
-Zed settings launch both language servers:
-
-- Oxlint uses `.oxlintrc.editor.json`, which contains syntax rules only.
-- `solid-checkd` provides live, incremental Solid semantic diagnostics and
-  fixes directly from unsaved buffers.
-
-Run the **Solid Check: build local tools** Zed task once before opening a TSX
-file. No certification snapshot is created or read by the editor.
-
-When the complete `solid-check` repository is open, Zed uses the root
-`.zed/settings.json`. When this example directory is opened by itself, it uses
-this directory's `.zed/settings.json`. Zed does not inherit settings from a
-nested `.zed` directory into a parent worktree.

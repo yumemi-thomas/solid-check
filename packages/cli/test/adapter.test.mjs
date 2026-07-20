@@ -49,7 +49,7 @@ test("exports an Oxlint-compatible certification plugin", () => {
   );
 });
 
-test("reports only findings belonging to the linted file", () => {
+test("reports canonical diagnostic content for findings belonging to the linted file", () => {
   const root = mkdtempSync(join(tmpdir(), "solid-check-adapter-"));
   const filename = join(root, "App.tsx");
   const other = join(root, "Other.tsx");
@@ -59,6 +59,7 @@ test("reports only findings belonging to the linted file", () => {
     kind: "violation",
     severity: "error",
     message: "reactive read outside tracking",
+    hint: "Move the read into a tracking scope.",
     primaryLocation: {
       path,
       startByte: 6,
@@ -66,14 +67,21 @@ test("reports only findings belonging to the linted file", () => {
       line: 1,
       column: 7
     },
-    evidence: [{ message: "proven component prop" }]
+    evidence: [{ message: "proven component prop" }],
+    relatedLocations: [{
+      path: other,
+      startByte: 0,
+      endByte: 5,
+      line: 1,
+      column: 1
+    }]
   }));
 
   const reports = run({ status: "violation", findings }, filename, "const value = 1;");
   assert.equal(reports.length, 1);
   assert.equal(
     reports[0].data.message,
-    "[SC1001] reactive read outside tracking (proven component prop)"
+    "[SC1001] reactive read outside tracking\n\nMove the read into a tracking scope."
   );
   assert.deepEqual(reports[0].loc, {
     start: { line: 1, column: 6 },
