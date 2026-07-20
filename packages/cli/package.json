@@ -8,7 +8,8 @@
       "types": "./wasm.d.ts",
       "import": "./wasm.mjs",
       "default": "./wasm.mjs"
-    }
+    },
+    "./eslint": "./eslint.cjs"
   },
   "bin": {
     "solid-check": "bin/solid-check.mjs",
@@ -16,6 +17,7 @@
   },
   "files": [
     "bin",
+    "eslint.cjs",
     "wasm.d.ts",
     "wasm.mjs",
     "native",

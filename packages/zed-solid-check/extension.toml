@@ -4,7 +4,7 @@ id = "solid-check"
 name = "Solid Check"
 repository = "https://github.com/yumemi-thomas/solid-check"
 schema_version = 1
-version = "0.0.1"
+version = "0.0.3"
 
 [language_servers.solid-check]
 language = "JavaScript"

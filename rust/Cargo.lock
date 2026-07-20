@@ -1104,6 +1104,8 @@ name = "solid-facts-backend"
 version = "0.1.0"
 dependencies = [
  "dom-expressions-jsx-compiler",
+ "oxc-miette",
+ "oxc_diagnostics",
  "serde",
  "serde_json",
  "sha2",

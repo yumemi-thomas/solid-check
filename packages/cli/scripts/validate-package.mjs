@@ -15,6 +15,12 @@ for (const command of ["solid-check", "solid-checkd"]) {
     throw new Error(`launcher for ${command} is missing`);
   }
 }
+if (packageJson.exports?.["./eslint"] !== "./eslint.cjs") {
+  throw new Error("solid-checker/eslint export is missing");
+}
+if (!existsSync(join(root, "eslint.cjs"))) {
+  throw new Error("ESLint and Oxlint adapter is missing");
+}
 if (packageJson.optionalDependencies) {
   const expected = `^${packageJson.version}`;
   for (const [name, version] of Object.entries(packageJson.optionalDependencies)) {

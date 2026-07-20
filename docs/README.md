@@ -1,5 +1,6 @@
 # Documentation
 
+- [Rules](rules/README.md) — every diagnostic code, with examples and fixes
 - [Rust architecture](../rust/README.md) — checker, CLI, LSP, and fact ownership
 - [TypeFacts](typefacts.md) — TypeScript-Go service boundary
 - [TypeFacts v3 protocol](typefacts-protocol-v3.md) — lifecycle, overlays,

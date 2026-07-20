@@ -12,6 +12,32 @@ npm install --save-dev solid-checker
 
 Then run `solid-check --certify` or start the `solid-checkd` language server.
 
+The CLI uses the Oxc graphical reporter for framed terminal diagnostics:
+
+```sh
+solid-check --project tsconfig.json
+```
+
+The `default` format prints the same style of source frames, severity markers,
+evidence labels, and error summary used by Oxlint. Use `--format json` for
+machine-readable findings or `--format text` for compact output.
+
+To report project findings through Oxlint, load the bundled JavaScript adapter:
+
+```json
+{
+  "jsPlugins": ["solid-checker/eslint"],
+  "rules": {
+    "solid-check/certification": "error"
+  }
+}
+```
+
+The adapter discovers the nearest `tsconfig.json`, runs native project analysis
+once, caches its snapshot, and projects matching findings into Oxlint. Set
+`settings.solidCheck.project` when the project uses a nonstandard config name
+or a solution-style root config that only references application configs.
+
 In StackBlitz, WebContainers, or a browser worker, import the process-free
 WASM API from the same package:
 

@@ -31,6 +31,8 @@ pub struct SnapshotFinding {
     pub severity: String,
     pub message: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub analysis_context: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub subject_kind: String,
@@ -179,11 +181,15 @@ pub fn analyze_project_measured_with(
         Finding {
             analysis_context: "package contract completeness".into(),
             subject_kind: "package".into(),
+            hint: format!(
+                "Create a local contract at {}, or pass one explicitly with --contract <PATH>. If you maintain {}, ship solid-reactivity.json in the package root so every consumer gets it. See docs/package-contracts.md for the format.",
+                status.contract_path, status.name
+            ),
             ..Finding::new(
                 Rule::PackageContractMissing,
                 format!(
-                    "imported Solid package {:?} has no reactivity contract; create {} or pass --contract <PATH>",
-                    status.name, status.contract_path
+                    "imported Solid package {:?} has no reactivity contract; solid-check cannot see through its exports, so every use of them is uncertifiable",
+                    status.name
                 ),
                 location,
             )
@@ -229,6 +235,7 @@ pub fn snapshot(
             rule: finding.rule,
             severity: finding.severity,
             message: finding.message,
+            hint: finding.hint,
             analysis_context: finding.analysis_context,
             subject_kind: finding.subject_kind,
             primary_location: source_location(&finding.primary_location, sources),

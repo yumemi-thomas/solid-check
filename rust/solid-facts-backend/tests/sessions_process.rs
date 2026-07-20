@@ -376,7 +376,7 @@ fn rust_cli_emits_snapshot_text_and_certification_exit_codes() {
     let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", &compiler)
-        .args(["--project", &tracer.to_string_lossy()])
+        .args(["--format", "text", "--project", &tracer.to_string_lossy()])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -449,7 +449,7 @@ fn daemon_and_one_shot_share_snapshot_emission() {
     };
 
     let text = command()
-        .args(["--project", &project.to_string_lossy()])
+        .args(["--format", "text", "--project", &project.to_string_lossy()])
         .output()
         .unwrap();
     assert_eq!(text.status.code(), Some(0));

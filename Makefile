@@ -4,7 +4,7 @@ COMPILER_MANIFEST := third_party/dom-expressions/packages/jsx-compiler/Cargo.tom
 COMPILER_BIN := third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
 RUST_MANIFEST := rust/Cargo.toml
 
-.PHONY: build build-typefacts build-compiler build-rust package test test-go test-rust test-cli test-compiler test-zed verify conformance clean
+.PHONY: build build-typefacts build-compiler build-rust package test test-go test-rust test-cli test-compiler test-zed verify conformance corpus clean
 
 build: build-rust
 
@@ -50,6 +50,9 @@ conformance: build-compiler
 	pnpm --dir third_party/dom-expressions install --frozen-lockfile --ignore-scripts
 	RUSTUP_TOOLCHAIN=$(RUST_TOOLCHAIN) pnpm --dir third_party/dom-expressions --filter @dom-expressions/jsx-compiler run build:debug
 	node scripts/compiler-conformance.mjs third_party/dom-expressions/packages/jsx-compiler $(COMPILER_BIN)
+
+corpus: build-rust build-compiler
+	scripts/run-solid-primitives-corpus.sh
 
 clean:
 	rm -rf bin dist rust/target

@@ -1,0 +1,74 @@
+# strict-read-untracked
+
+`SC1001` · **warning** · violation
+
+A reactive value (signal accessor, store path, or component prop) is read in a scope
+that does not track dependencies.
+
+## What it does
+
+Flags reads of reactive values that happen outside every tracking scope: at the top
+level of a component body, inside an effect's apply phase, in a plain helper
+function called from an untracked position, or through a chain of calls that ends
+in one of those places. The finding's evidence trail shows where the value was
+declared and how the read reached the untracked scope.
+
+This is the static counterpart of Solid's dev-mode `STRICT_READ_UNTRACKED` warning.
+
+## Why is this bad?
+
+Solid's reactivity is dependency tracking: a read only subscribes when it happens
+inside a tracking scope (JSX, a memo, or an effect's compute function). An untracked
+read sees the current value exactly once and never re-runs — the UI silently shows
+stale data after the first update.
+
+## Examples
+
+Examples of **incorrect** code for this rule:
+
+```tsx
+function Profile(props) {
+  // Top-level read: `name` is captured once and never updates.
+  const name = props.name;
+  return <h1>{name}</h1>;
+}
+
+createEffect(
+  () => user(),
+  () => {
+    // Apply phase runs untracked: this read never subscribes.
+    console.log(store.settings.theme);
+  },
+);
+```
+
+Examples of **correct** code for this rule:
+
+```tsx
+function Profile(props) {
+  // The property access inside JSX is what tracks.
+  return <h1>{props.name}</h1>;
+}
+
+createEffect(
+  // Extract what the apply phase needs in the compute phase.
+  () => ({ user: user(), theme: store.settings.theme }),
+  ({ user, theme }) => console.log(user, theme),
+);
+
+// An intentional one-time snapshot, made explicit:
+const initial = untrack(() => count());
+```
+
+## How to fix
+
+Move the read into a tracking scope: JSX, a `createMemo`, or the compute function
+of `createEffect(compute, apply)`. To observe a whole store in an effect, read
+`deep(store)` in the compute phase. If a one-time snapshot is intended, wrap the
+read in `untrack()` so the intent is visible to both readers and the analyzer.
+
+## Related
+
+- [component-props-destructure](component-props-destructure.md) — the destructuring special case
+- [reactive-read-after-await](reactive-read-after-await.md) — reads that lose tracking at an `await`
+- [pending-async-untracked-read](pending-async-untracked-read.md) — the async variant, which throws

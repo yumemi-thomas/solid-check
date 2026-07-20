@@ -269,7 +269,7 @@ fn terminal_cleanup_fix(
         return None;
     }
     Some(Fix {
-        message: "return the cleanup function from the leaf-owner callback".into(),
+        message: "Return the cleanup function instead of calling onCleanup".into(),
         applicability: "safe".into(),
         edits: vec![TextEdit {
             location: location(file.path.as_str(), call.span),

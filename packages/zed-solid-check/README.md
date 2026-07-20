@@ -11,7 +11,12 @@ Until the extension is published, install it locally in Zed:
 3. Choose **Install Dev Extension**.
 4. Select `packages/zed-solid-check`.
 
-Projects can then configure repository-local binaries:
+When a project installs `solid-checker`, the extension automatically uses
+`node_modules/.bin/solid-checkd`. An explicit binary configuration takes
+precedence:
+
+The default project is `tsconfig.app.json` when present (as in Vite
+applications), otherwise `tsconfig.json`.
 
 ```jsonc
 {
@@ -29,8 +34,9 @@ Projects can then configure repository-local binaries:
 }
 ```
 
-Relative binary and compiler paths resolve from the Zed worktree root. If
-`solid-checkd` is on `PATH`, the `binary` block is optional.
+Relative binary and compiler paths resolve from the Zed worktree root. Without
+an explicit path or local npm package, the extension falls back to
+`solid-checkd` on `PATH`.
 
 Safe canonical fixes are available through Zed code actions. On macOS, place
 the cursor on a diagnostic and press `Cmd+.`; use `Ctrl+.` on Linux or Windows.

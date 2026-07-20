@@ -5,7 +5,7 @@ use solid_reactive_ir::{ExecutionRole, Program};
 use solid_ts_facts::Location;
 use std::time::{Duration, Instant};
 
-pub use rules::{Rule, RuleMetadata};
+pub use rules::{DOCS_BASE_URL, Rule, RuleMetadata, docs_url};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +22,8 @@ pub struct Finding {
     pub rule: String,
     pub kind: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
     pub severity: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub analysis_context: String,
@@ -47,6 +49,7 @@ impl Finding {
                 "violation".into()
             },
             message,
+            hint: String::new(),
             severity: metadata.severity.into(),
             analysis_context: String::new(),
             subject_kind: String::new(),
@@ -88,6 +91,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             subject_kind: read.kind.clone(),
             related_locations: strict_read_related_locations(read),
             evidence: strict_read_evidence(read),
+            hint: "Move the read into a tracking scope: JSX, a createMemo, or the compute function of createEffect(compute, apply). If a one-time snapshot is intended, wrap the read in untrack() to make that explicit. Solid warns STRICT_READ_UNTRACKED here in dev.".into(),
             ..Finding::new(
                 Rule::StrictReadUntracked,
                 strict_read_message(read),
@@ -106,14 +110,22 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 } else {
                     &write.context
                 };
-                let (operation, provenance) = if write.setter.starts_with("refresh(") {
+                let refresh = write.setter.starts_with("refresh(");
+                let (message, hint, provenance) = if refresh {
                     (
-                        "refresh()".to_owned(),
+                        format!(
+                            "refresh() is called inside owned scope {context}; a write transaction cannot start while the graph is tracking, and Solid throws here in dev"
+                        ),
+                        "Move the refresh() call to an event handler, an action, onSettled, or another imperative scope; a recompute cannot be requested from inside the tracking phase.".to_owned(),
                         "the refresh target is a proven Solid source accessor or store".to_owned(),
                     )
                 } else {
                     (
-                        format!("signal setter {:?}", write.setter),
+                        format!(
+                            "signal setter {:?} is called inside owned scope {context}; writes during the tracking phase create feedback loops in the reactive graph, and Solid throws SIGNAL_WRITE_IN_OWNED_SCOPE here in dev",
+                            write.setter
+                        ),
+                        "Derive the value instead of writing it back: replace compute-then-set with a createMemo. If the write is genuinely imperative, move it to an event handler, an action, onSettled, or the apply function of createEffect(compute, apply). For internal signals only, opt in with createSignal(value, { ownedWrite: true }).".to_owned(),
                         format!(
                             "{:?} is the setter returned by createSignal or createStore",
                             write.setter
@@ -129,42 +141,53 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                             location: Some(write.declaration.clone()),
                         },
                         EvidenceStep {
-                            message: "the call executes in an owned scope with no allowed write role"
+                            message: "this scope is owned (tracking phase); writes are only allowed in event handlers, actions, onSettled, and effect apply callbacks"
                                 .into(),
                             location: Some(write.location.clone()),
                         },
                     ],
+                    hint,
                     ..Finding::new(
                         Rule::ReactiveWriteInOwnedScope,
-                        format!(
-                            "{operation} is called inside owned scope {context}; move the write to an event handler, action, onSettled, effect apply callback, or untracked callback"
-                        ),
+                        message,
                         write.location.clone(),
                     )
                 }
             }),
     );
     findings.extend(program.leaf_operations.iter().map(|operation| {
-        let (rule, message) = match operation.primitive.as_str() {
+        let (rule, message, hint) = match operation.primitive.as_str() {
             "onCleanup" => (
                 Rule::CleanupInForbiddenScope,
                 format!(
-                    "onCleanup cannot be used inside {}; return a cleanup function instead",
+                    "onCleanup is called inside {}, a leaf owner that manages cleanup through its return value; Solid throws CLEANUP_IN_FORBIDDEN_SCOPE here in dev",
+                    operation.owner
+                ),
+                format!(
+                    "Return the cleanup function from the {} callback instead: do the setup, then return () => teardown().",
                     operation.owner
                 ),
             ),
             "flush" => (
                 Rule::FlushInForbiddenScope,
                 format!(
-                    "flush cannot be called inside {} because the leaf owner is not reentrant",
+                    "flush() is called inside {}, which runs as part of the flush cycle itself; the call would re-enter the scheduler, and Solid throws here in dev",
+                    operation.owner
+                ),
+                format!(
+                    "Inside {} the graph has already settled, so signal values and the DOM are current and the flush() is usually unnecessary. If you need to observe a write you just made, move both the write and the flush() to the event handler or imperative boundary that triggered this scope.",
                     operation.owner
                 ),
             ),
             _ => (
                 Rule::PrimitiveInLeafOwner,
                 format!(
-                    "cannot create reactive primitive {} inside leaf owner {}",
-                    operation.primitive, operation.owner
+                    "reactive primitive {} is created inside {}; {} is a leaf owner with no children, so nested primitives are never tracked or disposed, and Solid throws in dev",
+                    operation.primitive, operation.owner, operation.owner
+                ),
+                format!(
+                    "Create the primitive in the component body (or another owning scope) and read its accessor inside {}.",
+                    operation.owner
                 ),
             ),
         };
@@ -177,6 +200,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 location: Some(operation.location.clone()),
             }],
             fixes: operation.fix.clone().into_iter().collect(),
+            hint,
             ..Finding::new(rule, message, operation.location.clone())
         }
     }));
@@ -189,10 +213,11 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     message: "the callback statically returns a non-function value, including an implicit Promise from an async callback".into(),
                     location: Some(invalid.location.clone()),
                 }],
+                hint: "Return a cleanup function or nothing at all. An async callback can never return valid cleanup because it implicitly returns a Promise; make the callback synchronous and start the async work inside it.".into(),
                 ..Finding::new(
                     Rule::InvalidCleanupReturn,
                     format!(
-                        "{} callback returns a non-function cleanup value; return a cleanup function or undefined",
+                        "{} callback returns a value that is not a cleanup function; Solid treats this return value as cleanup, and anything other than a function or undefined throws in dev",
                         invalid.primitive
                     ),
                     invalid.location.clone(),
@@ -206,15 +231,16 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             .map(|unresolved| Finding {
                 evidence: vec![EvidenceStep {
                     message: format!(
-                        "cannot prove that {} callback returns only a cleanup function or undefined",
+                        "the return value of the {} callback cannot be resolved statically",
                         unresolved.primitive
                     ),
                     location: Some(unresolved.location.clone()),
                 }],
+                hint: "Make the return shape explicit at each return site: return a function literal, a named local function, or nothing. Returns of member expressions, call results, or values that cross files defeat this analysis.".into(),
                 ..Finding::new(
                     Rule::CleanupReturnUnresolved,
                     format!(
-                        "cannot prove that {} callback returns only a cleanup function or undefined",
+                        "cannot prove that the {} callback returns only a cleanup function or undefined; an unresolved return value may throw at runtime",
                         unresolved.primitive
                     ),
                     unresolved.location.clone(),
@@ -244,6 +270,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 location: Some(violation.location.clone()),
             }],
             fixes: violation.fixes.clone(),
+            hint: violation.hint.clone(),
             ..Finding::new(rule, violation.message.clone(), violation.location.clone())
         }
     }));
@@ -256,10 +283,11 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
             },
             location: Some(creation.location.clone()),
         }],
+        hint: "Use the two-phase directive factory: create primitives and subscriptions in the setup phase (the factory body, which runs in an owned scope) and keep the returned ref callback to DOM work only.".into(),
         ..Finding::new(
             Rule::PrimitiveInDirectiveApplication,
             format!(
-                "cannot create reactive primitive {} in a directive application callback; create it during directive setup",
+                "reactive primitive {} is created in a directive application callback; the apply phase runs per element as an unowned leaf, so primitives created here are never tracked or disposed",
                 creation.primitive
             ),
             creation.location.clone(),
@@ -269,22 +297,26 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
         if !requirement.report {
             return None;
         }
-        let (rule, message) = match requirement.operation.as_str() {
+        let (rule, message, hint) = match requirement.operation.as_str() {
             "cleanup" => (
                 Rule::NoOwnerCleanup,
-                "onCleanup called without a reactive owner will never run",
+                "onCleanup is called without a reactive owner; no scope's disposal can trigger it, so this cleanup function will never run",
+                "Call onCleanup inside a component or computation, or create the surrounding scope with createRoot so disposal exists. For one-time setup with teardown, use onSettled with a returned cleanup in a component.",
             ),
             "boundary" => (
                 Rule::NoOwnerBoundary,
-                "boundary created without a reactive owner will never be disposed",
+                "boundary is created without a reactive owner; it can never be disposed, and the subtree it manages will leak",
+                "Render boundaries inside a component tree rooted by render() or hydrate(), or under an explicit createRoot; a boundary created in a bare helper function has no owner to attach to.",
             ),
             "settled-cleanup" => (
                 Rule::SettledCleanupUnowned,
-                "onSettled returns a cleanup in an unowned or children-forbidden scope, so the cleanup cannot be honored",
+                "onSettled returns a cleanup function in a scope with no owner to register it on; the cleanup is silently dropped and will never run",
+                "Call onSettled where an owner is active (a component body or computation), or wrap the scope in createRoot. Inside event handlers a returned cleanup is not supported; do the teardown explicitly instead.",
             ),
             _ => (
                 Rule::NoOwnerEffect,
-                "effect created without a reactive owner will never be disposed",
+                "effect is created without a reactive owner; nothing will ever dispose it, so it keeps running and holding its subscriptions for the lifetime of the app",
+                "Create effects inside a component or computation so their owner disposes them. For deliberate module-scope reactivity, wrap the setup in createRoot(dispose => ...) and keep the dispose handle.",
             ),
         };
         let uncertain = requirement.uncertain;
@@ -303,11 +335,18 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 message: "no containing component, computation, or root owner dominates this operation".into(),
                 location: Some(requirement.location.clone()),
             }],
+            hint: if uncertain {
+                format!(
+                    "{hint} If every caller runs this exported function under an owner, document that in the package's reactivity contract."
+                )
+            } else {
+                hint.into()
+            },
             ..Finding::new(
                 rule,
                 if uncertain {
                     format!(
-                        "{message}; caller ownership for this exported function cannot be proven inside the project"
+                        "{message}; this function is exported, so solid-check cannot prove its callers provide an owner"
                     )
                 } else {
                     message.into()
@@ -317,29 +356,34 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
         })
     }));
     findings.extend(program.async_reads.iter().filter_map(|read| {
-        let (rule, message) = if let Some(owner) = &read.leaf_owner {
+        let (rule, message, hint) = if let Some(owner) = &read.leaf_owner {
             (
                 Rule::PendingAsyncForbiddenScope,
                 format!(
-                    "pending async accessor {:?} is read inside {}, which cannot suspend",
+                    "pending async accessor {:?} is read inside {}, which runs after the graph settles and cannot suspend; a pending read here throws at runtime",
                     read.accessor, owner
+                ),
+                format!(
+                    "Settle the value before it reaches {owner}: read the accessor in the compute function of createEffect(compute, apply) and pass the resolved value through, or guard the scope so it only runs once the data is ready."
                 ),
             )
         } else if read.execution == ExecutionRole::UntrackedRendering {
             (
                 Rule::PendingAsyncUntrackedRead,
                 format!(
-                    "pending async accessor {:?} is read outside a tracking scope",
+                    "pending async accessor {:?} is read outside a tracking scope; an untracked read cannot suspend or retry, and Solid throws PENDING_ASYNC_UNTRACKED_READ in dev",
                     read.accessor
                 ),
+                "Read async values where the graph can wait for them: JSX, a createMemo, or an effect's compute function. The read then suspends to the nearest <Loading> boundary and re-runs when the value settles.".to_owned(),
             )
         } else if read.execution == ExecutionRole::TrackedJsx && !read.under_loading {
             (
                 Rule::AsyncOutsideLoadingBoundary,
                 format!(
-                    "async accessor {:?} is rendered without a dominating Loading boundary",
+                    "async accessor {:?} is rendered without a Loading boundary above it; while it is pending nothing renders, and the mount is deferred until all uncaught async settles (Solid dev warning ASYNC_OUTSIDE_LOADING_BOUNDARY)",
                     read.accessor
                 ),
+                "This is safe but shows nothing while loading. Wrap the reading subtree in <Loading fallback={...}> for visible fallback UI, or leave it as is if an empty container during load is intended. For a revalidation indicator, use isPending(() => ...) under the same boundary.".to_owned(),
             )
         } else {
             return None;
@@ -356,6 +400,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                     location: Some(read.location.clone()),
                 },
             ],
+            hint,
             ..Finding::new(rule, message, read.location.clone())
         })
     }));
@@ -370,10 +415,11 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                         .into(),
                     location: Some(action.location.clone()),
                 }],
+                hint: "Call the action from an event handler, onSettled, or another imperative boundary. To load data reactively you don't need an action: return the Promise from a computation and read it under a <Loading> boundary.".into(),
                 ..Finding::new(
                     Rule::ActionCalledInOwnedScope,
                     format!(
-                        "action {:?} is called inside owned scope {}; invoke it from an event, effect callback, onSettled, or another imperative scope",
+                        "action {:?} is called inside owned scope {}; invoking an action starts a write transaction (optimistic writes, refresh) while the graph is still tracking, which re-triggers the scope that called it",
                         action.action, action.context
                     ),
                     action.location.clone(),
@@ -426,16 +472,18 @@ fn strict_read_message(read: &solid_reactive_ir::ReactiveRead) -> String {
     };
     if read.via.is_empty() {
         format!(
-            "{} {:?} is read directly in {context} and will not update; move the read into tracked JSX, a memo, or an effect compute function",
+            "{} {:?} is read directly in {context}, which does not track; the read sees the current value once and never updates when {:?} changes",
             reactive_value_label(&read.kind),
+            read.accessor,
             read.accessor
         )
     } else {
         format!(
-            "{} {:?} is read through {} in {context} and will not update; move the call into tracked JSX, a memo, or an effect compute function",
+            "{} {:?} is read through {} in {context}, which does not track; the read sees the current value once and never updates when {:?} changes",
             reactive_value_label(&read.kind),
             read.accessor,
-            read.via
+            read.via,
+            read.accessor
         )
     }
 }

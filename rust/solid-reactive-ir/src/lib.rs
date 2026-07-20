@@ -136,6 +136,8 @@ pub struct StaticViolation {
     pub id: String,
     pub rule: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub hint: String,
     pub location: Location,
     pub analysis_context: String,
     pub fixes: Vec<Fix>,
@@ -2680,8 +2682,9 @@ fn build_with_contracts_measured_incremental(
                 id: "SC9004".into(),
                 rule: "execution-map-incomplete".into(),
                 message:
-                    "compiler facts do not classify this JSX expression as tracked, untracked, or a callback"
+                    "the Solid compiler did not classify this JSX expression as tracked, untracked, or a callback; without an execution role, solid-check cannot certify any reactive read inside it"
                         .into(),
+                hint: "Simplify the expression: hoist complex logic into a createMemo and interpolate the accessor. If this persists on plain JSX, re-run with fresh compiler facts and report the pattern as a solid-check issue.".into(),
                 location: location(file.path.as_str(), span),
                 analysis_context: String::new(),
                 fixes: vec![],
@@ -2715,7 +2718,8 @@ fn build_with_contracts_measured_incremental(
                     static_violations.push(StaticViolation {
                         id: "SC1003".into(),
                         rule: "component-props-destructure".into(),
-                        message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
+                        message: "destructuring props unwraps each property once at component setup; the bindings are frozen values, and the component never updates when the parent passes new props".into(),
+                        hint: "Keep the props object intact and read props.<name> inside JSX or a tracked computation; the property access is what tracks. To split or default props, use omit(props, ...keys) and merge(defaults, props) instead of destructuring.".into(),
                         location,
                         analysis_context: function_binding_name(file, function)
                             .map_or_else(String::new, |name| file.source_text(name.span).unwrap_or_default().to_owned()),
@@ -2751,7 +2755,8 @@ fn build_with_contracts_measured_incremental(
                     static_violations.push(StaticViolation {
                         id: "SC1003".into(),
                         rule: "component-props-destructure".into(),
-                        message: "destructuring component props reads them outside tracking; keep the props object and read its properties inside JSX or a tracked computation".into(),
+                        message: "destructuring props unwraps each property once at component setup; the bindings are frozen values, and the component never updates when the parent passes new props".into(),
+                        hint: "Keep the props object intact and read props.<name> inside JSX or a tracked computation; the property access is what tracks. To split or default props, use omit(props, ...keys) and merge(defaults, props) instead of destructuring.".into(),
                         location,
                         analysis_context: enclosing_function_label(file, binding.pattern),
                         fixes: vec![],
@@ -2845,8 +2850,9 @@ fn build_with_contracts_measured_incremental(
                         id: "SC1002".into(),
                         rule: "reactive-read-after-await".into(),
                         message: format!(
-                            "reactive accessor {display:?} is read after await, when dependency tracking has ended; read it before await or move it into another tracked computation"
+                            "reactive accessor {display:?} is read after an await; dependency tracking ends at the first await, so this read registers no dependency and the computation never re-runs when {display:?} changes"
                         ),
+                        hint: "Read reactive values before the first await and carry the results through the async work. If the value must stay live after the await, split the read into its own synchronous computation.".into(),
                         location: diagnostic_location,
                         analysis_context,
                         fixes: vec![],
@@ -3088,7 +3094,8 @@ fn build_with_contracts_measured_incremental(
                         static_violations.push(StaticViolation {
                             id: "SC1004".into(),
                             rule: "component-returns-conditionally".into(),
-                            message: "a component executes once, so a reactive conditional return becomes stale; return one JSX structure and move the condition inside it".into(),
+                            message: "this component's return value depends on a reactive condition, but a component body runs once; whichever branch is taken at setup renders forever, and the condition is never re-evaluated".into(),
+                            hint: "Return a single JSX tree and move the branch into it: wrap the alternatives in <Show when={...} fallback={...}> (or <Switch>/<Match> for multiple cases), or use a ternary inside JSX where it stays tracked.".into(),
                             location,
                             analysis_context: file.source_text(name.span).unwrap_or_default().to_owned(),
                             fixes: vec![],
@@ -3443,7 +3450,8 @@ fn component_props_parameter_fix(
     }
     edits.sort_by_key(|edit| edit.location.start_byte);
     Some(Fix {
-        message: "Fix: Keep component props reactive".into(),
+        message: "Keep component props reactive: read via props.<name> instead of destructuring"
+            .into(),
         applicability: "safe".into(),
         edits,
     })

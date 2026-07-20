@@ -694,12 +694,18 @@ fn diagnostic_json(finding: &SnapshotFinding, sources: &HashMap<String, SourceFi
                 })
             }),
     );
+    let message = if finding.hint.is_empty() {
+        finding.message.clone()
+    } else {
+        format!("{}\n\n{}", finding.message, finding.hint)
+    };
     json!({
         "range": location_range(&finding.primary_location, sources),
         "severity": severity,
         "code": finding.id,
+        "codeDescription": { "href": solid_reactive_solver::docs_url(&finding.rule) },
         "source": "solid-check",
-        "message": finding.message,
+        "message": message,
         "data": {
             "findingId": finding.id,
             "rule": finding.rule,

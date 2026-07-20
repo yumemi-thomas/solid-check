@@ -215,6 +215,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             &request.project_id,
             &snapshot,
             request.certify,
+            started.elapsed(),
         )?;
         io::stdout().write_all(&emission.output)?;
         if std::env::var_os("SOLID_CHECK_TIMINGS").is_some() {
@@ -254,7 +255,7 @@ fn request_from_args() -> Result<Request, Box<dyn std::error::Error>> {
     let mut compiler = std::env::var("SOLID_COMPILER_FACTS_BIN").unwrap_or_default();
     let mut typefacts = default_typefacts_executable();
     let mut contract_paths = Vec::new();
-    let mut format = "text".to_owned();
+    let mut format = "default".to_owned();
     let mut certify = false;
     let mut check_contracts = false;
     let mut validate_contract_paths = Vec::new();
@@ -378,7 +379,7 @@ fn print_help() {
          \n\
          Options:\n\
            --project <PATH>             TypeScript project (default: tsconfig.json)\n\
-           --format <text|json>         Output format (default: text)\n\
+           --format <default|text|json> Output format (default: default)\n\
            --certify                    Exit 1 unless the project is certified\n\
            --check-contracts            Report imported Solid packages without contracts\n\
            --contract <PATH>            Override/discover a package contract (repeatable)\n\

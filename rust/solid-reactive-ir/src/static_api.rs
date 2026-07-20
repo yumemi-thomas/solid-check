@@ -43,8 +43,9 @@ impl StaticApiContext<'_> {
                 result.violations.push(StaticViolation {
                     id: "SC7001".into(),
                     rule: "missing-effect-function".into(),
-                    message: "createEffect requires both a compute function and an effect function"
+                    message: "createEffect is called without an effect function; the Solid 2.0 signature is createEffect(compute, apply), where compute tracks dependencies and returns a value, and apply receives that value and performs the side effect"
                         .into(),
+                    hint: "Split the callback: reactive reads go in the compute function, the side effect in the apply function, and cleanup is returned from apply. For error handling, pass { effect, error } as the second argument.".into(),
                     location: location(file.path.as_str(), call.callee),
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -75,8 +76,9 @@ impl StaticApiContext<'_> {
                     id: "SC7002".into(),
                     rule: "sync-node-received-async".into(),
                     message: format!(
-                        "{primitive} uses sync: true but its computation can return a Promise or AsyncIterable"
+                        "{primitive} is marked sync: true but its computation can return a Promise or AsyncIterable; a sync node must settle in the same flush and cannot suspend, so an async result throws at runtime"
                     ),
+                    hint: "Drop sync: true and let the read suspend to a <Loading> boundary, or make the computation synchronous by moving the async work into its own computation and reading the settled accessor here.".into(),
                     location: location(file.path.as_str(), call.callee),
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -92,9 +94,16 @@ impl StaticApiContext<'_> {
                 result.violations.push(StaticViolation {
                     id: "SC7003".into(),
                     rule: format!("invalid-{primitive}-target"),
-                    message: format!(
-                        "{primitive}() received an invalid number of target arguments"
-                    ),
+                    message: if primitive == "refresh" {
+                        "refresh() takes exactly one argument: the derived signal, store, or projection to recompute, or a thunk to re-run".into()
+                    } else {
+                        "affects() takes a source target and optionally an array of store keys".into()
+                    },
+                    hint: if primitive == "refresh" {
+                        "Pass one target: refresh(source) to recompute a derived source, or refresh(() => expr) to re-run an expression and return its value.".into()
+                    } else {
+                        "Call affects(source) for signals, or affects(store, [\"key\"]) to scope invalidation to specific store paths.".into()
+                    },
                     location: location(file.path.as_str(), call.callee),
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -107,8 +116,13 @@ impl StaticApiContext<'_> {
                     id: "SC7003".into(),
                     rule: format!("invalid-{primitive}-target"),
                     message: format!(
-                        "{primitive}() expects the original Solid source accessor or store, not a wrapper, read value, or literal"
+                        "{primitive}() received a wrapper, read value, or literal instead of the original Solid source binding; the brand on the binding created by createSignal, createMemo, or createStore is how Solid identifies what to recompute"
                     ),
+                    hint: if primitive == "refresh" {
+                        "Pass the accessor or store exactly as returned by its create call, uncalled and unwrapped: refresh(user), not refresh(user()). To refresh an ad-hoc expression, use the thunk form refresh(() => expr).".into()
+                    } else {
+                        "Pass the accessor or store exactly as returned by its create call, uncalled and unwrapped: affects(user), not affects(user()).".into()
+                    },
                     location: location(file.path.as_str(), target.span),
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -121,8 +135,9 @@ impl StaticApiContext<'_> {
                     id: "SC9003".into(),
                     rule: format!("{primitive}-target-unresolved"),
                     message: format!(
-                        "cannot prove that the target is a branded Solid source accepted by {primitive}"
+                        "cannot trace the target of {primitive}() back to a Solid source; solid-check cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
                     ),
+                    hint: "Pass the binding created by createSignal, createMemo, createStore, or createProjection directly. If the source is re-exported or wrapped by a package, declare that export's return kind in the package's reactivity contract so the brand survives the import.".into(),
                     location: target_location,
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -134,8 +149,9 @@ impl StaticApiContext<'_> {
                     id: "SC9003".into(),
                     rule: format!("{primitive}-target-unresolved"),
                     message: format!(
-                        "cannot prove that the target is a branded Solid source accepted by {primitive}"
+                        "cannot trace the target of {primitive}() back to a Solid source; solid-check cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
                     ),
+                    hint: "Pass the binding created by createSignal, createMemo, createStore, or createProjection directly. If the source is re-exported or wrapped by a package, declare that export's return kind in the package's reactivity contract so the brand survives the import.".into(),
                     location: target_location,
                     analysis_context: String::new(),
                     fixes: vec![],
@@ -147,7 +163,8 @@ impl StaticApiContext<'_> {
                     result.violations.push(StaticViolation {
                         id: "SC7004".into(),
                         rule: "affects-keys-on-accessor".into(),
-                        message: "affects() keys are only valid on store targets".into(),
+                        message: "affects() received keys but its target is a signal accessor; keys narrow invalidation to paths inside a store, and an accessor has no paths".into(),
+                        hint: "Drop the key array for signal targets (affects(source)), or pass the store binding if you meant to scope invalidation to specific store keys (affects(store, [\"todos\"])).".into(),
                         location: location(file.path.as_str(), call.callee),
                         analysis_context: String::new(),
                         fixes: vec![],

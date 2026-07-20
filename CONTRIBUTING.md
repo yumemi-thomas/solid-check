@@ -34,6 +34,16 @@ affect a proof must produce `uncertifiable`.
 Do not infer JSX execution behavior from transformed output. Do not expose
 TypeScript-Go or Oxc nodes across fact-domain interfaces.
 
+## Releases
+
+Maintainers publish a release by pushing a semantic-version tag such as
+`v0.1.0`. For the first publish, add an `NPM_TOKEN` secret to the `npm` GitHub
+environment. After all seven packages exist, configure npm trusted publishing
+for each of them for this repository and `.github/workflows/publish-npm.yml`;
+set the trusted environment to `npm` and allow `npm publish`. Subsequent
+releases use OIDC and do not need the token; remove the `NPM_TOKEN` environment
+secret after verifying the first trusted release.
+
 ## Upstream code
 
 The required DOM Expressions compiler sources are maintained as a selective

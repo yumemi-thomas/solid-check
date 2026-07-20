@@ -42,6 +42,17 @@ pub struct RuleMetadata {
     pub uncertifiable: bool,
 }
 
+/// Base URL of the per-rule documentation pages in `docs/rules/`.
+pub const DOCS_BASE_URL: &str = "https://github.com/yumemi-thomas/solid-check/blob/main/docs/rules";
+
+/// The documentation page for a diagnostic, addressed by its externally
+/// visible rule name so adapters that only carry the name (LSP, snapshots)
+/// can link without a catalog lookup.
+#[must_use]
+pub fn docs_url(rule_name: &str) -> String {
+    format!("{DOCS_BASE_URL}/{rule_name}.md")
+}
+
 impl Rule {
     pub const ALL: [Self; 29] = [
         Self::StrictReadUntracked,
@@ -166,6 +177,20 @@ mod tests {
             })
             .collect::<HashSet<_>>();
         assert_eq!(identities.len(), Rule::ALL.len());
+    }
+
+    #[test]
+    fn every_rule_has_a_documentation_page() {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/rules");
+        for rule in Rule::ALL {
+            let page = docs.join(format!("{}.md", rule.metadata().name));
+            assert!(
+                page.is_file(),
+                "rule {} has no documentation page at {}",
+                rule.metadata().name,
+                page.display()
+            );
+        }
     }
 
     #[test]

@@ -68,6 +68,7 @@
         "kind": { "enum": ["violation", "uncertifiable"] },
         "severity": { "enum": ["warning", "error"] },
         "message": { "type": "string", "minLength": 1 },
+        "hint": { "type": "string", "minLength": 1 },
         "analysisContext": { "type": "string", "minLength": 1 },
         "subjectKind": { "enum": ["accessor", "store-path", "component-props"] },
         "primaryLocation": { "$ref": "#/$defs/location" },

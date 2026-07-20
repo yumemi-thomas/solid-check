@@ -390,8 +390,14 @@ fn answer(
         &facts,
         &check.contract_paths,
     )?;
-    let body =
-        snapshot_emission::emit("json", &request.project_id, &analysis.snapshot, false)?.output;
+    let body = snapshot_emission::emit(
+        "json",
+        &request.project_id,
+        &analysis.snapshot,
+        false,
+        Duration::ZERO,
+    )?
+    .output;
     let status = analysis.snapshot.status.to_string();
     let modules = imported_package_roots(&facts);
     state.last = Some(CachedAnswer {
@@ -443,6 +449,7 @@ fn contract_files(
 }
 
 pub fn check(request: &Request) -> Result<i32, Box<dyn Error>> {
+    let started = Instant::now();
     let socket = socket_path(&request.project_id);
     let stream = match UnixStream::connect(&socket) {
         Ok(stream) => stream,
@@ -474,6 +481,7 @@ pub fn check(request: &Request) -> Result<i32, Box<dyn Error>> {
         &request.project_id,
         &snapshot,
         request.certify,
+        started.elapsed(),
     )?;
     io::stdout().write_all(&emission.output)?;
     Ok(emission.exit_code)

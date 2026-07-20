@@ -84,8 +84,11 @@ pub(super) fn resolve_contract_imports(
                         id: "SC9001".into(),
                         rule: "package-contract-export-missing".into(),
                         message: format!(
-                            "package contract for {} does not describe imported export {imported}",
+                            "the reactivity contract for {} has no entry for imported export {imported}; solid-check cannot tell whether it reads reactive values, takes tracked callbacks, or returns accessors, so code flowing through it cannot be certified",
                             import.module
+                        ),
+                        hint: format!(
+                            "Add an export summary for {imported} to the package's solid-reactivity.json (reactive reads, callbacks, return kind); an empty summary certifies explicitly that the export is not reactive. See docs/package-contracts.md for the format."
                         ),
                         location: binding_location,
                         analysis_context: String::new(),
