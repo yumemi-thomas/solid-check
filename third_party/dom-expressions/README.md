@@ -1,7 +1,7 @@
 # DOM Expressions compiler subset
 
 This directory contains only the upstream DOM Expressions JSX compiler needed
-by `solid-check`. The DOM runtime, Babel plugin, alternate JSX frontends,
+by `solid-checker`. The DOM runtime, Babel plugin, alternate JSX frontends,
 publishing configuration, and upstream repository tooling are intentionally
 excluded.
 

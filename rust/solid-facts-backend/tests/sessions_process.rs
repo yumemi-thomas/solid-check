@@ -206,7 +206,7 @@ fn rust_cli_covers_reactivity_v2_semantic_migration_matrix() {
         Err(_) => return,
     };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", compiler)
         .args([
@@ -373,7 +373,7 @@ fn rust_cli_emits_snapshot_text_and_certification_exit_codes() {
     };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let tracer = root.join("internal/reactiveir/testdata/tracer/tsconfig.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", &compiler)
         .args(["--format", "text", "--project", &tracer.to_string_lossy()])
@@ -384,7 +384,7 @@ fn rust_cli_emits_snapshot_text_and_certification_exit_codes() {
     assert!(text.contains(": violation\n"));
     assert!(text.contains("SC1001 [violation]"));
 
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", &compiler)
         .args([
@@ -408,7 +408,7 @@ fn rust_cli_emits_snapshot_text_and_certification_exit_codes() {
     assert_eq!(snapshot["metrics"]["filesAnalyzed"], 1);
 
     let corrected = root.join("internal/reactiveir/testdata/tracer-corrected/tsconfig.json");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", compiler)
         .args([
@@ -440,11 +440,11 @@ fn daemon_and_one_shot_share_snapshot_emission() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = root.join("internal/reactiveir/testdata/tracer/tsconfig.json");
     let command = || {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"));
         command
             .env("SOLID_TYPEFACTS_BIN", &typefacts)
-            .env("SOLID_CHECK_DAEMON", "1")
-            .env("SOLID_CHECK_DAEMON_IDLE_SECS", "1");
+            .env("SOLID_CHECKER_DAEMON", "1")
+            .env("SOLID_CHECKER_DAEMON_IDLE_SECS", "1");
         command
     };
 
@@ -489,13 +489,13 @@ fn in_process_compiler_matches_the_sidecar_snapshot() {
         let project = root.join(format!(
             "internal/reactiveir/testdata/{fixture}/tsconfig.json"
         ));
-        let native = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+        let native = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
             .env("SOLID_TYPEFACTS_BIN", &typefacts)
             .env_remove("SOLID_COMPILER_FACTS_BIN")
             .args(["--format", "json", "--project", &project.to_string_lossy()])
             .output()
             .unwrap();
-        let sidecar = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+        let sidecar = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
             .env("SOLID_TYPEFACTS_BIN", &typefacts)
             .env("SOLID_COMPILER_FACTS_BIN", &compiler)
             .args(["--format", "json", "--project", &project.to_string_lossy()])

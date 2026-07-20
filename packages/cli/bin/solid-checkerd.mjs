@@ -2,4 +2,4 @@
 
 import { launch } from "./launcher.mjs";
 
-launch("solid-checkd");
+launch("solid-checkerd");

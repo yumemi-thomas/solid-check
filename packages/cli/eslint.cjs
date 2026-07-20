@@ -18,7 +18,7 @@ function contextFilename(context) {
 }
 
 function configuration(context) {
-  const settings = context.settings?.solidCheck ?? {};
+  const settings = context.settings?.solidChecker ?? {};
   const options = context.options?.[0] ?? {};
   return { ...settings, ...options };
 }
@@ -50,8 +50,8 @@ function configuredProject(context, config) {
   const discovered = findProject(start);
   if (!discovered) {
     throw new Error(
-      `solid-check adapter could not find tsconfig.json from ${start}; ` +
-      "set settings.solidCheck.project"
+      `solid-checker adapter could not find tsconfig.json from ${start}; ` +
+      "set settings.solidChecker.project"
     );
   }
   return discovered;
@@ -70,10 +70,10 @@ function loadSnapshot(context) {
   }
 
   const project = configuredProject(context, config);
-  const command = config.command ?? process.env.SOLID_CHECK_BIN ?? process.execPath;
-  const commandArgs = config.command || process.env.SOLID_CHECK_BIN
+  const command = config.command ?? process.env.SOLID_CHECKER_BIN ?? process.execPath;
+  const commandArgs = config.command || process.env.SOLID_CHECKER_BIN
     ? [...(config.commandArgs ?? [])]
-    : [join(__dirname, "bin", "solid-check.mjs")];
+    : [join(__dirname, "bin", "solid-checker.mjs")];
   const contracts = Array.isArray(config.contracts) ? config.contracts : [];
   const key = JSON.stringify({ command, commandArgs, project, contracts });
   if (snapshotCache.has(key)) return snapshotCache.get(key);
@@ -92,18 +92,18 @@ function loadSnapshot(context) {
     env: process.env
   });
   if (result.error) {
-    throw new Error(`solid-check adapter could not start analysis: ${result.error.message}`);
+    throw new Error(`solid-checker adapter could not start analysis: ${result.error.message}`);
   }
   if (result.status !== 0) {
     throw new Error(
-      `solid-check adapter analysis failed (${result.status}): ${result.stderr.trim()}`
+      `solid-checker adapter analysis failed (${result.status}): ${result.stderr.trim()}`
     );
   }
   let snapshot;
   try {
     snapshot = JSON.parse(result.stdout);
   } catch (error) {
-    throw new Error(`solid-check adapter received invalid JSON: ${error.message}`);
+    throw new Error(`solid-checker adapter received invalid JSON: ${error.message}`);
   }
   snapshotCache.set(key, snapshot);
   return snapshot;
@@ -170,7 +170,7 @@ const certification = {
   meta: {
     type: "problem",
     docs: {
-      description: "Report canonical solid-check project findings",
+      description: "Report canonical solid-checker project findings",
       recommended: true
     },
     fixable: "code",
@@ -208,13 +208,13 @@ const certification = {
 };
 
 const plugin = {
-  meta: { name: "solid-check", version: packageVersion },
+  meta: { name: "solid-checker", version: packageVersion },
   rules: { certification },
   configs: {}
 };
 plugin.configs.recommended = {
-  plugins: { "solid-check": plugin },
-  rules: { "solid-check/certification": "error" }
+  plugins: { "solid-checker": plugin },
+  rules: { "solid-checker/certification": "error" }
 };
 
 module.exports = plugin;

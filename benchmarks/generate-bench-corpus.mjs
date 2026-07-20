@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deterministic synthetic Solid corpus for solid-check-session-bench.
+// Deterministic synthetic Solid corpus for solid-checker-session-bench.
 //
 // Generates a chain-import project: mod<i> imports the helper from
 // mod<i-1>. Per-file patterns exercise cleanup returns, named cleanup
@@ -10,7 +10,7 @@
 //
 // Usage:
 //   node benchmarks/generate-bench-corpus.mjs 5000 /tmp/bench-corpus-5k
-//   rust/target/release/solid-check-session-bench \
+//   rust/target/release/solid-checker-session-bench \
 //     --project /tmp/bench-corpus-5k/tsconfig.json \
 //     --typefacts bin/solid-typefacts \
 //     --iterations 15 --warmups 3 \

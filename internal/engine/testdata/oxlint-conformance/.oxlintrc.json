@@ -2,11 +2,11 @@
   "$schema": "../../../../../node_modules/oxlint/configuration_schema.json",
   "jsPlugins": [
     {
-      "name": "solid-check",
-      "specifier": "../../../../packages/eslint-plugin-solid-check/index.cjs"
+      "name": "solid-checker",
+      "specifier": "../../../../packages/eslint-plugin-solid-checker/index.cjs"
     }
   ],
   "rules": {
-    "solid-check/certification": "error"
+    "solid-checker/certification": "error"
   }
 }

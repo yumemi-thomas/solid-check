@@ -10,7 +10,7 @@ members = [
   "solid-reactive-ir",
   "solid-reactive-solver",
   "solid-lsp",
-  "solid-check-wasm",
+  "solid-checker-wasm",
 ]
 
 [workspace.package]

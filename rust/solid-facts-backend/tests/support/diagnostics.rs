@@ -13,7 +13,7 @@ pub fn diagnostic_fixture(name: &str) -> Option<Vec<serde_json::Value>> {
     let compiler = env::var("SOLID_COMPILER_FACTS_BIN").ok()?;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let project = root.join(format!("internal/reactiveir/testdata/{name}/tsconfig.json"));
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", typefacts)
         .env("SOLID_COMPILER_FACTS_BIN", compiler)
         .args(["--format", "json", "--project"])

@@ -3,10 +3,10 @@ import process from "node:process";
 
 const args = [
   "build",
-  "--manifest-path", "../../rust/solid-check-wasm/Cargo.toml",
+  "--manifest-path", "../../rust/solid-checker-wasm/Cargo.toml",
   "--package-json-path", "package.json",
   "--output-dir", ".",
-  "--package", "solid-check-wasm",
+  "--package", "solid-checker-wasm",
   "--dts", "generated.d.ts",
   "--target", "wasm32-wasip1-threads",
   "--platform",

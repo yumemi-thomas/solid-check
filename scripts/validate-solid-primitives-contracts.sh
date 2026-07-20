@@ -7,9 +7,9 @@ if [ "$#" -ne 1 ]; then
 fi
 
 root=$1
-checker=${SOLID_CHECK_BIN:-}
+checker=${SOLID_CHECKER_BIN:-}
 if [ -z "$checker" ]; then
-  echo "SOLID_CHECK_BIN must point to a built solid-check binary" >&2
+  echo "SOLID_CHECKER_BIN must point to a built solid-checker binary" >&2
   exit 2
 fi
 

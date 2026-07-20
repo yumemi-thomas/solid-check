@@ -12,8 +12,8 @@
     "./eslint": "./eslint.cjs"
   },
   "bin": {
-    "solid-check": "bin/solid-check.mjs",
-    "solid-checkd": "bin/solid-checkd.mjs"
+    "solid-checker": "bin/solid-checker.mjs",
+    "solid-checkerd": "bin/solid-checkerd.mjs"
   },
   "files": [
     "bin",
@@ -34,13 +34,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yumemi-thomas/solid-check.git",
+    "url": "git+https://github.com/yumemi-thomas/solid-checker.git",
     "directory": "packages/cli"
   },
   "bugs": {
-    "url": "https://github.com/yumemi-thomas/solid-check/issues"
+    "url": "https://github.com/yumemi-thomas/solid-checker/issues"
   },
-  "homepage": "https://github.com/yumemi-thomas/solid-check#readme",
+  "homepage": "https://github.com/yumemi-thomas/solid-checker#readme",
   "keywords": [
     "solid",
     "solidjs",

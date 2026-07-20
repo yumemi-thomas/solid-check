@@ -22,7 +22,7 @@ const targets = [
 ];
 
 test("restores executable permissions after artifact download", () => {
-  const directory = mkdtempSync(join(tmpdir(), "solid-check-assemble-"));
+  const directory = mkdtempSync(join(tmpdir(), "solid-checker-assemble-"));
   const input = join(directory, "artifacts");
   const output = join(directory, "packages");
 
@@ -35,7 +35,7 @@ test("restores executable permissions after artifact download", () => {
       mkdirSync(nativeRoot, { recursive: true });
 
       const binaries = {};
-      for (const name of ["solid-check", "solid-checkd", "solid-typefacts"]) {
+      for (const name of ["solid-checker", "solid-checkerd", "solid-typefacts"]) {
         const path = `native/${target}/${name}${extension}`;
         const binary = join(targetRoot, path);
         writeFileSync(binary, "test binary");
@@ -52,7 +52,7 @@ test("restores executable permissions after artifact download", () => {
       name: "solid-checker",
       version: "0.0.0",
       license: "MIT",
-      repository: { type: "git", url: "https://example.com/solid-check.git" },
+      repository: { type: "git", url: "https://example.com/solid-checker.git" },
       publishConfig: { access: "public" }
     })}\n`);
 
@@ -79,7 +79,7 @@ test("restores executable permissions after artifact download", () => {
         `binding-${suffix}`,
         "native",
         target,
-        `solid-check${extension}`
+        `solid-checker${extension}`
       );
       const mode = statSync(binary).mode & 0o777;
       assert.equal(mode, platform === "win32" ? 0o644 : 0o755);

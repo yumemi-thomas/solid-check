@@ -1,6 +1,6 @@
-# solid-check
+# solid-checker
 
-`solid-check` catches [Solid](https://docs.solidjs.com) runtime bugs before they
+`solid-checker` catches [Solid](https://docs.solidjs.com) runtime bugs before they
 ship. Your code can compile, type-check, and still misbehave at runtime — these
 failures are invisible to the TypeScript compiler:
 
@@ -14,7 +14,7 @@ failures are invisible to the TypeScript compiler:
 - **Leaks** — effects, cleanups, and boundaries created with no owner, so they
   are never disposed.
 
-`solid-check` analyzes your whole TypeScript project, proves where these bugs
+`solid-checker` analyzes your whole TypeScript project, proves where these bugs
 happen, and reports each one with the evidence and a fix hint.
 
 ## How it works
@@ -22,7 +22,7 @@ happen, and reports each one with the evidence and a fix hint.
 Solid's runtime has precise rules: tracking is synchronous, props stay live,
 writes are forbidden in tracked scopes, effects and cleanups must run under an
 owner. No single tool can check those rules from source text alone, so
-`solid-check` cross-references four sources of evidence:
+`solid-checker` cross-references four sources of evidence:
 
 - **Syntax** — the real parse tree of your code (Oxc).
 - **Compiler semantics** — how the Solid compiler will actually execute your
@@ -60,7 +60,7 @@ and ownership, async boundaries, directives, and API shapes. See the
 
 ```sh
 npm install --save-dev solid-checker
-npx solid-check --project tsconfig.json
+npx solid-checker --project tsconfig.json
 ```
 
 Diagnostics print as framed source excerpts with severity markers, evidence
@@ -68,7 +68,7 @@ labels, and a fix hint. In CI, add `--certify` to fail the build unless the
 project is fully certified:
 
 ```sh
-npx solid-check --project tsconfig.json --certify
+npx solid-checker --project tsconfig.json --certify
 ```
 
 Linux (x64, arm64), macOS (x64, arm64), and Windows (x64) are supported; npm
@@ -84,9 +84,9 @@ With ESLint (flat config):
 
 ```js
 // eslint.config.js
-import solidCheck from "solid-checker/eslint";
+import solidChecker from "solid-checker/eslint";
 
-export default [solidCheck.configs.recommended];
+export default [solidChecker.configs.recommended];
 ```
 
 With Oxlint:
@@ -96,22 +96,22 @@ With Oxlint:
 {
   "jsPlugins": ["solid-checker/eslint"],
   "rules": {
-    "solid-check/certification": "error"
+    "solid-checker/certification": "error"
   }
 }
 ```
 
 The plugin finds the nearest `tsconfig.json` automatically (in ESLint it also
-reuses `parserOptions.project`). Set `settings.solidCheck.project` if your
+reuses `parserOptions.project`). Set `settings.solidChecker.project` if your
 config has a nonstandard name or is a solution-style root config.
 
 > The plugin analyzes the project once per lint run and reports from that
 > snapshot. Use it in lint commands and CI; for live diagnostics as you type,
-> use the `solid-checkd` language server instead.
+> use the `solid-checkerd` language server instead.
 
 ## CLI options
 
-Run `solid-check --help` for the full list. The options you'll reach for most:
+Run `solid-checker --help` for the full list. The options you'll reach for most:
 
 | Option | Description |
 | --- | --- |
@@ -135,7 +135,7 @@ Authoring a package contract (see [Publishing a Solid library?](#publishing-a-so
 
 ## Using a library that ships no contract
 
-`solid-check` needs to know how a dependency's exports read reactive values.
+`solid-checker` needs to know how a dependency's exports read reactive values.
 When that dependency's source isn't part of your project, it relies on a
 `solid-reactivity.json` **contract**. If an imported Solid-dependent package
 ships none, the check reports the uncertifiable `SC9005 package-contract-missing`
@@ -144,19 +144,19 @@ finding and `--certify` fails.
 List which of your dependencies are missing a contract:
 
 ```sh
-solid-check --project tsconfig.json --check-contracts
+solid-checker --project tsconfig.json --check-contracts
 ```
 
 You don't have to wait for the maintainer. You can supply the contract yourself
-and `solid-check` will pick it up automatically from
-`.solid-check/contracts/<package>/solid-reactivity.json` (scoped names keep their
-directory, e.g. `.solid-check/contracts/@scope/pkg/solid-reactivity.json`):
+and `solid-checker` will pick it up automatically from
+`.solid-checker/contracts/<package>/solid-reactivity.json` (scoped names keep their
+directory, e.g. `.solid-checker/contracts/@scope/pkg/solid-reactivity.json`):
 
 - **Generate it** from the package's source, if you have it checked out with a
   TypeScript project, using the same `--emit-contract` workflow below.
 - **Author it by hand** against the
   [contract schema](schema/solid-reactivity.schema.json) and check it with
-  `solid-check --validate-contract <path>`.
+  `solid-checker --validate-contract <path>`.
 
 A one-off `--contract <path>` on the command line takes precedence over a
 discovered contract. See [package contracts](docs/package-contracts.md) for the
@@ -168,7 +168,7 @@ Ship a `solid-reactivity.json` contract describing the reactive behavior of your
 exports so downstream projects stay certifiable without analyzing your source:
 
 ```sh
-solid-check --project tsconfig.json \
+solid-checker --project tsconfig.json \
   --emit-contract solid-reactivity.json \
   --package-name my-package \
   --package-version 1.0.0
@@ -181,10 +181,10 @@ trust boundary.
 
 ## Language server and WASM
 
-The package also ships `solid-checkd`, an incremental language server that
+The package also ships `solid-checkerd`, an incremental language server that
 publishes diagnostics for the whole project (including unopened files), keeps
 them in sync as you type, and offers preferred quick fixes. Point any
-LSP-capable editor at `solid-checkd --project tsconfig.json`.
+LSP-capable editor at `solid-checkerd --project tsconfig.json`.
 
 In StackBlitz, WebContainers, or a browser worker — anywhere a native process
 can't be spawned — import the process-free WASM API from the same package:
@@ -198,4 +198,4 @@ import { checkSync } from "solid-checker";
 - [Rule index](docs/rules/README.md) — every diagnostic, with examples and fixes
 - [Package contracts](docs/package-contracts.md) — the dependency trust model
 - [Documentation index](docs/README.md) — architecture, protocols, glossary
-- [Contributing](CONTRIBUTING.md) — building and developing solid-check
+- [Contributing](CONTRIBUTING.md) — building and developing solid-checker

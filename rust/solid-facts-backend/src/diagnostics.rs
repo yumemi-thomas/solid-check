@@ -188,7 +188,7 @@ pub fn analyze_project_measured_with(
             ..Finding::new(
                 Rule::PackageContractMissing,
                 format!(
-                    "imported Solid package {:?} has no reactivity contract; solid-check cannot see through its exports, so every use of them is uncertifiable",
+                    "imported Solid package {:?} has no reactivity contract; solid-checker cannot see through its exports, so every use of them is uncertifiable",
                     status.name
                 ),
                 location,
@@ -809,7 +809,7 @@ fn discover_package_directory(
 
 fn local_contract_path(project_directory: &Path, module: &str) -> PathBuf {
     project_directory
-        .join(".solid-check")
+        .join(".solid-checker")
         .join("contracts")
         .join(module)
         .join("solid-reactivity.json")

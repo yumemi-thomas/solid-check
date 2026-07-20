@@ -1,6 +1,6 @@
 {
   "name": "@dom-expressions/jsx-compiler",
-  "description": "The DOM Expressions JSX compiler used by solid-check",
+  "description": "The DOM Expressions JSX compiler used by solid-checker",
   "version": "0.50.0-next.20",
   "author": "Ryan Carniato",
   "license": "MIT",

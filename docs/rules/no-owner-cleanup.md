@@ -9,7 +9,7 @@ run.
 
 Flags `onCleanup` calls that no component, computation, or root owner dominates.
 When the call sits in an exported function whose call sites are outside the
-project, the finding is reported as **uncertifiable** instead: solid-check cannot
+project, the finding is reported as **uncertifiable** instead: solid-checker cannot
 prove callers provide an owner.
 
 ## Why is this bad?

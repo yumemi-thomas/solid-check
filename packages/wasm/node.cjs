@@ -1,5 +1,5 @@
 "use strict";
 
-const { checkSync } = require("./solid-check-wasm.wasi.cjs");
+const { checkSync } = require("./solid-checker-wasm.wasi.cjs");
 
 module.exports = { checkSync };

@@ -346,7 +346,7 @@ pub fn solve_measured(program: &Program) -> (Vec<Finding>, SolveTimings) {
                 rule,
                 if uncertain {
                     format!(
-                        "{message}; this function is exported, so solid-check cannot prove its callers provide an owner"
+                        "{message}; this function is exported, so solid-checker cannot prove its callers provide an owner"
                     )
                 } else {
                     message.into()

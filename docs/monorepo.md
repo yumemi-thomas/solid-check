@@ -1,6 +1,6 @@
 # Monorepo and upstream policy
 
-This repository is the build and review home for the complete `solid-check`
+This repository is the build and review home for the complete `solid-checker`
 analysis path. A contributor needs one clone for the Rust checker, the Go
 TypeFacts service, compiler integration, schemas, tests, and corpus automation.
 

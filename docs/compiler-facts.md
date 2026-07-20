@@ -54,7 +54,7 @@ Point the CLI at the resulting process to compare it with the in-process path:
 
 ```sh
 SOLID_COMPILER_FACTS_BIN=third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
-  bin/solid-check-rust --project tsconfig.json
+  bin/solid-checker-rust --project tsconfig.json
 ```
 
 The compiler-conformance check executes both the controlled DOM Expressions

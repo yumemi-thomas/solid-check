@@ -12,7 +12,7 @@ typically JSX built in module scope or in bare helper functions that are called
 outside any component tree.
 
 When the creation sits in an exported function whose call sites are outside the
-project, the finding is reported as **uncertifiable** instead: solid-check cannot
+project, the finding is reported as **uncertifiable** instead: solid-checker cannot
 prove callers provide an owner.
 
 ## Why is this bad?

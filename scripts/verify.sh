@@ -3,7 +3,7 @@ set -eu
 
 compiler_manifest=third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
 rust_manifest=rust/Cargo.toml
-zed_manifest=packages/zed-solid-check/Cargo.toml
+zed_manifest=packages/zed-solid-checker/Cargo.toml
 
 go test -race ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
 go vet ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor

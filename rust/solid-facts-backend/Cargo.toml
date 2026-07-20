@@ -28,13 +28,13 @@ name = "solid_facts_backend"
 path = "src/lib.rs"
 
 [[bin]]
-name = "solid-check-rust"
+name = "solid-checker-rust"
 path = "src/main.rs"
 
 [[bin]]
-name = "solid-check-session-bench"
-path = "src/bin/solid-check-session-bench.rs"
+name = "solid-checker-session-bench"
+path = "src/bin/solid-checker-session-bench.rs"
 
 [[bin]]
-name = "solid-check-cold-start-bench"
-path = "src/bin/solid-check-cold-start-bench.rs"
+name = "solid-checker-cold-start-bench"
+path = "src/bin/solid-checker-cold-start-bench.rs"

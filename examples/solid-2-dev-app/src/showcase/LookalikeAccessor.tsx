@@ -5,7 +5,7 @@ const total = (): number => 42; // an ordinary function — identical call synta
 
 // Only possible with real types: `count()` and `total()` are syntactically
 // identical, so an AST linter must either flag both (false positive) or neither
-// (false negative). solid-check knows from typescript-go that `count` is a
+// (false negative). solid-checker knows from typescript-go that `count` is a
 // branded Solid Accessor and `total` is a plain function, so it flags ONLY the
 // reactive read after await (SC1002) and leaves the plain call alone.
 export const report = createMemo(async () => {

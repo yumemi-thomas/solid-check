@@ -1,6 +1,6 @@
 # Third-party provenance
 
-`solid-check` is MIT licensed. It contains and depends on third-party software
+`solid-checker` is MIT licensed. It contains and depends on third-party software
 whose original notices remain applicable.
 
 ## DOM Expressions
@@ -10,7 +10,7 @@ whose original notices remain applicable.
 - Location: `third_party/dom-expressions`
 - License: MIT; the upstream `LICENSE` is retained in that directory.
 
-Only the JSX compiler sources needed by `solid-check` are retained. Local
+Only the JSX compiler sources needed by `solid-checker` are retained. Local
 changes add the compiler execution-map interface and `solid-compiler-facts`
 sidecar.
 

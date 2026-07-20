@@ -1,7 +1,7 @@
 # solid-checker
 
 Project-level reactivity checker and language server for Solid. The package
-ships native `solid-check`, `solid-checkd`, and `solid-typefacts` executables
+ships native `solid-checker`, `solid-checkerd`, and `solid-typefacts` executables
 for supported platforms.
 
 Install it as a development dependency:
@@ -10,12 +10,12 @@ Install it as a development dependency:
 npm install --save-dev solid-checker
 ```
 
-Then run `solid-check --certify` or start the `solid-checkd` language server.
+Then run `solid-checker --certify` or start the `solid-checkerd` language server.
 
 The CLI uses the Oxc graphical reporter for framed terminal diagnostics:
 
 ```sh
-solid-check --project tsconfig.json
+solid-checker --project tsconfig.json
 ```
 
 The `default` format prints the same style of source frames, severity markers,
@@ -28,14 +28,14 @@ To report project findings through Oxlint, load the bundled JavaScript adapter:
 {
   "jsPlugins": ["solid-checker/eslint"],
   "rules": {
-    "solid-check/certification": "error"
+    "solid-checker/certification": "error"
   }
 }
 ```
 
 The adapter discovers the nearest `tsconfig.json`, runs native project analysis
 once, caches its snapshot, and projects matching findings into Oxlint. Set
-`settings.solidCheck.project` when the project uses a nonstandard config name
+`settings.solidChecker.project` when the project uses a nonstandard config name
 or a solution-style root config that only references application configs.
 
 In StackBlitz, WebContainers, or a browser worker, import the process-free

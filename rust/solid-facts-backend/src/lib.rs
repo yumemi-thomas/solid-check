@@ -2842,7 +2842,7 @@ mod tests {
     #[test]
     fn hydrates_local_sources_and_preserves_inline_fallbacks() {
         let path = std::env::temp_dir().join(format!(
-            "solid-check-source-hydration-{}.ts",
+            "solid-checker-source-hydration-{}.ts",
             std::process::id()
         ));
         std::fs::write(&path, "export const local = 1;\n").unwrap();

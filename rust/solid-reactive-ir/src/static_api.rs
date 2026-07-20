@@ -135,7 +135,7 @@ impl StaticApiContext<'_> {
                     id: "SC9003".into(),
                     rule: format!("{primitive}-target-unresolved"),
                     message: format!(
-                        "cannot trace the target of {primitive}() back to a Solid source; solid-check cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
+                        "cannot trace the target of {primitive}() back to a Solid source; solid-checker cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
                     ),
                     hint: "Pass the binding created by createSignal, createMemo, createStore, or createProjection directly. If the source is re-exported or wrapped by a package, declare that export's return kind in the package's reactivity contract so the brand survives the import.".into(),
                     location: target_location,
@@ -149,7 +149,7 @@ impl StaticApiContext<'_> {
                     id: "SC9003".into(),
                     rule: format!("{primitive}-target-unresolved"),
                     message: format!(
-                        "cannot trace the target of {primitive}() back to a Solid source; solid-check cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
+                        "cannot trace the target of {primitive}() back to a Solid source; solid-checker cannot prove it is a branded accessor, store, or projection, so this call may throw at runtime"
                     ),
                     hint: "Pass the binding created by createSignal, createMemo, createStore, or createProjection directly. If the source is re-exported or wrapped by a package, declare that export's return kind in the package's reactivity contract so the brand survives the import.".into(),
                     location: target_location,

@@ -58,7 +58,7 @@ fn main() {
     match run() {
         Ok(()) => {}
         Err(error) => {
-            eprintln!("solid-check-session-bench: {error}");
+            eprintln!("solid-checker-session-bench: {error}");
             std::process::exit(2);
         }
     }
@@ -242,7 +242,7 @@ fn analyze_iteration(
         *version = version.checked_add(1).ok_or("edit version overflow")?;
         let source = if iteration.is_multiple_of(2) {
             match edit_mode {
-                EditMode::Prefix => format!("// solid-check benchmark edit\n{original}"),
+                EditMode::Prefix => format!("// solid-checker benchmark edit\n{original}"),
                 EditMode::SameSpanBody => original.replacen("count() + 1", "count() + 2", 1),
             }
         } else {
@@ -509,7 +509,7 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
             }
             "-h" | "--help" => {
                 println!(
-                    "Usage: solid-check-session-bench [OPTIONS]\n\n\
+                    "Usage: solid-checker-session-bench [OPTIONS]\n\n\
                      --project <PATH>       TypeScript project\n\
                      --typefacts <PATH>     TypeFacts service executable\n\
                      --iterations <COUNT>   Measured iterations (default: 20)\n\

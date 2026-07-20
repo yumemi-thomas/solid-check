@@ -2353,7 +2353,7 @@ fn build_with_contracts_measured_incremental(
         reachability: mut reachability_cache,
         late_stages: mut late_stage_cache,
     } = caches;
-    let emit_timings = std::env::var_os("SOLID_CHECK_TIMINGS").is_some();
+    let emit_timings = std::env::var_os("SOLID_CHECKER_TIMINGS").is_some();
     let total_started = Instant::now();
     let mut stage_started = Instant::now();
     let mut build_timings = BuildTimings::default();
@@ -2682,9 +2682,9 @@ fn build_with_contracts_measured_incremental(
                 id: "SC9004".into(),
                 rule: "execution-map-incomplete".into(),
                 message:
-                    "the Solid compiler did not classify this JSX expression as tracked, untracked, or a callback; without an execution role, solid-check cannot certify any reactive read inside it"
+                    "the Solid compiler did not classify this JSX expression as tracked, untracked, or a callback; without an execution role, solid-checker cannot certify any reactive read inside it"
                         .into(),
-                hint: "Simplify the expression: hoist complex logic into a createMemo and interpolate the accessor. If this persists on plain JSX, re-run with fresh compiler facts and report the pattern as a solid-check issue.".into(),
+                hint: "Simplify the expression: hoist complex logic into a createMemo and interpolate the accessor. If this persists on plain JSX, re-run with fresh compiler facts and report the pattern as a solid-checker issue.".into(),
                 location: location(file.path.as_str(), span),
                 analysis_context: String::new(),
                 fixes: vec![],

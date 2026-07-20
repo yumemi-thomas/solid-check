@@ -18,7 +18,7 @@ pub fn temporary_directory(label: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     let path = env::temp_dir().join(format!(
-        "solid-check-rust-{label}-{}-{unique}",
+        "solid-checker-rust-{label}-{}-{unique}",
         std::process::id()
     ));
     fs::create_dir_all(&path).unwrap();

@@ -1,5 +1,5 @@
 {
-  "name": "solid-check-dom-expressions",
+  "name": "solid-checker-dom-expressions",
   "private": true,
   "packageManager": "pnpm@11.1.1",
   "scripts": {

@@ -23,7 +23,7 @@ for (let index = 2; index < process.argv.length; index += 2) {
   options.set(key.slice(2), value);
 }
 
-const output = resolve(options.get("output") || join(root, "dist", "solid-check"));
+const output = resolve(options.get("output") || join(root, "dist", "solid-checker"));
 const version = options.get("version");
 const platform = options.get("platform") || process.platform;
 const arch = options.get("arch") || process.arch;
@@ -50,13 +50,13 @@ if (version) {
 mkdirSync(nativeDirectory, { recursive: true });
 
 const binaries = [
-  ["solid-check", join(rustDirectory, `solid-check-rust${extension}`)],
-  ["solid-checkd", join(rustDirectory, `solid-checkd-rust${extension}`)],
+  ["solid-checker", join(rustDirectory, `solid-checker-rust${extension}`)],
+  ["solid-checkerd", join(rustDirectory, `solid-checkerd-rust${extension}`)],
   ["solid-typefacts", typefacts]
 ];
 const manifest = {
   schema: 1,
-  buildId: process.env.SOLID_CHECK_BUILD_ID || "dev",
+  buildId: process.env.SOLID_CHECKER_BUILD_ID || "dev",
   platform,
   arch,
   binaries: {}

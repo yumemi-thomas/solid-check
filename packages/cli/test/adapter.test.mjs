@@ -26,7 +26,7 @@ function sourceCode(text) {
 function run(snapshot, filename, text) {
   const reports = [];
   const context = {
-    settings: { solidCheck: { snapshot } },
+    settings: { solidChecker: { snapshot } },
     options: [],
     sourceCode: sourceCode(text),
     filename,
@@ -41,16 +41,16 @@ function run(snapshot, filename, text) {
 
 test("exports an Oxlint-compatible certification plugin", () => {
   const exported = require("solid-checker/eslint");
-  assert.equal(exported.meta.name, "solid-check");
+  assert.equal(exported.meta.name, "solid-checker");
   assert.ok(exported.rules.certification);
   assert.equal(
-    exported.configs.recommended.rules["solid-check/certification"],
+    exported.configs.recommended.rules["solid-checker/certification"],
     "error"
   );
 });
 
 test("reports canonical diagnostic content for findings belonging to the linted file", () => {
-  const root = mkdtempSync(join(tmpdir(), "solid-check-adapter-"));
+  const root = mkdtempSync(join(tmpdir(), "solid-checker-adapter-"));
   const filename = join(root, "App.tsx");
   const other = join(root, "Other.tsx");
   const findings = [filename, other].map((path, index) => ({
@@ -90,7 +90,7 @@ test("reports canonical diagnostic content for findings belonging to the linted 
 });
 
 test("projects safe same-file fixes and UTF-8 byte ranges", () => {
-  const filename = join(mkdtempSync(join(tmpdir(), "solid-check-adapter-")), "App.tsx");
+  const filename = join(mkdtempSync(join(tmpdir(), "solid-checker-adapter-")), "App.tsx");
   const location = {
     path: filename,
     startByte: 4,
@@ -127,7 +127,7 @@ test("projects safe same-file fixes and UTF-8 byte ranges", () => {
 });
 
 test("discovers tsconfig and runs native analysis once per project", () => {
-  const root = mkdtempSync(join(tmpdir(), "solid-check-adapter-"));
+  const root = mkdtempSync(join(tmpdir(), "solid-checker-adapter-"));
   const sourceRoot = join(root, "src");
   mkdirSync(sourceRoot);
   writeFileSync(join(root, "tsconfig.json"), "{}\n");
@@ -156,7 +156,7 @@ process.stdout.write(JSON.stringify({ status: "certified", findings: [] }));
     const context = {
       filename,
       physicalFilename: filename,
-      settings: { solidCheck: config },
+      settings: { solidChecker: config },
       options: []
     };
     const snapshot = plugin._testing.loadSnapshot(context);
@@ -167,7 +167,7 @@ process.stdout.write(JSON.stringify({ status: "certified", findings: [] }));
 });
 
 test("reuses an ESLint parser project before filesystem discovery", () => {
-  const root = mkdtempSync(join(tmpdir(), "solid-check-adapter-"));
+  const root = mkdtempSync(join(tmpdir(), "solid-checker-adapter-"));
   const project = join(root, "tsconfig.eslint.json");
   const context = {
     filename: join(root, "src", "App.tsx"),

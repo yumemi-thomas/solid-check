@@ -1064,7 +1064,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "solid-check-wasm"
+name = "solid-checker-wasm"
 version = "0.1.0"
 dependencies = [
  "dom-expressions-jsx-compiler",

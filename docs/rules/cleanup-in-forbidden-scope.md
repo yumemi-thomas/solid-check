@@ -9,7 +9,7 @@ which manages cleanup through its return value instead.
 
 Flags `onCleanup` calls that are lexically contained in an `onSettled` or
 `createTrackedEffect` callback. When the `onCleanup` call is the trailing statement
-of the callback, solid-check offers a safe fix that rewrites it to a `return`.
+of the callback, solid-checker offers a safe fix that rewrites it to a `return`.
 
 This is the static counterpart of Solid's dev-mode `CLEANUP_IN_FORBIDDEN_SCOPE`
 error.

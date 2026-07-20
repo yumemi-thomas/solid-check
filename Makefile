@@ -1,5 +1,5 @@
 RUST_TOOLCHAIN ?= 1.97
-SOLID_CHECK_BUILD_ID ?= dev
+SOLID_CHECKER_BUILD_ID ?= dev
 COMPILER_MANIFEST := third_party/dom-expressions/packages/jsx-compiler/Cargo.toml
 COMPILER_BIN := third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts
 RUST_MANIFEST := rust/Cargo.toml
@@ -10,20 +10,20 @@ build: build-rust
 
 build-typefacts:
 	mkdir -p bin
-	go build -ldflags "-X main.buildID=$(SOLID_CHECK_BUILD_ID)" -o bin/solid-typefacts ./cmd/solid-typefacts
+	go build -ldflags "-X main.buildID=$(SOLID_CHECKER_BUILD_ID)" -o bin/solid-typefacts ./cmd/solid-typefacts
 
 build-compiler:
 	cargo +$(RUST_TOOLCHAIN) build --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar --bin solid-compiler-facts
 
 build-rust: build-typefacts
 	mkdir -p bin
-	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --manifest-path $(RUST_MANIFEST) --workspace
-	cp rust/target/debug/solid-check-rust bin/solid-check-rust
-	cp rust/target/debug/solid-checkd-rust bin/solid-checkd-rust
+	SOLID_CHECKER_BUILD_ID="$(SOLID_CHECKER_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --manifest-path $(RUST_MANIFEST) --workspace
+	cp rust/target/debug/solid-checker-rust bin/solid-checker-rust
+	cp rust/target/debug/solid-checkerd-rust bin/solid-checkerd-rust
 
 package: build-typefacts
-	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --release --manifest-path $(RUST_MANIFEST) --workspace
-	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" node scripts/package-rust.mjs --output dist/solid-check
+	SOLID_CHECKER_BUILD_ID="$(SOLID_CHECKER_BUILD_ID)" cargo +$(RUST_TOOLCHAIN) build --release --manifest-path $(RUST_MANIFEST) --workspace
+	SOLID_CHECKER_BUILD_ID="$(SOLID_CHECKER_BUILD_ID)" node scripts/package-rust.mjs --output dist/solid-checker
 
 test: test-go test-rust test-cli test-compiler test-zed
 
@@ -31,7 +31,7 @@ test-go:
 	go test ./cmd/solid-typefacts ./internal/typefacts/... ./internal/wirecbor
 
 test-rust: build-typefacts build-compiler
-	SOLID_CHECK_BUILD_ID="$(SOLID_CHECK_BUILD_ID)" SOLID_TYPEFACTS_BIN="$(CURDIR)/bin/solid-typefacts" SOLID_COMPILER_FACTS_BIN="$(CURDIR)/$(COMPILER_BIN)" cargo +$(RUST_TOOLCHAIN) test --manifest-path $(RUST_MANIFEST) --workspace
+	SOLID_CHECKER_BUILD_ID="$(SOLID_CHECKER_BUILD_ID)" SOLID_TYPEFACTS_BIN="$(CURDIR)/bin/solid-typefacts" SOLID_COMPILER_FACTS_BIN="$(CURDIR)/$(COMPILER_BIN)" cargo +$(RUST_TOOLCHAIN) test --manifest-path $(RUST_MANIFEST) --workspace
 
 test-cli:
 	npm ci --ignore-scripts --prefix packages/cli
@@ -41,7 +41,7 @@ test-compiler:
 	cargo +$(RUST_TOOLCHAIN) test --manifest-path $(COMPILER_MANIFEST) --no-default-features --features sidecar
 
 test-zed:
-	cargo +$(RUST_TOOLCHAIN) test --manifest-path packages/zed-solid-check/Cargo.toml
+	cargo +$(RUST_TOOLCHAIN) test --manifest-path packages/zed-solid-checker/Cargo.toml
 
 verify:
 	scripts/verify.sh

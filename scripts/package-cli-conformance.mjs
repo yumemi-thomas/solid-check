@@ -6,7 +6,7 @@ const root = resolve(import.meta.dirname, "..");
 const example = resolve(root, "examples/solid-2-dev-app");
 const packageJson = JSON.parse(readFileSync(resolve(example, "package.json"), "utf8"));
 
-assert.equal(packageJson.devDependencies?.["solid-check"], "file:../../packages/cli");
+assert.equal(packageJson.devDependencies?.["solid-checker"], "file:../../packages/cli");
 assert.equal(
   packageJson.scripts?.lint,
   "oxlint"

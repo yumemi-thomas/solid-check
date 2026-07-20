@@ -14,7 +14,7 @@ proven wrong.
 
 ## Why is this analysis-limiting?
 
-solid-check's read analysis is anchored on the compiler's execution map: each JSX
+solid-checker's read analysis is anchored on the compiler's execution map: each JSX
 region is tracked (subscribes), untracked (runs once), or a callback (runs later
 under its own rules). A gap in that map usually means the expression's shape falls
 outside what the JSX compiler recognizes — or that the compiler facts on disk are
@@ -35,7 +35,7 @@ Two things to try, in order:
 
 2. **Refresh compiler facts.** If the flagged expression is plain JSX, the facts
    may be stale — re-run the analysis cold. If the finding persists, please report
-   the JSX pattern as a solid-check issue so the compiler-facts extraction can
+   the JSX pattern as a solid-checker issue so the compiler-facts extraction can
    learn it.
 
 ## Related

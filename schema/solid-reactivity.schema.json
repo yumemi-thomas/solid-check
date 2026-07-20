@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://solid-check.dev/schema/solid-reactivity.schema.json",
+  "$id": "https://solid-checker.dev/schema/solid-reactivity.schema.json",
   "title": "Solid Reactivity Package Contract",
   "type": "object",
   "additionalProperties": false,

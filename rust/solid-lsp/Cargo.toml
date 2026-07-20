@@ -18,5 +18,5 @@ solid-ts-facts = { path = "../solid-ts-facts" }
 thiserror.workspace = true
 
 [[bin]]
-name = "solid-checkd-rust"
+name = "solid-checkerd-rust"
 path = "src/main.rs"

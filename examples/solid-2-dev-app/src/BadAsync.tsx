@@ -1,4 +1,4 @@
-// This module is intentionally invalid so `solid-check` can demonstrate the
+// This module is intentionally invalid so `solid-checker` can demonstrate the
 // async reactivity diagnostic (SC1002, `reactive-read-after-await`). It is not
 // imported by the running app.
 import { createMemo, createSignal } from "solid-js";

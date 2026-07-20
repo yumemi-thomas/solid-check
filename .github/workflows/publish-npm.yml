@@ -48,12 +48,12 @@ jobs:
           workspaces: rust
       - name: Build native package
         env:
-          SOLID_CHECK_BUILD_ID: ${{ github.ref_name }}
+          SOLID_CHECKER_BUILD_ID: ${{ github.ref_name }}
         run: |
           extension=""
           if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
           mkdir -p bin
-          go build -ldflags "-X main.buildID=$SOLID_CHECK_BUILD_ID" \
+          go build -ldflags "-X main.buildID=$SOLID_CHECKER_BUILD_ID" \
             -o "bin/solid-typefacts${extension}" ./cmd/solid-typefacts
           cargo build --release --manifest-path rust/Cargo.toml --workspace
           node scripts/package-rust.mjs \
@@ -102,9 +102,9 @@ jobs:
             packages/wasm/index.d.ts
             packages/wasm/node.cjs
             packages/wasm/browser-entry.js
-            packages/wasm/solid-check-wasm.wasi.cjs
-            packages/wasm/solid-check-wasm.wasi-browser.js
-            packages/wasm/solid-check-wasm.wasm32-wasi.wasm
+            packages/wasm/solid-checker-wasm.wasi.cjs
+            packages/wasm/solid-checker-wasm.wasi-browser.js
+            packages/wasm/solid-checker-wasm.wasm32-wasi.wasm
             packages/wasm/wasi-worker.mjs
             packages/wasm/wasi-worker-browser.mjs
           if-no-files-found: error

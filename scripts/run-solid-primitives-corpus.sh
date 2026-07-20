@@ -29,8 +29,8 @@ pnpm --dir "$root" install --frozen-lockfile
 pnpm --dir "$root" build
 node scripts/prepare-solid-primitives-corpus.mjs "$root"
 
-SOLID_CHECK_BIN=$(pwd)/bin/solid-check-rust \
+SOLID_CHECKER_BIN=$(pwd)/bin/solid-checker-rust \
 SOLID_COMPILER_FACTS_BIN=$(pwd)/third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts \
   scripts/generate-solid-primitives-contracts.sh "$root"
-SOLID_CHECK_BIN=$(pwd)/bin/solid-check-rust \
+SOLID_CHECKER_BIN=$(pwd)/bin/solid-checker-rust \
   scripts/validate-solid-primitives-contracts.sh "$root"

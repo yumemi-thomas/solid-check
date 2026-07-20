@@ -40,7 +40,7 @@ fn cli_consumes_discovered_package_contracts() {
         ),
         ("bundled-solid-consumer", "strict-read-untracked", "doubled"),
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+        let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
             .env("SOLID_TYPEFACTS_BIN", &typefacts)
             .env("SOLID_COMPILER_FACTS_BIN", &compiler)
             .args(["--format", "json", "--project"])
@@ -71,7 +71,7 @@ fn cli_validates_a_contract_without_opening_a_project() {
     let contract = root.join(
         "internal/reactiveir/testdata/package-consumer/node_modules/reactive-package/solid-reactivity.json",
     );
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env_remove("SOLID_TYPEFACTS_BIN")
         .env_remove("SOLID_COMPILER_FACTS_BIN")
         .args(["--validate-contract"])
@@ -122,7 +122,7 @@ fn cli_reports_missing_contracts_and_loads_project_owned_overrides() {
     )
     .unwrap();
 
-    let missing = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let missing = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .args(["--format", "json", "--check-contracts", "--project"])
         .arg(directory.join("tsconfig.json"))
@@ -134,7 +134,7 @@ fn cli_reports_missing_contracts_and_loads_project_owned_overrides() {
     assert_eq!(report["packages"][0]["name"], "reactive-package");
     assert_eq!(report["packages"][0]["status"], "missing");
 
-    let uncertifiable = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let uncertifiable = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .args(["--format", "json", "--certify", "--project"])
         .arg(directory.join("tsconfig.json"))
@@ -151,7 +151,7 @@ fn cli_reports_missing_contracts_and_loads_project_owned_overrides() {
             .is_some_and(|path| path.ends_with("App.tsx"))
     );
 
-    let local = directory.join(".solid-check/contracts/reactive-package");
+    let local = directory.join(".solid-checker/contracts/reactive-package");
     fs::create_dir_all(&local).unwrap();
     fs::write(
         local.join("solid-reactivity.json"),
@@ -183,7 +183,7 @@ fn cli_reports_missing_contracts_and_loads_project_owned_overrides() {
     )
     .unwrap();
 
-    let covered = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let covered = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .args(["--format", "json", "--check-contracts", "--project"])
         .arg(directory.join("tsconfig.json"))
@@ -198,7 +198,7 @@ fn cli_reports_missing_contracts_and_loads_project_owned_overrides() {
     assert_eq!(report["missing"], 0);
     assert_eq!(report["packages"][0]["status"], "local");
 
-    let analysis = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let analysis = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .args(["--format", "json", "--project"])
         .arg(directory.join("tsconfig.json"))
@@ -232,7 +232,7 @@ fn cli_emits_and_revalidates_package_contracts() {
     )
     .unwrap();
     let producer = root.join("internal/reactiveir/testdata/package-return-producer/tsconfig.json");
-    let result = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let result = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env("SOLID_TYPEFACTS_BIN", &typefacts)
         .args(["--project"])
         .arg(producer)
@@ -269,7 +269,7 @@ fn cli_emits_and_revalidates_package_contracts() {
     assert_eq!(contract["exports"]["packageVersion"]["kind"], "value");
     assert_eq!(contract["artifacts"]["declaration"]["path"], "index.d.ts");
 
-    let validate = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let validate = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .env_remove("SOLID_TYPEFACTS_BIN")
         .args(["--validate-contract"])
         .arg(&output)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://solid-check.dev/schema/certification-snapshot.schema.json",
-  "title": "Solid Check Certification Snapshot",
+  "$id": "https://solid-checker.dev/schema/certification-snapshot.schema.json",
+  "title": "Solid Checker Certification Snapshot",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "findings", "packageSummaries", "metrics"],

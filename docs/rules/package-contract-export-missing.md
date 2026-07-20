@@ -13,7 +13,7 @@ the bundled contract is authoritative there.)
 
 ## Why is this analysis-limiting?
 
-solid-check certifies whole programs by following reactive values across calls.
+solid-checker certifies whole programs by following reactive values across calls.
 For code inside the project it reads the source; for packages it relies on the
 contract's per-export summaries — which reactive values an export reads, which
 callbacks it tracks, and whether it returns accessors. An export with no summary is
@@ -36,7 +36,7 @@ Add an export summary for the flagged export to the package's
 If the export is not reactive at all, an empty summary certifies that explicitly.
 
 If you consume the package but do not maintain it, place a local contract at
-`.solid-check/contracts/<package>/solid-reactivity.json` in your project.
+`.solid-checker/contracts/<package>/solid-reactivity.json` in your project.
 
 See [package-contracts.md](../package-contracts.md) for the contract format.
 

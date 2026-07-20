@@ -7,11 +7,11 @@ import { mkdtempSync } from "node:fs";
 import test from "node:test";
 
 test("forwards arguments, output, environment, and the native exit code", () => {
-  const directory = mkdtempSync(join(tmpdir(), "solid-check-cli-"));
-  const native = join(directory, "solid-check-native");
+  const directory = mkdtempSync(join(tmpdir(), "solid-checker-cli-"));
+  const native = join(directory, "solid-checker-native");
   const capture = join(directory, "arguments");
   writeFileSync(native, `#!/bin/sh
-printf '%s\n' "$@" > "$SOLID_CHECK_TEST_CAPTURE"
+printf '%s\n' "$@" > "$SOLID_CHECKER_TEST_CAPTURE"
 printf 'native stdout\n'
 printf 'native stderr\n' >&2
 exit 7
@@ -19,7 +19,7 @@ exit 7
   chmodSync(native, 0o700);
 
   const result = spawnSync(process.execPath, [
-    new URL("../bin/solid-check.mjs", import.meta.url).pathname,
+    new URL("../bin/solid-checker.mjs", import.meta.url).pathname,
     "--project",
     "tsconfig.json",
     "--format",
@@ -28,8 +28,8 @@ exit 7
     encoding: "utf8",
     env: {
       ...process.env,
-      SOLID_CHECK_NATIVE_BIN: native,
-      SOLID_CHECK_TEST_CAPTURE: capture
+      SOLID_CHECKER_NATIVE_BIN: native,
+      SOLID_CHECKER_TEST_CAPTURE: capture
     }
   });
 
@@ -57,7 +57,7 @@ test("loads the current platform's optional native package", () => {
   const dependency = `@solid-checker/binding-${suffix}`;
   const dependencyRoot = join(packageRoot, "node_modules", dependency);
   const nativeRoot = join(dependencyRoot, "native", `${process.platform}-${process.arch}`);
-  const native = join(nativeRoot, `solid-check${process.platform === "win32" ? ".exe" : ""}`);
+  const native = join(nativeRoot, `solid-checker${process.platform === "win32" ? ".exe" : ""}`);
   const packageJson = join(dependencyRoot, "package.json");
 
   mkdirSync(nativeRoot, { recursive: true });
@@ -69,11 +69,11 @@ test("loads the current platform's optional native package", () => {
 
   try {
     const result = spawnSync(process.execPath, [
-      new URL("../bin/solid-check.mjs", import.meta.url).pathname
+      new URL("../bin/solid-checker.mjs", import.meta.url).pathname
     ], {
       env: {
         ...process.env,
-        SOLID_CHECK_NATIVE_BIN: ""
+        SOLID_CHECKER_NATIVE_BIN: ""
       }
     });
     assert.equal(result.status, 23);

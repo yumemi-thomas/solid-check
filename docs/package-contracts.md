@@ -9,7 +9,7 @@ not part of the consuming TypeScript project.
 Analyze the package and emit its solved exported function summaries:
 
 ```sh
-solid-check --project package/tsconfig.json \
+solid-checker --project package/tsconfig.json \
   --emit-contract package/solid-reactivity.json \
   --package-name reactive-package \
   --package-version 1.0.0 \
@@ -20,7 +20,7 @@ solid-check --project package/tsconfig.json \
 Load the contract while analyzing a consumer:
 
 ```sh
-solid-check --project app/tsconfig.json \
+solid-checker --project app/tsconfig.json \
   --contract package/solid-reactivity.json \
   --format json \
   --certify
@@ -37,11 +37,11 @@ Application developers can also maintain a contract when a package does not
 publish one. Put it at:
 
 ```text
-.solid-check/contracts/<package>/solid-reactivity.json
+.solid-checker/contracts/<package>/solid-reactivity.json
 ```
 
 Scoped names retain their directory structure, for example
-`.solid-check/contracts/@scope/package/solid-reactivity.json`. Project-owned
+`.solid-checker/contracts/@scope/package/solid-reactivity.json`. Project-owned
 contracts are discovered automatically and override contracts from
 `node_modules`; an explicit `--contract` still has the highest precedence.
 The same `--emit-contract` workflow can generate this file when the package
@@ -52,7 +52,7 @@ Before checking, inspect imported Solid-dependent packages and their contract
 coverage:
 
 ```sh
-solid-check --project app/tsconfig.json --check-contracts
+solid-checker --project app/tsconfig.json --check-contracts
 ```
 
 The command reports bundled, published, local, and explicit contracts. It exits
@@ -68,7 +68,7 @@ checks. Use `--check-contracts` when only the focused coverage report is needed.
 Validate contracts and their artifacts without opening a TypeScript project:
 
 ```sh
-solid-check --validate-contract package/solid-reactivity.json
+solid-checker --validate-contract package/solid-reactivity.json
 ```
 
 ## Trust boundary
@@ -92,7 +92,7 @@ hashed when loaded, and that identity is included in the certification package
 summary.
 
 Evidence is explicit: `generated`, `reviewed`, or `trusted`. Contracts emitted
-by this CLI use `generated` with `solid-check` as the generator.
+by this CLI use `generated` with `solid-checker` as the generator.
 
 ## Effect summaries
 

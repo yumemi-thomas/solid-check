@@ -11,7 +11,7 @@ Flags effect creations (`createEffect`, `createRenderEffect`,
 module scope, bare helpers, and detached callbacks.
 
 When the unowned creation sits in an exported function whose call sites are outside
-the project, the finding is reported as **uncertifiable** instead: solid-check
+the project, the finding is reported as **uncertifiable** instead: solid-checker
 cannot prove callers provide an owner.
 
 ## Why is this bad?

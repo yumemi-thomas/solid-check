@@ -10,9 +10,9 @@
     "node.cjs",
     "browser-entry.js",
     "index.d.ts",
-    "solid-check-wasm.wasi.cjs",
-    "solid-check-wasm.wasi-browser.js",
-    "solid-check-wasm.wasm32-wasi.wasm",
+    "solid-checker-wasm.wasi.cjs",
+    "solid-checker-wasm.wasi-browser.js",
+    "solid-checker-wasm.wasm32-wasi.wasm",
     "wasi-worker.mjs",
     "wasi-worker-browser.mjs",
     "scripts"
@@ -23,7 +23,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "napi": {
-    "binaryName": "solid-check-wasm",
+    "binaryName": "solid-checker-wasm",
     "packageName": "solid-checker-wasm",
     "targets": [
       "wasm32-wasip1-threads"
@@ -48,7 +48,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yumemi-thomas/solid-check.git",
+    "url": "git+https://github.com/yumemi-thomas/solid-checker.git",
     "directory": "packages/wasm"
   },
   "publishConfig": {

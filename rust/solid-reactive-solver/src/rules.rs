@@ -43,7 +43,8 @@ pub struct RuleMetadata {
 }
 
 /// Base URL of the per-rule documentation pages in `docs/rules/`.
-pub const DOCS_BASE_URL: &str = "https://github.com/yumemi-thomas/solid-check/blob/main/docs/rules";
+pub const DOCS_BASE_URL: &str =
+    "https://github.com/yumemi-thomas/solid-checker/blob/main/docs/rules";
 
 /// The documentation page for a diagnostic, addressed by its externally
 /// visible rule name so adapters that only carry the name (LSP, snapshots)

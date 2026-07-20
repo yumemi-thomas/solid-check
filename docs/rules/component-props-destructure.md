@@ -10,7 +10,7 @@ reactivity.
 Flags object destructuring of a component's props — both in the parameter list
 (`function Card({ title })`) and in later bindings (`const { title } = props`).
 
-When every destructured property is only read (never reassigned), solid-check
+When every destructured property is only read (never reassigned), solid-checker
 offers a safe fix that restores the `props` parameter and rewrites the body to
 `props.<name>` accesses.
 

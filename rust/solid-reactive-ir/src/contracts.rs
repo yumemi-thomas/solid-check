@@ -84,7 +84,7 @@ pub(super) fn resolve_contract_imports(
                         id: "SC9001".into(),
                         rule: "package-contract-export-missing".into(),
                         message: format!(
-                            "the reactivity contract for {} has no entry for imported export {imported}; solid-check cannot tell whether it reads reactive values, takes tracked callbacks, or returns accessors, so code flowing through it cannot be certified",
+                            "the reactivity contract for {} has no entry for imported export {imported}; solid-checker cannot tell whether it reads reactive values, takes tracked callbacks, or returns accessors, so code flowing through it cannot be certified",
                             import.module
                         ),
                         hint: format!(

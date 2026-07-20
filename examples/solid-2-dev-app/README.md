@@ -1,7 +1,7 @@
 # Solid 2 development app
 
 This standalone Vite app demonstrates the complete local development path:
-Solid 2 source, native `solid-check` analysis, ephemeral handoff to Oxlint, and
+Solid 2 source, native `solid-checker` analysis, ephemeral handoff to Oxlint, and
 framed diagnostics through the JavaScript adapter. No snapshot file is exposed
 to the user.
 
@@ -82,6 +82,6 @@ The failing command exits non-zero and uses Oxlint's `default` formatter, so it
 shows the source frame, highlighted destructuring pattern, canonical `SC1003`
 identifier, proof evidence, and summary.
 
-The app installs the private workspace `solid-check` package for project-level
+The app installs the private workspace `solid-checker` package for project-level
 certification and runs Oxlint independently for syntax linting. There is no
 ESLint compatibility adapter or shared snapshot between the two tools.

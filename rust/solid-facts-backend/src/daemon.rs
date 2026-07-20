@@ -2,7 +2,7 @@
 //! a Unix socket, so repeat CLI checks reuse the warm session instead of
 //! rebuilding the TypeScript program and demand closure from scratch.
 //!
-//! Opt-in: clients use it only when `SOLID_CHECK_DAEMON=1`. The socket path is
+//! Opt-in: clients use it only when `SOLID_CHECKER_DAEMON=1`. The socket path is
 //! derived from the canonical project id. Before every answer the daemon
 //! resynchronizes with the filesystem: a changed tsconfig, a changed source
 //! directory (file created, deleted, or renamed), or an unreadable known file
@@ -49,7 +49,7 @@ struct CheckHeader {
 }
 
 pub fn enabled() -> bool {
-    std::env::var("SOLID_CHECK_DAEMON").is_ok_and(|value| value == "1" || value == "true")
+    std::env::var("SOLID_CHECKER_DAEMON").is_ok_and(|value| value == "1" || value == "true")
 }
 
 pub fn eligible(request: &Request) -> bool {
@@ -62,7 +62,7 @@ pub fn eligible(request: &Request) -> bool {
 
 fn socket_path(project_id: &str) -> PathBuf {
     let digest = Sha256::digest(project_id.as_bytes());
-    let mut name = String::from("solid-check-");
+    let mut name = String::from("solid-checker-");
     for byte in &digest[..8] {
         name.push_str(&format!("{byte:02x}"));
     }
@@ -70,7 +70,7 @@ fn socket_path(project_id: &str) -> PathBuf {
 }
 
 fn idle_limit() -> Duration {
-    let seconds = std::env::var("SOLID_CHECK_DAEMON_IDLE_SECS")
+    let seconds = std::env::var("SOLID_CHECKER_DAEMON_IDLE_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(600);
@@ -304,7 +304,7 @@ pub fn serve(request: &Request) -> Result<i32, Box<dyn Error>> {
                     *instant = Instant::now();
                 }
                 if let Err(error) = handle(&mut state, request, stream) {
-                    eprintln!("solid-check daemon: {error}");
+                    eprintln!("solid-checker daemon: {error}");
                 }
                 if let Ok(mut instant) = last_activity.lock() {
                     *instant = Instant::now();
@@ -533,7 +533,7 @@ mod tests {
             .expect("clock after epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "solid-check-daemon-fingerprint-{}-{nonce}.tsx",
+            "solid-checker-daemon-fingerprint-{}-{nonce}.tsx",
             std::process::id()
         ));
         fs::write(&path, "export const value = 1;\n").expect("write fixture");
@@ -558,7 +558,7 @@ mod tests {
             .expect("clock after epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "solid-check-daemon-metadata-{}-{nonce}.tsx",
+            "solid-checker-daemon-metadata-{}-{nonce}.tsx",
             std::process::id()
         ));
         fs::write(&path, "export const value = 1;\n").expect("write fixture");
@@ -584,7 +584,7 @@ mod tests {
             .expect("clock after epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "solid-check-daemon-content-{}-{nonce}.tsx",
+            "solid-checker-daemon-content-{}-{nonce}.tsx",
             std::process::id()
         ));
         fs::write(&path, "export const value = 1;\n").expect("write fixture");

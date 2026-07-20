@@ -12,11 +12,11 @@ fn timing_lines_are_valid_json() {
         Err(_) => return,
     };
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .args(["--format", "json", "--project"])
         .arg(root.join("internal/reactiveir/testdata/tracer/tsconfig.json"))
         .args(["--typefacts", &typefacts])
-        .env("SOLID_CHECK_TIMINGS", "1")
+        .env("SOLID_CHECKER_TIMINGS", "1")
         .output()
         .expect("run Rust CLI with timings");
     assert!(
@@ -42,7 +42,7 @@ fn timing_lines_are_valid_json() {
 fn cli_rejects_a_mismatched_typefacts_build() {
     use std::os::unix::fs::PermissionsExt;
 
-    let directory = env::temp_dir().join(format!("solid-check-handshake-{}", std::process::id()));
+    let directory = env::temp_dir().join(format!("solid-checker-handshake-{}", std::process::id()));
     fs::create_dir_all(&directory).unwrap();
     let service = directory.join("mismatched-typefacts");
     let handshake = solid_ts_facts::v3::Handshake {
@@ -65,7 +65,7 @@ fn cli_rejects_a_mismatched_typefacts_build() {
     fs::set_permissions(&service, fs::Permissions::from_mode(0o755)).unwrap();
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let output = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .args(["--typefacts"])
         .arg(&service)
         .args(["--project"])

@@ -113,6 +113,6 @@
   },
   "evidence": {
     "kind": "reviewed",
-    "generator": "solid-check bundled Solid 2 model"
+    "generator": "solid-checker bundled Solid 2 model"
   }
 }

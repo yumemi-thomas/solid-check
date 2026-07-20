@@ -4,7 +4,7 @@ fn main() {
     match run() {
         Ok(()) => {}
         Err(error) => {
-            eprintln!("solid-checkd-rust: {error}");
+            eprintln!("solid-checkerd-rust: {error}");
             std::process::exit(if is_handshake_failure(error.as_ref()) {
                 3
             } else {
@@ -62,7 +62,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
             "-h" | "--help" => {
                 println!(
-                    "Usage: solid-checkd-rust [OPTIONS]\n\n\
+                    "Usage: solid-checkerd-rust [OPTIONS]\n\n\
                      --project <PATH>    TypeScript project (default: tsconfig.json)\n\
                      --typefacts <PATH>  TypeFacts service executable\n\
                      --contract <PATH>   Package contract override (repeatable)"

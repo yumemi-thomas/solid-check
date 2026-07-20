@@ -1,6 +1,6 @@
-# Solid Check
+# Solid Checker
 
-Solid Check certifies the reactivity and asynchronous behavior of Solid
+Solid Checker certifies the reactivity and asynchronous behavior of Solid
 TypeScript projects without coupling its analysis to one compiler backend.
 
 ## Language

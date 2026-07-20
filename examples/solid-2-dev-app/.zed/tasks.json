@@ -1,13 +1,13 @@
 [
   {
-    "label": "Solid Check: build local tools",
+    "label": "Solid Checker: build local tools",
     "command": "make",
     "args": ["-C", "../..", "build"],
     "use_new_terminal": false,
     "allow_concurrent_runs": false
   },
   {
-    "label": "Solid Check: framed failing example",
+    "label": "Solid Checker: framed failing example",
     "command": "npm",
     "args": ["run", "lint:failing"],
     "use_new_terminal": false,

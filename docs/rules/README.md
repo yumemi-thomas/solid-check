@@ -1,6 +1,6 @@
 # Rules
 
-solid-check certifies the reactive correctness of Solid 2.0 projects. Every finding
+solid-checker certifies the reactive correctness of Solid 2.0 projects. Every finding
 carries a stable diagnostic code (`SCxxxx`), a rule name, a message describing what
 went wrong, and a hint describing how to fix it. This index links to the full
 documentation page for each rule.

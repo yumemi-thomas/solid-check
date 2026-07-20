@@ -6,7 +6,7 @@ use std::{
 
 #[test]
 fn argv_invocation_does_not_wait_for_stdin_eof() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .arg("--help")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -31,7 +31,7 @@ fn argv_invocation_does_not_wait_for_stdin_eof() {
 
 #[test]
 fn argumentless_invocation_accepts_a_json_request_on_stdin() {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_solid-check-rust"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_solid-checker-rust"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -52,7 +52,7 @@ fn argumentless_invocation_accepts_a_json_request_on_stdin() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("Usage: solid-check-rust"),
+        String::from_utf8_lossy(&output.stdout).contains("Usage: solid-checker-rust"),
         "stdout = {}",
         String::from_utf8_lossy(&output.stdout)
     );

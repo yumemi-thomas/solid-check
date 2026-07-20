@@ -92,7 +92,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             match daemon::check(&request) {
                 Ok(code) => return Ok(code),
                 Err(error) => {
-                    eprintln!("solid-check: daemon unavailable ({error}); running one-shot");
+                    eprintln!("solid-checker: daemon unavailable ({error}); running one-shot");
                 }
             }
         }
@@ -101,7 +101,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
     if request.serve {
         return Err("--serve requires a Unix platform".into());
     }
-    let diagnostics = env!("CARGO_BIN_NAME") == "solid-check-rust";
+    let diagnostics = env!("CARGO_BIN_NAME") == "solid-checker-rust";
     let mut typescript =
         TypeFactsSidecar::spawn(&request.typefacts_executable, &request.typefacts_args)?;
     // The service now flushes its handshake before opening the TypeScript
@@ -218,7 +218,7 @@ fn run() -> Result<i32, Box<dyn std::error::Error>> {
             started.elapsed(),
         )?;
         io::stdout().write_all(&emission.output)?;
-        if std::env::var_os("SOLID_CHECK_TIMINGS").is_some() {
+        if std::env::var_os("SOLID_CHECKER_TIMINGS").is_some() {
             let (source_analysis_ns, type_facts_ns) = native_timings.map_or((0, 0), |timings| {
                 (
                     timings.source_analysis.as_nanos(),
@@ -375,7 +375,7 @@ fn request_from_args() -> Result<Request, Box<dyn std::error::Error>> {
 
 fn print_help() {
     println!(
-        "Usage: solid-check-rust [OPTIONS]\n\
+        "Usage: solid-checker-rust [OPTIONS]\n\
          \n\
          Options:\n\
            --project <PATH>             TypeScript project (default: tsconfig.json)\n\
@@ -392,7 +392,7 @@ fn print_help() {
            --typefacts <PATH>           TypeFacts service executable\n\
            --compiler <PATH>            Use the compiler-facts sidecar instead of native Rust\n\
            --serve                      Run the retained per-project check daemon (Unix only);\n\
-                                        clients use it when SOLID_CHECK_DAEMON=1\n\
+                                        clients use it when SOLID_CHECKER_DAEMON=1\n\
            -h, --help                   Print help"
     );
 }
@@ -442,7 +442,7 @@ fn emit_package_contract(
         exports: (*program.contract_exports).clone(),
         evidence: solid_reactive_ir::ContractEvidence {
             kind: "generated".into(),
-            generator: "solid-check".into(),
+            generator: "solid-checker".into(),
         },
         contract_hash: String::new(),
         source_path: String::new(),
@@ -509,7 +509,7 @@ fn lifecycle_request(
 /// a Unix socket, so repeat CLI checks reuse the warm session instead of
 /// rebuilding the TypeScript program and demand closure from scratch.
 ///
-/// Opt-in: clients use it only when `SOLID_CHECK_DAEMON=1`. The socket path is
+/// Opt-in: clients use it only when `SOLID_CHECKER_DAEMON=1`. The socket path is
 /// derived from the canonical project id. Before every answer the daemon
 /// resynchronizes with the filesystem: a changed tsconfig, a changed source
 /// directory (file created, deleted, or renamed), or an unreadable known file

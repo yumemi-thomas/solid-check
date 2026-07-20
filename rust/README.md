@@ -48,7 +48,7 @@ source hash, and compiler options.
 source overlays, generation, and both caches. A v3 update invalidates only
 changed/deleted paths; unchanged file facts survive and output remains sorted.
 
-`solid-check-rust` is the diagnostic CLI. It accepts `--project`,
+`solid-checker-rust` is the diagnostic CLI. It accepts `--project`,
 loads the Oxc Solid compiler as an in-process Rust crate, and uses
 the sibling `solid-typefacts` executable automatically; `SOLID_TYPEFACTS_BIN`
 or `--typefacts` can override it. `--compiler` remains available to compare
@@ -105,24 +105,24 @@ multiplicity through cycles.
 
 ```sh
 SOLID_TYPEFACTS_BIN=bin/solid-typefacts \
-cargo +1.97 run --manifest-path rust/Cargo.toml --bin solid-check-rust -- \
+cargo +1.97 run --manifest-path rust/Cargo.toml --bin solid-checker-rust -- \
   --format json --certify \
   --project internal/reactiveir/testdata/tracer/tsconfig.json
 ```
 
-Set `SOLID_CHECK_TIMINGS=1` to emit nanosecond stage timings on stderr. Oxc AST
+Set `SOLID_CHECKER_TIMINGS=1` to emit nanosecond stage timings on stderr. Oxc AST
 and Solid compiler facts are produced in parallel per source; deterministic
 source order is restored before the TS-Go closure is joined.
 
-`solid-checkd-rust` shares the CLI's contract/IR/solver/snapshot module,
+`solid-checkerd-rust` shares the CLI's contract/IR/solver/snapshot module,
 rejects stale document versions, publishes UTF-16 diagnostics and quick
 fixes, and cancels superseded analysis across the TypeFacts boundary.
 
-`make package` creates one install tree containing `solid-check`,
-`solid-checkd`, and the matching `solid-typefacts` helper plus a checksum
+`make package` creates one install tree containing `solid-checker`,
+`solid-checkerd`, and the matching `solid-typefacts` helper plus a checksum
 manifest. CI builds and smoke-tests that layout on Darwin and Linux
 arm64/amd64 and Windows amd64. Tagged releases publish each layout as a
 platform-constrained optional npm package alongside the portable launcher.
-The `solid-check-wasm` workspace crate exposes the same in-process analysis
+The `solid-checker-wasm` workspace crate exposes the same in-process analysis
 pipeline through napi-rs on `wasm32-wasip1-threads`; its host supplies sources
 and TypeFacts directly instead of spawning the native TypeFacts service.

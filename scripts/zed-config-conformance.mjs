@@ -4,16 +4,16 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const settings = JSON.parse(readFileSync(resolve(root, ".zed/settings.json"), "utf8"));
-const solidCheck = settings.lsp?.["solid-check"]?.binary;
+const solidChecker = settings.lsp?.["solid-checker"]?.binary;
 const oxlint = settings.lsp?.oxlint?.initialization_options?.settings;
 
-assert.equal(solidCheck?.path, "bin/solid-checkd");
-assert.deepEqual(solidCheck?.arguments, [
+assert.equal(solidChecker?.path, "bin/solid-checkerd");
+assert.deepEqual(solidChecker?.arguments, [
   "--project",
   "examples/solid-2-dev-app/tsconfig.json"
 ]);
 assert.equal(
-  solidCheck?.env?.SOLID_COMPILER_FACTS_BIN,
+  solidChecker?.env?.SOLID_COMPILER_FACTS_BIN,
   "third_party/dom-expressions/packages/jsx-compiler/target/debug/solid-compiler-facts"
 );
 assert.equal(
@@ -31,7 +31,7 @@ assert.equal(editorConfig.rules, undefined);
 for (const language of ["JavaScript", "JSX", "TypeScript", "TSX"]) {
   assert.deepEqual(settings.languages?.[language]?.language_servers?.slice(0, 5), [
     "typescript-ls",
-    "solid-check",
+    "solid-checker",
     "oxlint",
     "!vtsls",
     "!typescript-language-server"

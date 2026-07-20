@@ -1,7 +1,7 @@
 /bin/
 /coverage.out
 /dist/
-/.solid-check/
+/.solid-checker/
 /.profiles/
 .DS_Store
 **/.DS_Store
@@ -14,8 +14,8 @@
 packages/wasm/browser.js
 packages/wasm/generated.d.ts
 packages/wasm/index.js
-packages/wasm/solid-check-wasm.wasi-browser.js
-packages/wasm/solid-check-wasm.wasi.cjs
-packages/wasm/solid-check-wasm.wasm32-wasi*.wasm
+packages/wasm/solid-checker-wasm.wasi-browser.js
+packages/wasm/solid-checker-wasm.wasi.cjs
+packages/wasm/solid-checker-wasm.wasm32-wasi*.wasm
 packages/wasm/wasi-worker*.mjs
 *.test

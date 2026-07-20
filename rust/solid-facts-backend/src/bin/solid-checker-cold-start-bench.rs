@@ -65,7 +65,7 @@ struct StageSummary {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("solid-check-cold-start-bench: {error}");
+        eprintln!("solid-checker-cold-start-bench: {error}");
         std::process::exit(2);
     }
 }
@@ -183,7 +183,7 @@ fn nanos(duration: std::time::Duration) -> u64 {
 }
 
 fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
-    let mut checker = PathBuf::from("rust/target/release/solid-check-rust");
+    let mut checker = PathBuf::from("rust/target/release/solid-checker-rust");
     let mut typefacts = env::var_os("SOLID_TYPEFACTS_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("bin/solid-typefacts"));
@@ -207,8 +207,8 @@ fn parse_args() -> Result<Options, Box<dyn std::error::Error>> {
             "--iterations" => iterations = value(&mut index)?.parse()?,
             "-h" | "--help" => {
                 println!(
-                    "Usage: solid-check-cold-start-bench [OPTIONS]\n\n\
-                     --checker <PATH>       Release solid-check-rust executable\n\
+                    "Usage: solid-checker-cold-start-bench [OPTIONS]\n\n\
+                     --checker <PATH>       Release solid-checker-rust executable\n\
                      --typefacts <PATH>     TypeFacts service executable\n\
                      --project <PATH>       TypeScript project\n\
                      --iterations <COUNT>   Fresh process samples, including the first observation (default: 10)"

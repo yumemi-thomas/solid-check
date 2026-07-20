@@ -99,15 +99,15 @@ jobs:
           workspaces: rust
       - name: Build one-version native package
         env:
-          SOLID_CHECK_BUILD_ID: ci-${{ github.sha }}
+          SOLID_CHECKER_BUILD_ID: ci-${{ github.sha }}
         run: |
           extension=""
           if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
           mkdir -p bin
-          go build -ldflags "-X main.buildID=$SOLID_CHECK_BUILD_ID" -o "bin/solid-typefacts${extension}" ./cmd/solid-typefacts
+          go build -ldflags "-X main.buildID=$SOLID_CHECKER_BUILD_ID" -o "bin/solid-typefacts${extension}" ./cmd/solid-typefacts
           cargo build --release --manifest-path rust/Cargo.toml --workspace
           node scripts/package-rust.mjs \
-            --output dist/solid-check \
+            --output dist/solid-checker \
             --platform "${{ matrix.platform }}" \
             --arch "${{ matrix.arch }}" \
             --typefacts "bin/solid-typefacts${extension}"
@@ -115,17 +115,17 @@ jobs:
         run: |
           extension=""
           if [[ "${{ matrix.platform }}" == "win32" ]]; then extension=".exe"; fi
-          native="dist/solid-check/native/${{ matrix.platform }}-${{ matrix.arch }}"
-          env -u SOLID_TYPEFACTS_BIN "$native/solid-check${extension}" \
+          native="dist/solid-checker/native/${{ matrix.platform }}-${{ matrix.arch }}"
+          env -u SOLID_TYPEFACTS_BIN "$native/solid-checker${extension}" \
             --certify --project internal/reactiveir/testdata/tracer-corrected/tsconfig.json
           env -u SOLID_TYPEFACTS_BIN node scripts/lsp-smoke.mjs \
-            "$native/solid-checkd${extension}" \
+            "$native/solid-checkerd${extension}" \
             internal/reactiveir/testdata/tracer/tsconfig.json
-          npm pack ./dist/solid-check --dry-run
+          npm pack ./dist/solid-checker --dry-run
       - uses: actions/upload-artifact@v4
         with:
-          name: solid-check-${{ matrix.platform }}-${{ matrix.arch }}
-          path: dist/solid-check
+          name: solid-checker-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/solid-checker
 
   wasm-package:
     runs-on: ubuntu-24.04

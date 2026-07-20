@@ -291,7 +291,7 @@ impl<W: Write> Server<W> {
                             "solid/explainFinding": true
                         }
                     },
-                    "serverInfo": {"name": "solid-checkd"}
+                    "serverInfo": {"name": "solid-checkerd"}
                 }),
                 false,
             )),
@@ -336,7 +336,7 @@ impl<W: Write> Server<W> {
                     })?;
                 if changes.len() != 1 {
                     return Err(LspError::InvalidParams(
-                        "solid-checkd requires exactly one full-document content change".into(),
+                        "solid-checkerd requires exactly one full-document content change".into(),
                     ));
                 }
                 let text = string_field(&changes[0], "text")?;
@@ -704,7 +704,7 @@ fn diagnostic_json(finding: &SnapshotFinding, sources: &HashMap<String, SourceFi
         "severity": severity,
         "code": finding.id,
         "codeDescription": { "href": solid_reactive_solver::docs_url(&finding.rule) },
-        "source": "solid-check",
+        "source": "solid-checker",
         "message": message,
         "data": {
             "findingId": finding.id,

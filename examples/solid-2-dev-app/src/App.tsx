@@ -5,7 +5,7 @@ export function App() {
 
   return (
     <main class="card">
-      <p class="eyebrow">Solid 2 + solid-check + Oxlint</p>
+      <p class="eyebrow">Solid 2 + solid-checker + Oxlint</p>
       <h1>Reactive counter</h1>
       <p class="count">{count()}</p>
       <button type="button" onClick={() => setCount(value => value + 1)}>

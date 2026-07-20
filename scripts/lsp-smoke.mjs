@@ -5,7 +5,7 @@ import process from "node:process";
 
 const [server, project] = process.argv.slice(2);
 if (!server || !project) {
-  throw new Error("usage: lsp-smoke.mjs <solid-checkd> <tsconfig.json>");
+  throw new Error("usage: lsp-smoke.mjs <solid-checkerd> <tsconfig.json>");
 }
 
 function frame(message) {

@@ -85,7 +85,7 @@ fn render_default(
                 } else {
                     OxcDiagnostic::error(message)
                 }
-                .with_error_code("solid-check", "certification")
+                .with_error_code("solid-checker", "certification")
                 .with_label(LabeledSpan::new_with_span(
                     evidence_label(finding),
                     (start, end.saturating_sub(start)),
@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn default_format_renders_oxc_source_frames() {
         let directory = std::env::temp_dir().join(format!(
-            "solid-check-default-format-{}",
+            "solid-checker-default-format-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -366,7 +366,7 @@ mod tests {
         )
         .unwrap();
         let text = String::from_utf8(rendered.output).unwrap();
-        assert!(text.contains("solid-check(certification)"));
+        assert!(text.contains("solid-checker(certification)"));
         assert!(text.contains("[SC1003]"));
         assert!(text.contains("App.tsx"));
         assert!(text.contains("destructuring component props"));

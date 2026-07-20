@@ -23,7 +23,7 @@ fn select_command(
     path_command: Option<String>,
 ) -> Result<String, String> {
     configured.or(local_npm).or(path_command).ok_or_else(|| {
-        "solid-checkd was not found; install solid-checker in the project, add solid-checkd to PATH, or configure lsp.solid-check.binary.path".to_string()
+        "solid-checkerd was not found; install solid-checker in the project, add solid-checkerd to PATH, or configure lsp.solid-checker.binary.path".to_string()
     })
 }
 
@@ -54,9 +54,9 @@ fn local_npm_command(worktree: &zed::Worktree) -> Option<String> {
     }
 
     let candidate = if cfg!(windows) {
-        "node_modules/.bin/solid-checkd.cmd"
+        "node_modules/.bin/solid-checkerd.cmd"
     } else {
-        "node_modules/.bin/solid-checkd"
+        "node_modules/.bin/solid-checkerd"
     };
     Some(resolve_worktree_path(worktree, candidate.to_string()))
 }
@@ -91,7 +91,7 @@ impl zed::Extension for SolidCheckExtension {
         let command = select_command(
             configured_command,
             local_npm_command(worktree),
-            worktree.which("solid-checkd"),
+            worktree.which("solid-checkerd"),
         )?;
 
         if let Some(binary) = settings.binary {
@@ -122,16 +122,16 @@ mod tests {
     #[test]
     fn resolves_relative_paths_from_the_worktree_root() {
         assert_eq!(
-            resolve_path("/workspace/app", "../../bin/solid-checkd".to_string()),
-            "/workspace/app/../../bin/solid-checkd"
+            resolve_path("/workspace/app", "../../bin/solid-checkerd".to_string()),
+            "/workspace/app/../../bin/solid-checkerd"
         );
     }
 
     #[test]
     fn preserves_absolute_paths() {
         assert_eq!(
-            resolve_path("/workspace/app", "/tools/solid-checkd".to_string()),
-            "/tools/solid-checkd"
+            resolve_path("/workspace/app", "/tools/solid-checkerd".to_string()),
+            "/tools/solid-checkerd"
         );
     }
 
@@ -139,11 +139,11 @@ mod tests {
     fn configured_binary_takes_precedence() {
         assert_eq!(
             select_command(
-                Some("/configured/solid-checkd".to_string()),
-                Some("/project/node_modules/.bin/solid-checkd".to_string()),
-                Some("/path/solid-checkd".to_string()),
+                Some("/configured/solid-checkerd".to_string()),
+                Some("/project/node_modules/.bin/solid-checkerd".to_string()),
+                Some("/path/solid-checkerd".to_string()),
             ),
-            Ok("/configured/solid-checkd".to_string())
+            Ok("/configured/solid-checkerd".to_string())
         );
     }
 
@@ -152,18 +152,18 @@ mod tests {
         assert_eq!(
             select_command(
                 None,
-                Some("/project/node_modules/.bin/solid-checkd".to_string()),
-                Some("/path/solid-checkd".to_string()),
+                Some("/project/node_modules/.bin/solid-checkerd".to_string()),
+                Some("/path/solid-checkerd".to_string()),
             ),
-            Ok("/project/node_modules/.bin/solid-checkd".to_string())
+            Ok("/project/node_modules/.bin/solid-checkerd".to_string())
         );
     }
 
     #[test]
     fn path_binary_is_the_final_fallback() {
         assert_eq!(
-            select_command(None, None, Some("/path/solid-checkd".to_string())),
-            Ok("/path/solid-checkd".to_string())
+            select_command(None, None, Some("/path/solid-checkerd".to_string())),
+            Ok("/path/solid-checkerd".to_string())
         );
     }
 
