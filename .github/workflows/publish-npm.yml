@@ -145,13 +145,34 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for package in dist/packages/binding-*; do
-            npm publish "$package"
+            name=$(node -p "require('./$package/package.json').name")
+            version=$(node -p "require('./$package/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published"
+            else
+              npm publish "$package"
+            fi
           done
       - name: Publish WASM package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./dist/wasm
+        run: |
+          name=$(node -p "require('./dist/wasm/package.json').name")
+          version=$(node -p "require('./dist/wasm/package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published"
+          else
+            npm publish ./dist/wasm
+          fi
       - name: Publish portable package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish ./dist/packages/solid-checker
+        run: |
+          package=./dist/packages/solid-checker
+          name=$(node -p "require('$package/package.json').name")
+          version=$(node -p "require('$package/package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published"
+          else
+            npm publish "$package"
+          fi
